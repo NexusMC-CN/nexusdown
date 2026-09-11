@@ -6,5 +6,6 @@
 .nexusdown-toolbar__button:hover { color:var(--nexus-text); background:#eef2f7; }.nexusdown-toolbar__button.is-active { color:var(--nexus-accent); background:#dbeafe; }.nexusdown-toolbar__button:disabled { opacity:.4; cursor:not-allowed; }
 iconify-icon { display:inline-block; width:1em; height:1em; }.nexusdown-editor__panes { display:grid; grid-template-columns:1fr 1fr; min-height:372px; }.nexusdown-editor__pane { min-width:0; overflow:auto; }.nexusdown-editor__pane--rich { border-right:1px solid var(--nexus-border); }
 .nexusdown-rich-content,.nexusdown-markdown-input { box-sizing:border-box; width:100%; min-height:372px; padding:28px; border:0; outline:0; font:inherit; line-height:1.65; }.nexusdown-markdown-input { resize:none; color:var(--nexus-text); background:var(--nexus-panel); font-family:ui-monospace,SFMono-Regular,Consolas,monospace; }
+.nexusdown-rich-content .ProseMirror,.nexusdown-rich-content .ProseMirror:focus { min-height:316px; border:0; outline:0; box-shadow:none; }
 @media (max-width:760px) { .nexusdown-editor__panes { grid-template-columns:1fr; }.nexusdown-editor__pane--rich { border-right:0; border-bottom:1px solid var(--nexus-border); } }
 @media (prefers-color-scheme:dark) { :root { --nexus-bg:#111827; --nexus-panel:#172033; --nexus-border:#334155; --nexus-text:#e5e7eb; --nexus-muted:#94a3b8; } }
