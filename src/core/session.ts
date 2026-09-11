@@ -19,8 +19,48 @@ export interface NexusdownEditorSnapshot {
 export type SessionSubscriber = (snapshot: NexusdownEditorSnapshot) => void
 export type SessionErrorSubscriber = (error: Error) => void
 
+export type EditorCommand =
+  | 'undo'
+  | 'redo'
+  | 'heading'
+  | 'blockquote'
+  | 'bullet-list'
+  | 'ordered-list'
+  | 'task-list'
+  | 'code-block'
+  | 'horizontal-rule'
+  | 'bold'
+  | 'italic'
+  | 'strike'
+  | 'code'
+  | 'link'
+
+export interface NexusdownEditorCommands {
+  undo: () => boolean
+  redo: () => boolean
+  setHeading: (level?: number) => boolean
+  toggleBlockquote: () => boolean
+  toggleBulletList: () => boolean
+  toggleOrderedList: () => boolean
+  toggleTaskList: () => boolean
+  toggleCodeBlock: () => boolean
+  setHorizontalRule: () => boolean
+  toggleBold: () => boolean
+  toggleItalic: () => boolean
+  toggleStrike: () => boolean
+  toggleCode: () => boolean
+  setLink: (href?: string) => boolean
+}
+
+type HeadingLevel = 1 | 2 | 3 | 4 | 5 | 6
+
+function normalizeHeadingLevel(level: number): HeadingLevel {
+  return Math.min(6, Math.max(1, Math.trunc(level))) as HeadingLevel
+}
+
 export class NexusdownEditorSession {
   private readonly editor: Editor
+  readonly commands: NexusdownEditorCommands
   private readonly subscribers = new Set<SessionSubscriber>()
   private readonly errorSubscribers = new Set<SessionErrorSubscriber>()
   private destroyed = false
@@ -34,6 +74,24 @@ export class NexusdownEditorSession {
       content: options.content,
       contentType: options.contentType,
     })
+    this.commands = {
+      undo: () => this.undo(),
+      redo: () => this.redo(),
+      setHeading: (level = 2) => this.editor.chain().focus().setHeading({ level: normalizeHeadingLevel(level) }).run(),
+      toggleBlockquote: () => this.editor.chain().focus().toggleBlockquote().run(),
+      toggleBulletList: () => this.editor.chain().focus().toggleBulletList().run(),
+      toggleOrderedList: () => this.editor.chain().focus().toggleOrderedList().run(),
+      toggleTaskList: () => this.editor.chain().focus().toggleTaskList().run(),
+      toggleCodeBlock: () => this.editor.chain().focus().toggleCodeBlock().run(),
+      setHorizontalRule: () => this.editor.chain().focus().setHorizontalRule().run(),
+      toggleBold: () => this.editor.chain().focus().toggleBold().run(),
+      toggleItalic: () => this.editor.chain().focus().toggleItalic().run(),
+      toggleStrike: () => this.editor.chain().focus().toggleStrike().run(),
+      toggleCode: () => this.editor.chain().focus().toggleCode().run(),
+      setLink: (href) => href
+        ? this.editor.chain().focus().setLink({ href }).run()
+        : this.editor.chain().focus().unsetLink().run(),
+    }
     this.snapshot = this.createSnapshot(options.contentType === 'markdown' ? 'markdown' : 'rich-text')
     this.editor.on('update', () => {
       if (this.destroyed) return
@@ -50,6 +108,31 @@ export class NexusdownEditorSession {
   getHTML(): string { return this.snapshot.html }
   getJSON(): JSONContent { return this.snapshot.json }
   getSnapshot(): NexusdownEditorSnapshot { return this.snapshot }
+
+  can(command: EditorCommand): boolean {
+    if (this.destroyed) return false
+    const chain = this.editor.can().chain().focus()
+    switch (command) {
+      case 'undo': return chain.undo().run()
+      case 'redo': return chain.redo().run()
+      case 'heading': return chain.setHeading({ level: 2 }).run()
+      case 'blockquote': return chain.toggleBlockquote().run()
+      case 'bullet-list': return chain.toggleBulletList().run()
+      case 'ordered-list': return chain.toggleOrderedList().run()
+      case 'task-list': return chain.toggleTaskList().run()
+      case 'code-block': return chain.toggleCodeBlock().run()
+      case 'horizontal-rule': return chain.setHorizontalRule().run()
+      case 'bold': return chain.toggleBold().run()
+      case 'italic': return chain.toggleItalic().run()
+      case 'strike': return chain.toggleStrike().run()
+      case 'code': return chain.toggleCode().run()
+      case 'link': return chain.setLink({ href: 'https://example.com' }).run()
+    }
+  }
+
+  isActive(name: string, attributes?: Record<string, unknown>): boolean {
+    return !this.destroyed && this.editor.isActive(name, attributes)
+  }
 
   focus(): void {
     if (!this.destroyed) this.editor.commands.focus()

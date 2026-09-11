@@ -55,6 +55,23 @@ describe('NexusdownEditorSession', () => {
     session.destroy()
   })
 
+  it('exposes framework-agnostic formatting commands and state queries', () => {
+    const session = createNexusdownEditor({ content: '<p>Hello</p>', contentType: 'html' })
+
+    expect(session.can('bold')).toBe(true)
+    expect(session.commands.toggleBold()).toBe(true)
+    expect(session.isActive('bold')).toBe(true)
+    expect(session.commands.setHeading(2)).toBe(true)
+    expect(session.isActive('heading', { level: 2 })).toBe(true)
+    expect(session.commands.setLink('https://example.com')).toBe(true)
+    expect(session.isActive('link')).toBe(true)
+
+    session.destroy()
+    expect(session.can('bold')).toBe(false)
+    expect(session.isActive('bold')).toBe(false)
+    expect(session.commands.undo()).toBe(false)
+  })
+
   it('does not notify for an identical markdown snapshot', () => {
     const session = createNexusdownEditor({ content: '# Same', contentType: 'markdown' })
     const updates: string[] = []

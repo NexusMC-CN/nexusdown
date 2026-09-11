@@ -3,6 +3,8 @@ export {
   createNexusdownEditor,
   NexusdownEditorSession,
   type ContentType,
+  type EditorCommand,
+  type NexusdownEditorCommands,
   type NexusdownEditorOptions,
   type NexusdownEditorSnapshot,
   type SessionErrorSubscriber,
