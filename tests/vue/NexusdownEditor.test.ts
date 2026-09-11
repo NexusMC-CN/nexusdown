@@ -73,8 +73,11 @@ describe('NexusdownEditor', () => {
     const wrapper = mount(NexusdownEditor, { props: { modelValue: 'Section' } })
     await new Promise((resolve) => setTimeout(resolve, 0))
     await wrapper.get('button[aria-label="标题"]').trigger('click')
-    expect(wrapper.findAll('[data-nexusdown="heading-menu"] button')).toHaveLength(6)
-    await wrapper.get('[data-nexusdown="heading-menu"] button[aria-label="H3"]').trigger('click')
+    expect(document.body.querySelectorAll('[data-nexusdown="heading-menu"] button')).toHaveLength(6)
+    expect(wrapper.find('[data-nexusdown="toolbar"] [data-nexusdown="heading-menu"]').exists()).toBe(false)
+    const h3 = document.body.querySelector('[data-nexusdown="heading-menu"] button[aria-label="H3"]') as HTMLButtonElement
+    h3.click()
+    await new Promise((resolve) => setTimeout(resolve, 0))
     expect(wrapper.get('.ProseMirror h3').text()).toBe('Section')
     wrapper.unmount()
   })

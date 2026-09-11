@@ -2,12 +2,12 @@
 import { computed, ref } from 'vue'
 import 'iconify-icon'
 import type { ToolbarContext, ToolbarGroup, ToolbarItem } from '../core/toolbar.js'
+import HeadingPicker from './HeadingPicker.vue'
 
 const props = defineProps<{ context: ToolbarContext; items: ToolbarItem[]; readonly?: boolean }>()
 const emit = defineEmits<{ executed: [] }>()
 const groups: ToolbarGroup[] = ['history', 'block', 'inline', 'extension']
 const tick = ref(0)
-const headingMenuOpen = ref(false)
 const grouped = computed(() => {
   void tick.value
   return groups.map((group) => ({ group, items: props.items.filter((item) => item.group === group) })).filter((entry) => entry.items.length)
@@ -27,7 +27,6 @@ function executeHeading(level: number) {
   const item = headingItem.value
   if (!item || props.readonly || item.isDisabled?.(props.context)) return
   item.execute({ ...props.context, headingLevel: level })
-  headingMenuOpen.value = false
   tick.value++
   emit('executed')
 }
@@ -52,26 +51,7 @@ function executeHeading(level: number) {
             <component :is="'iconify-icon'" :icon="item.icon" aria-hidden="true" />
           </button>
         </template>
-        <div v-if="entry.group === 'block' && headingItem" class="nexusdown-heading-picker">
-          <button
-            class="nexusdown-toolbar__button nexusdown-heading-picker__trigger"
-            :class="{ 'is-active': activeHeadingLevel !== undefined }"
-            :disabled="readonly || headingItem.isDisabled?.(context)"
-            type="button"
-            aria-label="标题"
-            title="标题级别"
-            :aria-expanded="headingMenuOpen"
-            @click="headingMenuOpen = !headingMenuOpen"
-          >
-            <span aria-hidden="true">H{{ activeHeadingLevel ?? '' }}</span>
-            <component :is="'iconify-icon'" icon="lucide:chevron-down" aria-hidden="true" />
-          </button>
-          <div v-if="headingMenuOpen" class="nexusdown-heading-picker__menu" data-nexusdown="heading-menu" role="menu">
-            <button v-for="level in 6" :key="level" type="button" role="menuitem" :aria-label="`H${level}`" @click="executeHeading(level)">
-              H{{ level }}
-            </button>
-          </div>
-        </div>
+        <HeadingPicker v-if="entry.group === 'block' && headingItem" :active-level="activeHeadingLevel" :disabled="headingItem.isDisabled?.(context)" :readonly="readonly" @select="executeHeading" />
       </div>
     </template>
   </div>
