@@ -7,7 +7,7 @@ import {
   type NexusdownEditorSession,
   type ToolbarContext,
   type ToolbarItem,
-} from 'nexusdown/core'
+} from '../core/index.js'
 import EditorToolbar from './EditorToolbar.vue'
 
 const props = withDefaults(defineProps<{
@@ -55,6 +55,7 @@ unsubscribe = session.value.subscribe((snapshot) => {
   emit('update', snapshot)
 })
 unsubscribeError = session.value.onError((error) => emit('parse-error', error))
+const unsubscribeSelection = session.value.onSelectionChange(() => { revision.value++ })
 
 onMounted(() => {
   if (richElement.value) session.value.getEditor().mount(richElement.value)
@@ -93,6 +94,7 @@ function onMarkdownInput(event: Event) {
 onUnmounted(() => {
   unsubscribe()
   unsubscribeError()
+  unsubscribeSelection()
   session.value?.destroy()
 })
 </script>

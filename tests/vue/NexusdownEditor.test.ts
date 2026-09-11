@@ -54,4 +54,18 @@ describe('NexusdownEditor', () => {
     expect(wrapper.get('.ProseMirror strong').text()).toBe('Selected text')
     wrapper.unmount()
   })
+
+  it('updates block formatting state when the caret moves between lines', async () => {
+    const wrapper = mount(NexusdownEditor, { props: { modelValue: '> Quote\n\nPlain' } })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    const vm = wrapper.vm as unknown as { session: NexusdownEditorSession }
+    const quoteButton = wrapper.get('button[aria-label="引用"]')
+    vm.session.getEditor().commands.setTextSelection({ from: 2, to: 2 })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(quoteButton.classes()).toContain('is-active')
+    vm.session.getEditor().commands.setTextSelection({ from: 10, to: 10 })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(quoteButton.classes()).not.toContain('is-active')
+    wrapper.unmount()
+  })
 })

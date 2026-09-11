@@ -18,6 +18,7 @@ export interface NexusdownEditorSnapshot {
 
 export type SessionSubscriber = (snapshot: NexusdownEditorSnapshot) => void
 export type SessionErrorSubscriber = (error: Error) => void
+export type SessionSelectionSubscriber = () => void
 
 export type EditorCommand =
   | 'undo'
@@ -63,6 +64,7 @@ export class NexusdownEditorSession {
   readonly commands: NexusdownEditorCommands
   private readonly subscribers = new Set<SessionSubscriber>()
   private readonly errorSubscribers = new Set<SessionErrorSubscriber>()
+  private readonly selectionSubscribers = new Set<SessionSelectionSubscriber>()
   private destroyed = false
   private pendingSource: SessionSource | undefined
   private snapshot: NexusdownEditorSnapshot
@@ -101,6 +103,10 @@ export class NexusdownEditorSession {
       if (next.markdown === this.snapshot.markdown) return
       this.snapshot = next
       for (const subscriber of this.subscribers) subscriber(next)
+    })
+    this.editor.on('selectionUpdate', () => {
+      if (this.destroyed) return
+      for (const subscriber of this.selectionSubscribers) subscriber()
     })
   }
 
@@ -169,6 +175,12 @@ export class NexusdownEditorSession {
     return () => this.errorSubscribers.delete(subscriber)
   }
 
+  onSelectionChange(subscriber: SessionSelectionSubscriber): () => void {
+    if (this.destroyed) return () => undefined
+    this.selectionSubscribers.add(subscriber)
+    return () => this.selectionSubscribers.delete(subscriber)
+  }
+
   setMarkdown(markdown: string): void {
     if (this.destroyed || markdown === this.snapshot.markdown) return
     const previous = this.editor.getJSON()
@@ -205,6 +217,7 @@ export class NexusdownEditorSession {
     this.destroyed = true
     this.subscribers.clear()
     this.errorSubscribers.clear()
+    this.selectionSubscribers.clear()
     this.editor.destroy()
   }
 

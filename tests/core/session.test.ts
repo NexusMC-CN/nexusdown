@@ -94,4 +94,17 @@ describe('NexusdownEditorSession', () => {
     expect(() => unsubscribe()).not.toThrow()
     expect(() => session.setMarkdown('# Updated')).not.toThrow()
   })
+
+  it('notifies selection subscribers when the active line changes', () => {
+    const session = createNexusdownEditor({ content: '> Quote\n\nPlain', contentType: 'markdown' })
+    let changes = 0
+    const unsubscribe = session.onSelectionChange(() => { changes++ })
+
+    session.getEditor().commands.setTextSelection({ from: 1, to: 1 })
+    session.getEditor().commands.setTextSelection({ from: 10, to: 10 })
+
+    expect(changes).toBeGreaterThanOrEqual(1)
+    unsubscribe()
+    session.destroy()
+  })
 })

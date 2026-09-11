@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import 'iconify-icon'
-import type { ToolbarContext, ToolbarGroup, ToolbarItem } from 'nexusdown/core'
+import type { ToolbarContext, ToolbarGroup, ToolbarItem } from '../core/toolbar.js'
 
 const props = defineProps<{ context: ToolbarContext; items: ToolbarItem[]; readonly?: boolean }>()
 const emit = defineEmits<{ executed: [] }>()

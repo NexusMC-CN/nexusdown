@@ -10,6 +10,7 @@ export {
   type SessionErrorSubscriber,
   type SessionSource,
   type SessionSubscriber,
+  type SessionSelectionSubscriber,
 } from './core/index.js';
 export { createDefaultToolbarItems } from './core/toolbar.js'
 export type { ToolbarContext, ToolbarGroup, ToolbarItem, ToolbarSession } from './core/toolbar.js'

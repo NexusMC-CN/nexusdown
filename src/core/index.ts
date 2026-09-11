@@ -19,6 +19,7 @@ export {
   type SessionErrorSubscriber,
   type SessionSource,
   type SessionSubscriber,
+  type SessionSelectionSubscriber,
   type EditorCommand,
   type NexusdownEditorCommands,
 } from './session.js'
