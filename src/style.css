@@ -7,6 +7,7 @@
 .nexusdown-toolbar__button:hover { color: var(--nexus-text); background: #eef2f7; }
 .nexusdown-toolbar__button.is-active { color: var(--nexus-accent); background: #dbeafe; }
 .nexusdown-toolbar__button:disabled { opacity: .4; cursor: not-allowed; }
+.nexusdown-heading-picker { position: relative; }.nexusdown-heading-picker__trigger { gap: 2px; width: auto; min-width: 38px; padding: 0 6px; }.nexusdown-heading-picker__menu { position: absolute; z-index: 5; top: calc(100% + 6px); left: 0; display: grid; gap: 2px; min-width: 74px; padding: 5px; border: 1px solid var(--nexus-border); border-radius: 6px; background: var(--nexus-bg); box-shadow: 0 8px 20px rgb(15 23 42 / 12%); }.nexusdown-heading-picker__menu button { border: 0; border-radius: 4px; padding: 5px 8px; color: var(--nexus-text); background: transparent; text-align: left; cursor: pointer; }.nexusdown-heading-picker__menu button:hover { background: var(--nexus-panel); }
 iconify-icon { display: inline-block; width: 1em; height: 1em; }
 .nexusdown-editor__panes { display: grid; grid-template-columns: 1fr 1fr; min-height: 372px; }
 .nexusdown-editor__pane { min-width: 0; overflow: auto; }
