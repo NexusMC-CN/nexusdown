@@ -2,7 +2,7 @@ import { Editor, type JSONContent } from '@tiptap/core'
 import { createNexusdownExtensions } from './extensions.js'
 
 export type ContentType = 'json' | 'html' | 'markdown'
-export type SessionSource = ContentType | 'editor' | 'history'
+export type SessionSource = 'rich-text' | 'markdown' | 'history'
 
 export interface NexusdownEditorOptions {
   content: string | JSONContent
@@ -34,10 +34,10 @@ export class NexusdownEditorSession {
       content: options.content,
       contentType: options.contentType,
     })
-    this.snapshot = this.createSnapshot(options.contentType)
+    this.snapshot = this.createSnapshot(options.contentType === 'markdown' ? 'markdown' : 'rich-text')
     this.editor.on('update', () => {
       if (this.destroyed) return
-      const source = this.pendingSource ?? 'editor'
+      const source = this.pendingSource ?? 'rich-text'
       this.pendingSource = undefined
       const next = this.createSnapshot(source)
       if (next.markdown === this.snapshot.markdown) return
@@ -50,6 +50,28 @@ export class NexusdownEditorSession {
   getHTML(): string { return this.snapshot.html }
   getJSON(): JSONContent { return this.snapshot.json }
   getSnapshot(): NexusdownEditorSnapshot { return this.snapshot }
+
+  focus(): void {
+    if (!this.destroyed) this.editor.commands.focus()
+  }
+
+  setContent(content: string | JSONContent, contentType: ContentType = 'html'): void {
+    if (this.destroyed) return
+    if (contentType === 'markdown' && typeof content !== 'string') {
+      this.emitError(new Error('Markdown content must be a string'))
+      return
+    }
+    const previous = this.editor.getJSON()
+    try {
+      this.pendingSource = contentType === 'markdown' ? 'markdown' : 'rich-text'
+      const applied = this.editor.commands.setContent(content, { contentType, emitUpdate: true })
+      if (!applied) throw new Error('Unable to set content')
+    } catch (error) {
+      this.pendingSource = undefined
+      this.editor.commands.setContent(previous, { contentType: 'json', emitUpdate: false })
+      this.emitError(error instanceof Error ? error : new Error(String(error)))
+    }
+  }
 
   subscribe(subscriber: SessionSubscriber): () => void {
     if (this.destroyed) return () => undefined
@@ -68,7 +90,6 @@ export class NexusdownEditorSession {
     const previous = this.editor.getJSON()
     try {
       if (markdown.includes('\0')) throw new Error('Invalid markdown content')
-      this.editor.markdown?.parse(markdown)
       this.pendingSource = 'markdown'
       const applied = this.editor.commands.setContent(markdown, { contentType: 'markdown', emitUpdate: true })
       if (!applied) throw new Error('Unable to set markdown content')
@@ -76,7 +97,7 @@ export class NexusdownEditorSession {
       this.pendingSource = undefined
       this.editor.commands.setContent(previous, { contentType: 'json', emitUpdate: false })
       const normalized = error instanceof Error ? error : new Error(String(error))
-      for (const subscriber of this.errorSubscribers) subscriber(normalized)
+      this.emitError(normalized)
     }
   }
 
@@ -110,6 +131,10 @@ export class NexusdownEditorSession {
       json: this.editor.getJSON(),
       source,
     }
+  }
+
+  private emitError(error: Error): void {
+    for (const subscriber of this.errorSubscribers) subscriber(error)
   }
 }
 
