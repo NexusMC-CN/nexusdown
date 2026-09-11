@@ -2,7 +2,9 @@
   "name": "nexusdown",
   "version": "0.0.0",
   "type": "module",
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -14,11 +16,7 @@
       "import": "./dist/core/index.js",
       "require": "./dist/core/index.cjs"
     },
-    "./vue": {
-      "types": "./dist/vue/index.d.ts",
-      "import": "./dist/vue/index.js",
-      "require": "./dist/vue/index.cjs"
-    },
+    "./vue": { "types": "./dist/vue/index.d.ts", "import": "./dist/vue/index.js", "require": "./dist/vue/index.cjs" },
     "./style.css": "./dist/style.css"
   },
   "scripts": {
@@ -41,10 +39,12 @@
     "iconify-icon": "^3.0.2"
   },
   "devDependencies": {
+    "@vitejs/plugin-vue": "^5.2.4",
     "@vue/test-utils": "^2.5.0",
     "jsdom": "^29.1.1",
     "tsup": "^8.5.1",
     "typescript": "^5.7.3",
+    "vite": "^7.1.7",
     "vitest": "^5.0.0",
     "vue": "^3.0.0",
     "vue-tsc": "^3.3.11"

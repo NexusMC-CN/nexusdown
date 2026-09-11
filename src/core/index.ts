@@ -10,7 +10,6 @@ export {
   type ToolbarItem,
   type ToolbarSession,
 } from './toolbar.js'
-export type { EditorCommand, NexusdownEditorCommands } from './session.js'
 export {
   createNexusdownEditor,
   NexusdownEditorSession,
@@ -20,4 +19,6 @@ export {
   type SessionErrorSubscriber,
   type SessionSource,
   type SessionSubscriber,
+  type EditorCommand,
+  type NexusdownEditorCommands,
 } from './session.js'

@@ -108,6 +108,7 @@ export class NexusdownEditorSession {
   getHTML(): string { return this.snapshot.html }
   getJSON(): JSONContent { return this.snapshot.json }
   getSnapshot(): NexusdownEditorSnapshot { return this.snapshot }
+  getEditor(): Editor { return this.editor }
 
   can(command: EditorCommand): boolean {
     if (this.destroyed) return false

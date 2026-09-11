@@ -1,0 +1,1 @@
+{"name":"nexusdown-vue-demo","private":true,"type":"module","scripts":{"build":"vite build"},"dependencies":{"@vitejs/plugin-vue":"^5.2.4","nexusdown":"file:../..","vite":"^6.4.3","vue":"^3.5.0"},"devDependencies":{}}

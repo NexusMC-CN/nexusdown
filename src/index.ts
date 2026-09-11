@@ -11,4 +11,5 @@ export {
   type SessionSource,
   type SessionSubscriber,
 } from './core/index.js';
-export type { NexusdownVue } from './vue/index.js';
+export { createDefaultToolbarItems } from './core/toolbar.js'
+export type { ToolbarContext, ToolbarGroup, ToolbarItem, ToolbarSession } from './core/toolbar.js'
