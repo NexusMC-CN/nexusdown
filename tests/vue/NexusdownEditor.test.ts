@@ -1,5 +1,7 @@
 import { mount } from '@vue/test-utils'
 import { describe, expect, it } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { Extension } from '@tiptap/core'
 import NexusdownEditor from '../../src/vue/NexusdownEditor.vue'
 import type { NexusdownEditorSession } from '../../src/core/session'
 
@@ -55,6 +57,128 @@ describe('NexusdownEditor', () => {
     wrapper.unmount()
   })
 
+  it('applies an explicit theme and accepts custom Tiptap extensions', () => {
+    const custom = Extension.create({ name: 'vueCustomExtension' })
+    const wrapper = mount(NexusdownEditor, {
+      props: { modelValue: '# Hello', theme: 'dark', extensions: [custom] },
+    })
+    expect(wrapper.get('[data-nexusdown="editor"]').attributes('data-nexusdown-theme')).toBe('dark')
+    const vm = wrapper.vm as unknown as { session: NexusdownEditorSession }
+    expect(vm.session.getEditor().extensionManager.extensions.map((extension) => extension.name)).toContain('vueCustomExtension')
+    wrapper.unmount()
+  })
+
+  it('renders the syntax-highlight mirror alongside the markdown input', () => {
+    const wrapper = mount(NexusdownEditor, { props: { modelValue: '# Heading\n\n**bold**' } })
+    expect(wrapper.find('[data-nexusdown="markdown-editor"]').exists()).toBe(true)
+    expect(wrapper.find('[data-nexusdown="markdown-highlight"] .hljs-section').exists()).toBe(true)
+    expect(wrapper.find('[data-nexusdown="markdown-highlight"] .hljs-strong').exists()).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('applies the built-in text color action from the shared toolbar', async () => {
+    const wrapper = mount(NexusdownEditor, { props: { modelValue: 'Colored' } })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    const vm = wrapper.vm as unknown as { session: NexusdownEditorSession }
+    vm.session.getEditor().commands.selectAll()
+    await wrapper.get('button[aria-label="文字颜色"]').trigger('click')
+    expect(wrapper.get('.ProseMirror [style*="color"]').text()).toBe('Colored')
+    wrapper.unmount()
+  })
+
+  it('shows rich text color in the editable Markdown pane', async () => {
+    const wrapper = mount(NexusdownEditor, { props: { modelValue: 'Colored' } })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    const vm = wrapper.vm as unknown as { session: NexusdownEditorSession }
+    vm.session.getEditor().commands.selectAll()
+    await wrapper.get('button[aria-label="文字颜色"]').trigger('click')
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect((wrapper.get('[data-nexusdown="markdown"]').element as HTMLTextAreaElement).value).toContain('[color color="#2563eb"]Colored[/color]')
+    expect(wrapper.get('[data-nexusdown="markdown-color"]').text()).toBe('Colored')
+    expect(wrapper.get('[data-nexusdown="markdown-color"]').attributes('style')).toContain('color: #2563eb')
+    wrapper.unmount()
+  })
+
+  it('keeps color and highlight available on an empty line and toggles active marks off', async () => {
+    const empty = mount(NexusdownEditor, { props: { modelValue: '<p></p>', contentType: 'html' } })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(empty.get('button[aria-label="文字颜色"]').attributes('disabled')).toBeUndefined()
+    expect(empty.get('button[aria-label="高亮"]').attributes('disabled')).toBeUndefined()
+    await empty.get('button[aria-label="文字颜色"]').trigger('click')
+    ;(empty.vm as unknown as { session: NexusdownEditorSession }).session.getEditor().commands.insertContent('Empty line')
+    expect(empty.get('.ProseMirror [style*="color"]').text()).toBe('Empty line')
+    empty.unmount()
+
+    const wrapper = mount(NexusdownEditor, { props: { modelValue: 'Colored' } })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    const vm = wrapper.vm as unknown as { session: NexusdownEditorSession }
+    vm.session.getEditor().commands.selectAll()
+    await wrapper.get('button[aria-label="文字颜色"]').trigger('click')
+    expect(wrapper.find('.ProseMirror [style*="color"]').exists()).toBe(true)
+    await wrapper.get('button[aria-label="文字颜色"]').trigger('click')
+    expect(wrapper.find('.ProseMirror [style*="color"]').exists()).toBe(false)
+
+    vm.session.getEditor().commands.selectAll()
+    await wrapper.get('button[aria-label="高亮"]').trigger('click')
+    expect(wrapper.find('.ProseMirror mark').exists()).toBe(true)
+    await wrapper.get('button[aria-label="高亮"]').trigger('click')
+    expect(wrapper.find('.ProseMirror mark').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('inserts a table from the shared toolbar', async () => {
+    const wrapper = mount(NexusdownEditor, { props: { modelValue: 'Before' } })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    await wrapper.get('button[aria-label="表格"]').trigger('click')
+    expect(wrapper.find('.ProseMirror table').exists()).toBe(true)
+    expect(wrapper.findAll('.ProseMirror table tr')).toHaveLength(3)
+    wrapper.unmount()
+  })
+
+  it('shows table controls for the active table and adds rows or columns', async () => {
+    const wrapper = mount(NexusdownEditor, {
+      props: { modelValue: '| A | B |\n| --- | --- |\n| C | D |' },
+    })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    const vm = wrapper.vm as unknown as { session: NexusdownEditorSession }
+    let textPosition = 0
+    vm.session.getEditor().state.doc.descendants((node, position) => {
+      if (!textPosition && node.isText) textPosition = position
+    })
+    vm.session.getEditor().commands.setTextSelection({ from: textPosition, to: textPosition })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(wrapper.find('[data-nexusdown="table-controls"]').exists()).toBe(true)
+    await wrapper.get('button[aria-label="增加一行"]').trigger('click')
+    expect(wrapper.findAll('.ProseMirror table tr')).toHaveLength(3)
+    await wrapper.get('button[aria-label="增加一列"]').trigger('click')
+    expect(wrapper.findAll('.ProseMirror table tr:first-child th')).toHaveLength(3)
+    wrapper.unmount()
+  })
+
+  it('opens the image popup and inserts an image with alt text', async () => {
+    const wrapper = mount(NexusdownEditor, { props: { modelValue: 'Before' } })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    await wrapper.get('button[aria-label="图片"]').trigger('click')
+
+    const menu = document.body.querySelector('[data-nexusdown="image-menu"]') as HTMLElement | null
+    expect(menu).not.toBeNull()
+    const src = menu?.querySelector('input[aria-label="图片地址"]') as HTMLInputElement
+    const alt = menu?.querySelector('input[aria-label="图片描述"]') as HTMLInputElement
+    src.value = 'https://example.com/image.png'
+    src.dispatchEvent(new Event('input', { bubbles: true }))
+    alt.value = 'Example image'
+    alt.dispatchEvent(new Event('input', { bubbles: true }))
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    ;(menu?.querySelector('button[aria-label="应用图片"]') as HTMLButtonElement).click()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(wrapper.get('.ProseMirror img').attributes('src')).toBe('https://example.com/image.png')
+    expect(wrapper.get('.ProseMirror img').attributes('alt')).toBe('Example image')
+    wrapper.unmount()
+  })
+
   it('updates block formatting state when the caret moves between lines', async () => {
     const wrapper = mount(NexusdownEditor, { props: { modelValue: '> Quote\n\nPlain' } })
     await new Promise((resolve) => setTimeout(resolve, 0))
@@ -80,5 +204,76 @@ describe('NexusdownEditor', () => {
     await new Promise((resolve) => setTimeout(resolve, 0))
     expect(wrapper.get('.ProseMirror h3').text()).toBe('Section')
     wrapper.unmount()
+  })
+
+  it('opens an independent link popup with display text and URL fields', async () => {
+    const wrapper = mount(NexusdownEditor, { props: { modelValue: 'Selected text' } })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    const vm = wrapper.vm as unknown as { session: NexusdownEditorSession }
+    vm.session.getEditor().commands.selectAll()
+
+    await wrapper.get('button[aria-label="链接"]').trigger('click')
+
+    const menu = document.body.querySelector('[data-nexusdown="link-menu"]') as HTMLElement | null
+    expect(menu).not.toBeNull()
+    expect(wrapper.find('[data-nexusdown="toolbar"] [data-nexusdown="link-menu"]').exists()).toBe(false)
+    expect((menu?.querySelector('input[aria-label="链接文本"]') as HTMLInputElement).value).toBe('Selected text')
+    expect((menu?.querySelector('input[aria-label="链接地址"]') as HTMLInputElement).value).toBe('')
+
+    const hrefInput = document.body.querySelector('[data-nexusdown="link-menu"] input[aria-label="链接地址"]') as HTMLInputElement
+    hrefInput.value = 'https://example.com'
+    hrefInput.dispatchEvent(new Event('input', { bubbles: true }))
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    const applyButton = document.body.querySelector('[data-nexusdown="link-menu"] button[aria-label="应用链接"]') as HTMLButtonElement
+    applyButton.click()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(wrapper.get('.ProseMirror a').attributes('href')).toBe('https://example.com')
+    expect(wrapper.get('.ProseMirror a').text()).toBe('Selected text')
+    wrapper.unmount()
+  })
+
+  it('renders task items with a clickable checkbox and editable text beside it', async () => {
+    const wrapper = mount(NexusdownEditor, { props: { modelValue: '- [ ] First task' } })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    const item = wrapper.get('[data-type="taskList"] li')
+    expect(item.find('input[type="checkbox"]').exists()).toBe(true)
+    expect(item.find('div p').text()).toBe('First task')
+
+    const checkbox = item.get('input[type="checkbox"]')
+    ;(checkbox.element as HTMLInputElement).checked = true
+    await checkbox.trigger('change')
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect((checkbox.element as HTMLInputElement).checked).toBe(true)
+    expect((wrapper.vm as unknown as { session: NexusdownEditorSession }).session.getMarkdown()).toContain('- [x] First task')
+    wrapper.unmount()
+  })
+
+  it('defers markdown parsing while a table cell is under IME composition', async () => {
+    const initial = '| A | B |\n| --- | --- |\n|  |  |'
+    const wrapper = mount(NexusdownEditor, { props: { modelValue: initial } })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    const vm = wrapper.vm as unknown as { session: NexusdownEditorSession }
+    const baseline = vm.session.getMarkdown()
+    const textarea = wrapper.get('[data-nexusdown="markdown"]')
+
+    await textarea.trigger('compositionstart')
+    ;(textarea.element as HTMLTextAreaElement).value = '| A | B |\n| --- | --- |\n| 中 |  |'
+    await textarea.trigger('input')
+    expect(vm.session.getMarkdown()).toBe(baseline)
+
+    await textarea.trigger('compositionend')
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(vm.session.getMarkdown()).toContain('中')
+    wrapper.unmount()
+  })
+
+  it('keeps the link apply action blue while hovering', () => {
+    for (const path of ['../../src/style.css', '../../public/style.css']) {
+      const css = readFileSync(new URL(path, import.meta.url), 'utf8')
+      expect(css).toMatch(/\.nexusdown-link-picker__actions button:last-child:hover:not\(:disabled\)\s*\{[^}]*background:\s*var\(--nexus-accent\)/)
+    }
   })
 })

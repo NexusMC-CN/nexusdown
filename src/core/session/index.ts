@@ -1,8 +1,4 @@
-// Compatibility entry point. New code can import from `nexusdown/core`.
-export {
-  createNexusdownEditor,
-  NexusdownEditorSession,
-} from './session/index.js'
+export { createNexusdownEditor, NexusdownEditorSession } from './NexusdownEditorSession.js'
 export type {
   ContentType,
   EditorCommand,
@@ -13,4 +9,4 @@ export type {
   SessionSelectionSubscriber,
   SessionSource,
   SessionSubscriber,
-} from './session/index.js'
+} from './types.js'

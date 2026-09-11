@@ -1,0 +1,108 @@
+<script setup lang="ts">
+import { nextTick, onMounted, ref, watch } from 'vue'
+import hljs from 'highlight.js/lib/core'
+import markdown from 'highlight.js/lib/languages/markdown'
+
+let markdownRegistered = false
+if (!markdownRegistered) {
+  hljs.registerLanguage('markdown', markdown)
+  markdownRegistered = true
+}
+
+const props = withDefaults(defineProps<{
+  modelValue?: string
+  readonly?: boolean
+  ariaLabel?: string
+}>(), { modelValue: '', readonly: false, ariaLabel: 'Markdown 编辑器' })
+
+const emit = defineEmits<{
+  'update:modelValue': [value: string]
+  compositionstart: []
+  compositionend: [value: string]
+}>()
+const textarea = ref<HTMLTextAreaElement | null>(null)
+const highlight = ref<HTMLElement | null>(null)
+const highlightedMarkdown = ref('')
+const composing = ref(false)
+
+function highlightSegment(value: string) {
+  return value ? hljs.highlight(value, { language: 'markdown' }).value : ''
+}
+
+function sanitizeColor(value: string) {
+  const color = value.trim()
+  if (/^(?:#[\da-f]{3,8}|(?:rgb|hsl)a?\([^)]*\)|[a-z]+)$/i.test(color)) return color
+  return 'currentColor'
+}
+
+function renderMarkdown(value: string) {
+  const colorMarkup = /<span\s+style\s*=\s*(["'])\s*color\s*:\s*([^"']+)\1\s*>[\s\S]*?<\/span>|\[color\s+color\s*=\s*("|')([^"']+)\3\][\s\S]*?\[\/color\]/gi
+  let cursor = 0
+  let output = ''
+  let match: RegExpExecArray | null
+
+  while ((match = colorMarkup.exec(value))) {
+    output += highlightSegment(value.slice(cursor, match.index))
+    const source = match[0]
+    const isHtml = source.startsWith('<span')
+    const openingEnd = isHtml ? source.indexOf('>') + 1 : source.indexOf(']') + 1
+    const closingStart = isHtml ? source.lastIndexOf('</span>') : source.lastIndexOf('[/color]')
+    const opening = source.slice(0, openingEnd)
+    const inner = source.slice(openingEnd, closingStart)
+    const closing = source.slice(closingStart)
+    const color = isHtml ? match[2] : match[4]
+    output += highlightSegment(opening)
+    output += `<span data-nexusdown="markdown-color" style="color: ${sanitizeColor(color)}">${highlightSegment(inner)}</span>`
+    output += highlightSegment(closing)
+    cursor = match.index + source.length
+  }
+
+  highlightedMarkdown.value = output + highlightSegment(value.slice(cursor))
+  void nextTick(syncScroll)
+}
+
+function syncScroll() {
+  if (!textarea.value || !highlight.value) return
+  const pre = highlight.value.parentElement
+  if (!pre) return
+  pre.scrollTop = textarea.value.scrollTop
+  pre.scrollLeft = textarea.value.scrollLeft
+}
+
+function onInput(event: Event) {
+  if ((event as InputEvent).isComposing && !composing.value) onCompositionStart()
+  emit('update:modelValue', (event.target as HTMLTextAreaElement).value)
+}
+
+function onCompositionStart() {
+  composing.value = true
+  emit('compositionstart')
+}
+
+function onCompositionEnd(event: CompositionEvent) {
+  composing.value = false
+  emit('compositionend', (event.target as HTMLTextAreaElement).value)
+}
+
+watch(() => props.modelValue, renderMarkdown, { immediate: true })
+onMounted(syncScroll)
+</script>
+
+<template>
+  <div class="nexusdown-markdown-editor" data-nexusdown="markdown-editor">
+    <pre ref="highlight" class="nexusdown-markdown-highlight" data-nexusdown="markdown-highlight" aria-hidden="true"><code class="hljs" v-html="highlightedMarkdown" /></pre>
+    <textarea
+      ref="textarea"
+      data-nexusdown="markdown"
+      class="nexusdown-markdown-input"
+      :value="props.modelValue"
+      :readonly="props.readonly"
+      spellcheck="false"
+      :aria-label="props.ariaLabel"
+      @input="onInput"
+      @compositionstart="onCompositionStart"
+      @compositionend="onCompositionEnd"
+      @scroll="syncScroll"
+    />
+  </div>
+</template>

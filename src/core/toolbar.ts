@@ -14,7 +14,14 @@ export type ToolbarCommand =
   | 'italic'
   | 'strike'
   | 'code'
+  | 'underline'
+  | 'superscript'
+  | 'subscript'
+  | 'color'
+  | 'highlight'
   | 'link'
+  | 'table'
+  | 'image'
 
 export interface ToolbarSession {
   commands: {
@@ -31,16 +38,31 @@ export interface ToolbarSession {
     toggleItalic: () => boolean
     toggleStrike: () => boolean
     toggleCode: () => boolean
-    setLink: (href?: string) => boolean
+    toggleUnderline: () => boolean
+    toggleSuperscript: () => boolean
+    toggleSubscript: () => boolean
+    setColor: (color?: string) => boolean
+    setHighlight: (color?: string) => boolean
+    setLink: (href?: string, text?: string) => boolean
+    insertTable: (rows?: number, cols?: number) => boolean
+    insertImage: (src: string, alt?: string, title?: string) => boolean
   }
   can: (command: ToolbarCommand) => boolean
   isActive: (name: string, attributes?: Record<string, unknown>) => boolean
+  getSelectedText: () => string
+  getLinkHref: () => string
 }
 
 export interface ToolbarContext {
   session: ToolbarSession
   headingLevel?: number
   linkHref?: string
+  linkText?: string
+  color?: string
+  highlightColor?: string
+  imageSrc?: string
+  imageAlt?: string
+  imageTitle?: string
 }
 
 export interface ToolbarItem {
@@ -80,6 +102,13 @@ export function createDefaultToolbarItems(): ToolbarItem[] {
     item({ id: 'italic', group: 'inline', icon: 'lucide:italic', label: '斜体', execute: ({ session }) => session.commands.toggleItalic(), isActive: ({ session }) => session.isActive('italic'), disabledCommand: 'italic' }),
     item({ id: 'strike', group: 'inline', icon: 'lucide:strikethrough', label: '删除线', execute: ({ session }) => session.commands.toggleStrike(), isActive: ({ session }) => session.isActive('strike'), disabledCommand: 'strike' }),
     item({ id: 'code', group: 'inline', icon: 'lucide:code', label: '行内代码', execute: ({ session }) => session.commands.toggleCode(), isActive: ({ session }) => session.isActive('code'), disabledCommand: 'code' }),
-    item({ id: 'link', group: 'extension', icon: 'lucide:link', label: '链接', execute: ({ session, linkHref }) => session.commands.setLink(linkHref), isActive: ({ session }) => session.isActive('link'), disabledCommand: 'link' }),
+    item({ id: 'underline', group: 'inline', icon: 'lucide:underline', label: '下划线', execute: ({ session }) => session.commands.toggleUnderline(), isActive: ({ session }) => session.isActive('underline'), disabledCommand: 'underline' }),
+    item({ id: 'superscript', group: 'inline', icon: 'lucide:superscript', label: '上标', execute: ({ session }) => session.commands.toggleSuperscript(), isActive: ({ session }) => session.isActive('superscript'), disabledCommand: 'superscript' }),
+    item({ id: 'subscript', group: 'inline', icon: 'lucide:subscript', label: '下标', execute: ({ session }) => session.commands.toggleSubscript(), isActive: ({ session }) => session.isActive('subscript'), disabledCommand: 'subscript' }),
+    item({ id: 'color', group: 'extension', icon: 'lucide:palette', label: '文字颜色', execute: ({ session, color }) => session.commands.setColor(color ?? '#2563eb'), isActive: ({ session, color }) => color ? session.isActive('textStyle', { color }) : session.isActive('textStyle') }),
+    item({ id: 'highlight', group: 'extension', icon: 'lucide:highlighter', label: '高亮', execute: ({ session, highlightColor }) => session.commands.setHighlight(highlightColor ?? '#fef08a'), isActive: ({ session, highlightColor }) => highlightColor ? session.isActive('highlight', { color: highlightColor }) : session.isActive('highlight') }),
+    item({ id: 'link', group: 'extension', icon: 'lucide:link', label: '链接', execute: ({ session, linkHref, linkText }) => session.commands.setLink(linkHref, linkText), isActive: ({ session }) => session.isActive('link'), disabledCommand: 'link' }),
+    item({ id: 'table', group: 'extension', icon: 'lucide:table-2', label: '表格', execute: ({ session }) => session.commands.insertTable(), isActive: ({ session }) => session.isActive('table'), disabledCommand: 'table' }),
+    item({ id: 'image', group: 'extension', icon: 'lucide:image', label: '图片', execute: ({ session, imageSrc, imageAlt, imageTitle }) => session.commands.insertImage(imageSrc ?? '', imageAlt, imageTitle), disabledCommand: 'image' }),
   ]
 }

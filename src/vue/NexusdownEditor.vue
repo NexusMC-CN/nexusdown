@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, markRaw, onMounted, onUnmounted, ref, shallowRef, watch } from 'vue'
+import type { AnyExtension } from '@tiptap/core'
 import {
   createDefaultToolbarItems,
   createNexusdownEditor,
@@ -9,14 +10,20 @@ import {
   type ToolbarItem,
 } from '../core/index.js'
 import EditorToolbar from './EditorToolbar.vue'
+import MarkdownEditor from './components/MarkdownEditor.vue'
+import TableControls from './components/TableControls.vue'
+import { useNexusdownTheme, type NexusdownTheme } from './composables/useNexusdownTheme.js'
 
 const props = withDefaults(defineProps<{
   modelValue?: string
   contentType?: ContentType
   toolbarItems?: ToolbarItem[]
   readonly?: boolean
+  extensions?: AnyExtension[]
+  extensionResolver?: (extensions: AnyExtension[]) => AnyExtension[]
+  theme?: NexusdownTheme
   class?: string
-}>(), { modelValue: '', contentType: 'markdown', readonly: false })
+}>(), { modelValue: '', contentType: 'markdown', readonly: false, theme: 'system' })
 const emit = defineEmits<{
   'update:modelValue': [value: string]
   update: [snapshot: ReturnType<NexusdownEditorSession['getSnapshot']>]
@@ -24,11 +31,20 @@ const emit = defineEmits<{
 }>()
 
 const initialContent = props.contentType === 'json' ? JSON.parse(props.modelValue || '{}') : props.modelValue
-const session = shallowRef<NexusdownEditorSession>(markRaw(createNexusdownEditor({ content: initialContent, contentType: props.contentType })))
+const session = shallowRef<NexusdownEditorSession>(markRaw(createNexusdownEditor({
+  content: initialContent,
+  contentType: props.contentType,
+  extensions: props.extensions,
+  extensionResolver: props.extensionResolver,
+})))
 session.value.getEditor().setEditable(!props.readonly)
 const markdownValue = ref(props.modelValue)
+const markdownComposing = ref(false)
+const richContent = ref<HTMLElement | null>(null)
 const richElement = ref<HTMLElement | null>(null)
 const revision = ref(0)
+const themeSource = computed(() => props.theme ?? 'system')
+const { resolvedTheme } = useNexusdownTheme(themeSource)
 let unsubscribe: () => void = () => undefined
 let unsubscribeError: () => void = () => undefined
 
@@ -63,6 +79,10 @@ onMounted(() => {
 
 watch([() => props.modelValue, () => props.contentType], ([value, contentType]) => {
   if (contentType === 'markdown') {
+    if (markdownComposing.value) {
+      markdownValue.value = value
+      return
+    }
     if (value !== session.value.getMarkdown()) session.value.setMarkdown(value)
     return
   }
@@ -80,15 +100,24 @@ watch([() => props.modelValue, () => props.contentType], ([value, contentType]) 
 
 watch(() => props.readonly, (readonly) => session.value.getEditor().setEditable(!readonly))
 
-function onMarkdownInput(event: Event) {
-  const value = (event.target as HTMLTextAreaElement).value
+function onMarkdownInput(value: string) {
   markdownValue.value = value
   if (props.contentType === 'markdown') emit('update:modelValue', value)
+  if (markdownComposing.value) return
   try {
     session.value?.setMarkdown(value)
   } catch (error) {
     emit('parse-error', error instanceof Error ? error : new Error(String(error)))
   }
+}
+
+function onMarkdownCompositionStart() {
+  markdownComposing.value = true
+}
+
+function onMarkdownCompositionEnd(value: string) {
+  markdownComposing.value = false
+  onMarkdownInput(value)
 }
 
 onUnmounted(() => {
@@ -100,21 +129,22 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <section class="nexusdown-editor" :class="props.class" data-nexusdown="editor">
+  <section class="nexusdown-editor" :class="props.class" data-nexusdown="editor" :data-nexusdown-theme="resolvedTheme">
     <EditorToolbar v-if="session" :context="toolbarContext" :items="items" :readonly="readonly" />
     <div class="nexusdown-editor__panes">
       <div class="nexusdown-editor__pane nexusdown-editor__pane--rich" data-nexusdown="rich-text">
-        <div ref="richElement" class="nexusdown-rich-content" />
+        <div ref="richContent" class="nexusdown-rich-content">
+          <div ref="richElement" class="nexusdown-rich-surface" />
+          <TableControls :session="session" :container="richContent" :readonly="readonly" />
+        </div>
       </div>
       <div class="nexusdown-editor__pane nexusdown-editor__pane--markdown">
-        <textarea
-          data-nexusdown="markdown"
-          class="nexusdown-markdown-input"
-          :value="markdownValue"
+        <MarkdownEditor
+          :model-value="markdownValue"
           :readonly="readonly"
-          spellcheck="false"
-          aria-label="Markdown 编辑器"
-          @input="onMarkdownInput"
+          @update:model-value="onMarkdownInput"
+          @compositionstart="onMarkdownCompositionStart"
+          @compositionend="onMarkdownCompositionEnd"
         />
       </div>
     </div>

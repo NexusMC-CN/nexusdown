@@ -72,6 +72,137 @@ describe('NexusdownEditorSession', () => {
     expect(session.commands.undo()).toBe(false)
   })
 
+  it('supports built-in mark, color, and highlight commands', () => {
+    const session = createNexusdownEditor({ content: '<p>Hello</p>', contentType: 'html' })
+    session.getEditor().commands.selectAll()
+
+    expect(session.commands.toggleUnderline()).toBe(true)
+    expect(session.commands.toggleSuperscript()).toBe(true)
+    expect(session.commands.setColor('#ff0000')).toBe(true)
+    expect(session.commands.setHighlight('#ffff00')).toBe(true)
+    expect(session.isActive('textStyle')).toBe(true)
+    expect(session.isActive('highlight')).toBe(true)
+
+    expect(session.getHTML()).toContain('<u>')
+    expect(session.getHTML()).toContain('color: rgb(255, 0, 0)')
+    expect(session.getHTML()).toContain('background-color: rgb(255, 255, 0)')
+    expect(session.getMarkdown()).toContain('Hello')
+    session.destroy()
+  })
+
+  it('keeps color and highlight commands available on an empty paragraph', () => {
+    const session = createNexusdownEditor({ content: '<p></p>', contentType: 'html' })
+
+    expect(session.can('color')).toBe(true)
+    expect(session.can('highlight')).toBe(true)
+    expect(session.commands.setColor('#2563eb')).toBe(true)
+    expect(session.commands.setHighlight('#fef08a')).toBe(true)
+    session.getEditor().commands.insertContent('Styled')
+
+    expect(session.getHTML()).toContain('color: rgb(37, 99, 235)')
+    expect(session.getHTML()).toContain('background-color: rgb(254, 240, 138)')
+    session.destroy()
+  })
+
+  it('inserts editable tables and images with Markdown output', () => {
+    const session = createNexusdownEditor({ content: '<p>Before</p>', contentType: 'html' })
+
+    expect(session.can('table')).toBe(true)
+    expect(session.commands.insertTable(2, 3)).toBe(true)
+    expect(session.getHTML()).toContain('<table')
+    expect(session.getHTML()).toContain('<td')
+    expect(session.getMarkdown()).toContain('|')
+
+    expect(session.can('image')).toBe(true)
+    expect(session.commands.insertImage('https://example.com/image.png', 'Example')).toBe(true)
+    expect(session.getHTML()).toContain('src="https://example.com/image.png"')
+    expect(session.getMarkdown()).toContain('![Example](https://example.com/image.png)')
+    session.destroy()
+  })
+
+  it('adds rows and columns after the active table cell', () => {
+    const session = createNexusdownEditor({
+      content: '| A | B |\n| --- | --- |\n| C | D |',
+      contentType: 'markdown',
+    })
+    let textPosition = 0
+    session.getEditor().state.doc.descendants((node, position) => {
+      if (!textPosition && node.isText) textPosition = position
+    })
+    session.getEditor().commands.setTextSelection({ from: textPosition, to: textPosition })
+
+    const table = () => session.getEditor().state.doc.firstChild
+    expect(table()?.childCount).toBe(2)
+    expect(session.commands.addTableRow()).toBe(true)
+    expect(table()?.childCount).toBe(3)
+    expect(session.commands.addTableColumn()).toBe(true)
+    expect(table()?.firstChild?.childCount).toBe(3)
+    session.destroy()
+  })
+
+  it('preserves text color with a shortcode Markdown syntax', () => {
+    const session = createNexusdownEditor({ content: '<p>Hello</p>', contentType: 'html' })
+    session.getEditor().commands.selectAll()
+
+    expect(session.commands.setColor('#ff0000')).toBe(true)
+    expect(session.getMarkdown()).toContain('[color color="#ff0000"]Hello[/color]')
+
+    const parsed = createNexusdownEditor({ content: session.getMarkdown(), contentType: 'markdown' })
+    expect(parsed.getHTML()).toContain('color: rgb(255, 0, 0)')
+    parsed.destroy()
+    session.destroy()
+  })
+
+  it('accepts legacy inline HTML when a color value cannot use the shortcode syntax', () => {
+    const session = createNexusdownEditor({
+      content: '<span style="color: var(--brand-color)">Hello</span>',
+      contentType: 'html',
+    })
+
+    expect(session.getMarkdown()).toContain('<span style="color: var(--brand-color)">Hello</span>')
+    session.destroy()
+  })
+
+  it('inserts a linked label when the link command receives text', () => {
+    const session = createNexusdownEditor({ content: '', contentType: 'markdown' })
+
+    expect(session.getSelectedText()).toBe('')
+    expect(session.getLinkHref()).toBe('')
+    expect(session.commands.setLink('https://example.com', 'Docs')).toBe(true)
+    expect(session.getMarkdown()).toContain('[Docs](https://example.com)')
+
+    session.destroy()
+  })
+
+  it('updates the whole active link when its label is edited from a caret', () => {
+    const session = createNexusdownEditor({
+      content: '[Docs](https://old.example.com)',
+      contentType: 'markdown',
+    })
+    session.getEditor().commands.setTextSelection({ from: 2, to: 2 })
+
+    expect(session.getSelectedText()).toBe('Docs')
+    expect(session.getLinkHref()).toBe('https://old.example.com')
+    expect(session.commands.setLink('https://new.example.com', 'Guide')).toBe(true)
+    expect(session.getMarkdown()).toContain('[Guide](https://new.example.com)')
+    expect(session.getMarkdown()).not.toContain('Docs')
+
+    session.destroy()
+  })
+
+  it('renders task items with a checkbox and an editable content column', () => {
+    const session = createNexusdownEditor({
+      content: '- [ ] First task',
+      contentType: 'markdown',
+    })
+
+    const item = session.getEditor().view.dom.querySelector('[data-type="taskList"] li')
+    expect(item?.querySelector('input[type="checkbox"]')).not.toBeNull()
+    expect(item?.querySelector('div p')?.textContent).toBe('First task')
+
+    session.destroy()
+  })
+
   it('does not notify for an identical markdown snapshot', () => {
     const session = createNexusdownEditor({ content: '# Same', contentType: 'markdown' })
     const updates: string[] = []

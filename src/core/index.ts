@@ -1,7 +1,12 @@
 import type { NexusdownEditorSession } from './session.js'
 
 export type NexusdownCore = NexusdownEditorSession
-export { createNexusdownExtensions } from './extensions.js'
+export {
+  createBuiltInExtensions,
+  createNexusdownExtensions,
+  type NexusdownExtensionOptions,
+  type NexusdownMarkdownExtensionConfig,
+} from './extensions/index.js'
 export {
   createDefaultToolbarItems,
   type ToolbarCommand,
@@ -9,7 +14,7 @@ export {
   type ToolbarGroup,
   type ToolbarItem,
   type ToolbarSession,
-} from './toolbar.js'
+} from './toolbar/index.js'
 export {
   createNexusdownEditor,
   NexusdownEditorSession,
