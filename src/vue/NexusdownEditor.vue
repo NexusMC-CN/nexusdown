@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, markRaw, onMounted, onUnmounted, ref, shallowRef, watch } from 'vue'
 import {
   createDefaultToolbarItems,
   createNexusdownEditor,
@@ -23,17 +23,16 @@ const emit = defineEmits<{
   'parse-error': [error: Error]
 }>()
 
-const session = ref<NexusdownEditorSession>(createNexusdownEditor({ content: props.modelValue, contentType: props.contentType }))
+const initialContent = props.contentType === 'json' ? JSON.parse(props.modelValue || '{}') : props.modelValue
+const session = shallowRef<NexusdownEditorSession>(markRaw(createNexusdownEditor({ content: initialContent, contentType: props.contentType })))
+session.value.getEditor().setEditable(!props.readonly)
 const markdownValue = ref(props.modelValue)
+const richElement = ref<HTMLElement | null>(null)
 const revision = ref(0)
 let unsubscribe: () => void = () => undefined
 let unsubscribeError: () => void = () => undefined
 
 const items = computed(() => props.toolbarItems ?? createDefaultToolbarItems())
-const richHTML = computed(() => {
-  void revision.value
-  return session.value?.getHTML() ?? ''
-})
 const toolbarContext = computed<ToolbarContext>(() => {
   void revision.value
   const current = session.value
@@ -41,23 +40,49 @@ const toolbarContext = computed<ToolbarContext>(() => {
   return { session: current }
 })
 
+defineExpose({ session })
+
 markdownValue.value = session.value.getMarkdown()
 unsubscribe = session.value.subscribe((snapshot) => {
   markdownValue.value = snapshot.markdown
   revision.value++
-  emit('update:modelValue', snapshot.markdown)
+  const value = props.contentType === 'html'
+    ? snapshot.html
+    : props.contentType === 'json'
+      ? JSON.stringify(snapshot.json)
+      : snapshot.markdown
+  emit('update:modelValue', value)
   emit('update', snapshot)
 })
 unsubscribeError = session.value.onError((error) => emit('parse-error', error))
 
-watch(() => props.modelValue, (value) => {
-  if (session.value && value !== session.value.getMarkdown()) session.value.setMarkdown(value)
+onMounted(() => {
+  if (richElement.value) session.value.getEditor().mount(richElement.value)
 })
+
+watch([() => props.modelValue, () => props.contentType], ([value, contentType]) => {
+  if (contentType === 'markdown') {
+    if (value !== session.value.getMarkdown()) session.value.setMarkdown(value)
+    return
+  }
+  if (contentType === 'html') {
+    if (value !== session.value.getHTML()) session.value.setContent(value, 'html')
+    return
+  }
+  try {
+    const json = JSON.parse(value)
+    if (JSON.stringify(json) !== JSON.stringify(session.value.getJSON())) session.value.setContent(json, 'json')
+  } catch (error) {
+    emit('parse-error', error instanceof Error ? error : new Error(String(error)))
+  }
+})
+
+watch(() => props.readonly, (readonly) => session.value.getEditor().setEditable(!readonly))
 
 function onMarkdownInput(event: Event) {
   const value = (event.target as HTMLTextAreaElement).value
   markdownValue.value = value
-  emit('update:modelValue', value)
+  if (props.contentType === 'markdown') emit('update:modelValue', value)
   try {
     session.value?.setMarkdown(value)
   } catch (error) {
@@ -65,12 +90,7 @@ function onMarkdownInput(event: Event) {
   }
 }
 
-function onRichTextInput(event: Event) {
-  const html = (event.target as HTMLElement).innerHTML
-  session.value?.setContent(html, 'html')
-}
-
-onBeforeUnmount(() => {
+onUnmounted(() => {
   unsubscribe()
   unsubscribeError()
   session.value?.destroy()
@@ -82,15 +102,7 @@ onBeforeUnmount(() => {
     <EditorToolbar v-if="session" :context="toolbarContext" :items="items" :readonly="readonly" />
     <div class="nexusdown-editor__panes">
       <div class="nexusdown-editor__pane nexusdown-editor__pane--rich" data-nexusdown="rich-text">
-        <div
-          v-if="session"
-          class="nexusdown-rich-content"
-          :contenteditable="readonly ? 'false' : 'true'"
-          role="textbox"
-          aria-multiline="true"
-          @input="onRichTextInput"
-          v-html="richHTML"
-        />
+        <div ref="richElement" class="nexusdown-rich-content" />
       </div>
       <div class="nexusdown-editor__pane nexusdown-editor__pane--markdown">
         <textarea
