@@ -5,4 +5,5 @@ dist/
 .vitest/
 .worktrees/
 .superpowers/
+docs/superpowers/
 package-lock.json
