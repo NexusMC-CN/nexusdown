@@ -5,7 +5,7 @@
 ## Vue 用法
 
 ```ts
-import { NexusdownEditor } from 'nexusdown/vue'
+import NexusdownEditor from 'nexusdown/vue'
 import 'nexusdown/style.css'
 ```
 

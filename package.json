@@ -3,7 +3,8 @@
   "version": "0.0.0",
   "type": "module",
   "files": [
-    "dist"
+    "dist",
+    "src/vue"
   ],
   "exports": {
     ".": {
@@ -16,7 +17,10 @@
       "import": "./dist/core/index.js",
       "require": "./dist/core/index.cjs"
     },
-    "./vue": { "types": "./dist/vue/index.d.ts", "import": "./dist/vue/index.js", "require": "./dist/vue/index.cjs" },
+    "./vue": {
+      "types": "./src/vue/NexusdownEditor.vue",
+      "import": "./src/vue/NexusdownEditor.vue"
+    },
     "./style.css": "./dist/style.css"
   },
   "scripts": {

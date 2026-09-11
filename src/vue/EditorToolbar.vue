@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import type { ToolbarContext, ToolbarGroup, ToolbarItem } from '../core/toolbar.js'
+import 'iconify-icon'
+import type { ToolbarContext, ToolbarGroup, ToolbarItem } from 'nexusdown/core'
 
 const props = defineProps<{ context: ToolbarContext; items: ToolbarItem[]; readonly?: boolean }>()
 const emit = defineEmits<{ executed: [] }>()
@@ -34,7 +35,7 @@ function execute(item: ToolbarItem) {
           :title="item.label"
           @click="execute(item)"
         >
-          <iconify-icon :icon="item.icon" aria-hidden="true" />
+          <component :is="'iconify-icon'" :icon="item.icon" aria-hidden="true" />
         </button>
       </div>
     </template>

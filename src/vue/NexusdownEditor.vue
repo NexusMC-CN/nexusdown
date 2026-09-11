@@ -1,7 +1,13 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
-import { createNexusdownEditor, type ContentType, type NexusdownEditorSession } from '../core/session.js'
-import { createDefaultToolbarItems, type ToolbarContext, type ToolbarItem } from '../core/toolbar.js'
+import {
+  createDefaultToolbarItems,
+  createNexusdownEditor,
+  type ContentType,
+  type NexusdownEditorSession,
+  type ToolbarContext,
+  type ToolbarItem,
+} from 'nexusdown/core'
 import EditorToolbar from './EditorToolbar.vue'
 
 const props = withDefaults(defineProps<{
@@ -20,8 +26,8 @@ const emit = defineEmits<{
 const session = ref<NexusdownEditorSession>(createNexusdownEditor({ content: props.modelValue, contentType: props.contentType }))
 const markdownValue = ref(props.modelValue)
 const revision = ref(0)
-let unsubscribe = () => undefined
-let unsubscribeError = () => undefined
+let unsubscribe: () => void = () => undefined
+let unsubscribeError: () => void = () => undefined
 
 const items = computed(() => props.toolbarItems ?? createDefaultToolbarItems())
 const richHTML = computed(() => {
