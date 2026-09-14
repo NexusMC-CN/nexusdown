@@ -6,6 +6,54 @@ import NexusdownEditor from '../../src/vue/NexusdownEditor.vue'
 import type { NexusdownEditorSession } from '../../src/core/session'
 
 describe('NexusdownEditor', () => {
+  it('renders rich text before the Markdown editor by default', () => {
+    const wrapper = mount(NexusdownEditor, { props: { modelValue: '# Hello' } })
+    const rich = wrapper.get('[data-nexusdown="rich-text"]').element
+    const markdown = wrapper.get('[data-nexusdown="markdown-editor"]').element
+
+    expect(rich.compareDocumentPosition(markdown) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(wrapper.get('[data-nexusdown="editor"]').attributes('data-nexusdown-layout')).toBe('rich-left')
+    wrapper.unmount()
+  })
+
+  it('reverses pane DOM order for the markdown-left layout', () => {
+    const wrapper = mount(NexusdownEditor, {
+      props: { modelValue: '# Hello', layout: 'markdown-left' },
+    })
+    const rich = wrapper.get('[data-nexusdown="rich-text"]').element
+    const markdown = wrapper.get('[data-nexusdown="markdown-editor"]').element
+
+    expect(markdown.compareDocumentPosition(rich) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(wrapper.get('[data-nexusdown="editor"]').attributes('data-nexusdown-layout')).toBe('markdown-left')
+    wrapper.unmount()
+  })
+
+  it('falls back to rich-left for an unknown layout value', () => {
+    const wrapper = mount(NexusdownEditor, {
+      props: { modelValue: '# Hello', layout: 'sideways' },
+    })
+    const rich = wrapper.get('[data-nexusdown="rich-text"]').element
+    const markdown = wrapper.get('[data-nexusdown="markdown-editor"]').element
+
+    expect(rich.compareDocumentPosition(markdown) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(wrapper.get('[data-nexusdown="editor"]').attributes('data-nexusdown-layout')).toBe('rich-left')
+    wrapper.unmount()
+  })
+
+  it('preserves custom class and style while exposing dimension CSS variables', () => {
+    const wrapper = mount(NexusdownEditor, {
+      attrs: { class: 'custom-editor', style: '--nexusdown-accent: #7c3aed' },
+      props: { modelValue: '# Hello', width: 900, height: '70vh' },
+    })
+    const editor = wrapper.get('[data-nexusdown="editor"]')
+
+    expect(editor.classes()).toContain('custom-editor')
+    expect(editor.attributes('style')).toContain('--nexusdown-accent: #7c3aed')
+    expect((editor.element as HTMLElement).style.getPropertyValue('--nexusdown-width')).toBe('900px')
+    expect((editor.element as HTMLElement).style.getPropertyValue('--nexusdown-height')).toBe('70vh')
+    wrapper.unmount()
+  })
+
   it('renders rich text, markdown, and one shared toolbar', () => {
     const wrapper = mount(NexusdownEditor, { props: { modelValue: '# Hello', contentType: 'markdown' } })
     expect(wrapper.find('[data-nexusdown="rich-text"]').exists()).toBe(true)
