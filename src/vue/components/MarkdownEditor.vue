@@ -19,6 +19,7 @@ const emit = defineEmits<{
   'update:modelValue': [value: string]
   compositionstart: []
   compositionend: [value: string]
+  scroll: [payload: { top: number; left: number }]
 }>()
 const textarea = ref<HTMLTextAreaElement | null>(null)
 const highlight = ref<HTMLElement | null>(null)
@@ -69,6 +70,18 @@ function syncScroll() {
   pre.scrollLeft = textarea.value.scrollLeft
 }
 
+function getScrollElement() {
+  return textarea.value
+}
+
+function setScrollTop(value: number) {
+  if (!textarea.value) return
+  textarea.value.scrollTop = value
+  syncScroll()
+}
+
+defineExpose({ getScrollElement, setScrollTop })
+
 function onInput(event: Event) {
   if ((event as InputEvent).isComposing && !composing.value) onCompositionStart()
   emit('update:modelValue', (event.target as HTMLTextAreaElement).value)
@@ -82,6 +95,11 @@ function onCompositionStart() {
 function onCompositionEnd(event: CompositionEvent) {
   composing.value = false
   emit('compositionend', (event.target as HTMLTextAreaElement).value)
+}
+
+function onScroll() {
+  syncScroll()
+  if (textarea.value) emit('scroll', { top: textarea.value.scrollTop, left: textarea.value.scrollLeft })
 }
 
 watch(() => props.modelValue, renderMarkdown, { immediate: true })
@@ -102,7 +120,7 @@ onMounted(syncScroll)
       @input="onInput"
       @compositionstart="onCompositionStart"
       @compositionend="onCompositionEnd"
-      @scroll="syncScroll"
+      @scroll="onScroll"
     />
   </div>
 </template>

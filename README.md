@@ -17,10 +17,15 @@ import 'nexusdown/style.css'
 <NexusdownEditor
   v-model="value"
   theme="dark"
+  :width="960"
+  height="70vh"
+  :sync-scroll="true"
   :extensions="[MyExtension]"
   :extension-resolver="extensions => extensions"
 />
 ```
+
+编辑器默认高度为 `420px`、宽度为 `100%`，内容较长时会在两侧编辑区内部滚动，不会撑高外框；`width` 和 `height` 支持数字（像素）或 CSS 尺寸字符串，`syncScroll` 默认开启，可按需关闭双栏联动滚动。
 
 ## 核心用法
 

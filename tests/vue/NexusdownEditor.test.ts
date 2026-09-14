@@ -15,6 +15,69 @@ describe('NexusdownEditor', () => {
     wrapper.unmount()
   })
 
+  it('keeps a fixed default size and accepts custom width and height', () => {
+    const wrapper = mount(NexusdownEditor, {
+      props: { modelValue: '# Hello', width: 900, height: '70vh' },
+    })
+    const editor = wrapper.get('[data-nexusdown="editor"]').element as HTMLElement
+    expect(editor.style.getPropertyValue('--nexusdown-width')).toBe('900px')
+    expect(editor.style.getPropertyValue('--nexusdown-height')).toBe('70vh')
+    wrapper.unmount()
+
+    const defaults = mount(NexusdownEditor, { props: { modelValue: '# Hello' } })
+    const defaultEditor = defaults.get('[data-nexusdown="editor"]').element as HTMLElement
+    expect(defaultEditor.style.getPropertyValue('--nexusdown-width')).toBe('100%')
+    expect(defaultEditor.style.getPropertyValue('--nexusdown-height')).toBe('420px')
+    defaults.unmount()
+  })
+
+  it('syncs rich and Markdown scrolling in both directions using their rendered ranges', async () => {
+    const wrapper = mount(NexusdownEditor, {
+      props: { modelValue: `${'# Heading\n\n'}${'Long content\n'.repeat(40)}` },
+    })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    const richPane = wrapper.get('[data-nexusdown="rich-text"]').element as HTMLElement
+    const textarea = wrapper.get('[data-nexusdown="markdown"]').element as HTMLTextAreaElement
+    Object.defineProperties(richPane, {
+      clientHeight: { configurable: true, value: 100 },
+      scrollHeight: { configurable: true, value: 1000 },
+    })
+    Object.defineProperties(textarea, {
+      clientHeight: { configurable: true, value: 200 },
+      scrollHeight: { configurable: true, value: 800 },
+    })
+
+    richPane.scrollTop = 450
+    await wrapper.get('[data-nexusdown="rich-text"]').trigger('scroll')
+    expect(textarea.scrollTop).toBe(300)
+
+    textarea.scrollTop = 300
+    await wrapper.get('[data-nexusdown="markdown"]').trigger('scroll')
+    expect(richPane.scrollTop).toBe(450)
+    wrapper.unmount()
+  })
+
+  it('can disable linked scrolling without affecting either editor', async () => {
+    const wrapper = mount(NexusdownEditor, {
+      props: { modelValue: '# Heading\n\nContent', syncScroll: false },
+    })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    const richPane = wrapper.get('[data-nexusdown="rich-text"]').element as HTMLElement
+    const textarea = wrapper.get('[data-nexusdown="markdown"]').element as HTMLTextAreaElement
+    Object.defineProperties(richPane, {
+      clientHeight: { configurable: true, value: 100 },
+      scrollHeight: { configurable: true, value: 1000 },
+    })
+    Object.defineProperties(textarea, {
+      clientHeight: { configurable: true, value: 200 },
+      scrollHeight: { configurable: true, value: 800 },
+    })
+    richPane.scrollTop = 450
+    await wrapper.get('[data-nexusdown="rich-text"]').trigger('scroll')
+    expect(textarea.scrollTop).toBe(0)
+    wrapper.unmount()
+  })
+
   it('emits markdown updates from the markdown surface', async () => {
     const wrapper = mount(NexusdownEditor, { props: { modelValue: '# Hello' } })
     await wrapper.get('[data-nexusdown="markdown"]').setValue('# Updated')

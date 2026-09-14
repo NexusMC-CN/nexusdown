@@ -14,6 +14,12 @@ import MarkdownEditor from './components/MarkdownEditor.vue'
 import TableControls from './components/TableControls.vue'
 import { useNexusdownTheme, type NexusdownTheme } from './composables/useNexusdownTheme.js'
 
+type EditorDimension = number | string
+type MarkdownEditorHandle = {
+  getScrollElement: () => HTMLTextAreaElement | null
+  setScrollTop: (value: number) => void
+}
+
 const props = withDefaults(defineProps<{
   modelValue?: string
   contentType?: ContentType
@@ -22,8 +28,11 @@ const props = withDefaults(defineProps<{
   extensions?: AnyExtension[]
   extensionResolver?: (extensions: AnyExtension[]) => AnyExtension[]
   theme?: NexusdownTheme
+  width?: EditorDimension
+  height?: EditorDimension
+  syncScroll?: boolean
   class?: string
-}>(), { modelValue: '', contentType: 'markdown', readonly: false, theme: 'system' })
+}>(), { modelValue: '', contentType: 'markdown', readonly: false, theme: 'system', width: '100%', height: 420, syncScroll: true })
 const emit = defineEmits<{
   'update:modelValue': [value: string]
   update: [snapshot: ReturnType<NexusdownEditorSession['getSnapshot']>]
@@ -42,11 +51,18 @@ const markdownValue = ref(props.modelValue)
 const markdownComposing = ref(false)
 const richContent = ref<HTMLElement | null>(null)
 const richElement = ref<HTMLElement | null>(null)
+const richPane = ref<HTMLElement | null>(null)
+const markdownEditor = ref<MarkdownEditorHandle | null>(null)
 const revision = ref(0)
 const themeSource = computed(() => props.theme ?? 'system')
 const { resolvedTheme } = useNexusdownTheme(themeSource)
+const editorStyle = computed<Record<string, string>>(() => ({
+  '--nexusdown-width': normalizeDimension(props.width, '100%'),
+  '--nexusdown-height': normalizeDimension(props.height, '420px'),
+}))
 let unsubscribe: () => void = () => undefined
 let unsubscribeError: () => void = () => undefined
+let syncingScroll = false
 
 const items = computed(() => props.toolbarItems ?? createDefaultToolbarItems())
 const toolbarContext = computed<ToolbarContext>(() => {
@@ -72,6 +88,43 @@ unsubscribe = session.value.subscribe((snapshot) => {
 })
 unsubscribeError = session.value.onError((error) => emit('parse-error', error))
 const unsubscribeSelection = session.value.onSelectionChange(() => { revision.value++ })
+
+function normalizeDimension(value: EditorDimension | undefined, fallback: string): string {
+  if (typeof value === 'number') return String(Math.max(1, value)) + 'px'
+  const normalized = value?.trim()
+  return normalized || fallback
+}
+
+function scrollRange(element: HTMLElement): number {
+  return Math.max(0, element.scrollHeight - element.clientHeight)
+}
+
+function syncPaneScroll(source: 'rich' | 'markdown', top: number) {
+  if (!props.syncScroll || syncingScroll) return
+  const sourceElement = source === 'rich' ? richPane.value : markdownEditor.value?.getScrollElement() ?? null
+  const targetElement = source === 'rich' ? markdownEditor.value?.getScrollElement() ?? null : richPane.value
+  if (!sourceElement || !targetElement) return
+
+  const sourceRange = scrollRange(sourceElement)
+  const targetRange = scrollRange(targetElement)
+  const ratio = sourceRange > 0 ? Math.min(1, Math.max(0, top / sourceRange)) : 0
+  const targetTop = ratio * targetRange
+  if (Math.abs(targetElement.scrollTop - targetTop) < 0.5) return
+
+  syncingScroll = true
+  if (source === 'rich') markdownEditor.value?.setScrollTop(targetTop)
+  else targetElement.scrollTop = targetTop
+  syncingScroll = false
+}
+
+function onRichScroll(event: Event) {
+  const target = event.currentTarget
+  if (target instanceof HTMLElement) syncPaneScroll('rich', target.scrollTop)
+}
+
+function onMarkdownScroll(payload: { top: number }) {
+  syncPaneScroll('markdown', payload.top)
+}
 
 onMounted(() => {
   if (richElement.value) session.value.getEditor().mount(richElement.value)
@@ -129,10 +182,10 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <section class="nexusdown-editor" :class="props.class" data-nexusdown="editor" :data-nexusdown-theme="resolvedTheme">
+  <section class="nexusdown-editor" :class="props.class" data-nexusdown="editor" :data-nexusdown-theme="resolvedTheme" :style="editorStyle">
     <EditorToolbar v-if="session" :context="toolbarContext" :items="items" :readonly="readonly" />
     <div class="nexusdown-editor__panes">
-      <div class="nexusdown-editor__pane nexusdown-editor__pane--rich" data-nexusdown="rich-text">
+      <div ref="richPane" class="nexusdown-editor__pane nexusdown-editor__pane--rich" data-nexusdown="rich-text" @scroll="onRichScroll">
         <div ref="richContent" class="nexusdown-rich-content">
           <div ref="richElement" class="nexusdown-rich-surface" />
           <TableControls :session="session" :container="richContent" :readonly="readonly" />
@@ -140,11 +193,13 @@ onUnmounted(() => {
       </div>
       <div class="nexusdown-editor__pane nexusdown-editor__pane--markdown">
         <MarkdownEditor
+          ref="markdownEditor"
           :model-value="markdownValue"
           :readonly="readonly"
           @update:model-value="onMarkdownInput"
           @compositionstart="onMarkdownCompositionStart"
           @compositionend="onMarkdownCompositionEnd"
+          @scroll="onMarkdownScroll"
         />
       </div>
     </div>
