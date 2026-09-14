@@ -6,7 +6,7 @@ import NexusdownEditor from '../../src/vue/NexusdownEditor.vue'
 import type { NexusdownEditorSession } from '../../src/core/session'
 
 describe('NexusdownEditor', () => {
-  it('renders rich text before the Markdown editor by default', () => {
+  it('renders rich text before the Markdown editor by default (rich-left layout)', () => {
     const wrapper = mount(NexusdownEditor, { props: { modelValue: '# Hello' } })
     const rich = wrapper.get('[data-nexusdown="rich-text"]').element
     const markdown = wrapper.get('[data-nexusdown="markdown-editor"]').element
@@ -48,9 +48,10 @@ describe('NexusdownEditor', () => {
     const editor = wrapper.get('[data-nexusdown="editor"]')
 
     expect(editor.classes()).toContain('custom-editor')
-    expect(editor.attributes('style')).toContain('--nexusdown-accent: #7c3aed')
-    expect((editor.element as HTMLElement).style.getPropertyValue('--nexusdown-width')).toBe('900px')
-    expect((editor.element as HTMLElement).style.getPropertyValue('--nexusdown-height')).toBe('70vh')
+    const editorStyle = (editor.element as HTMLElement).style
+    expect(editorStyle.getPropertyValue('--nexusdown-accent')).toBe('#7c3aed')
+    expect(editorStyle.getPropertyValue('--nexusdown-width')).toBe('900px')
+    expect(editorStyle.getPropertyValue('--nexusdown-height')).toBe('70vh')
     wrapper.unmount()
   })
 
