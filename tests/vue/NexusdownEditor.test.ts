@@ -30,7 +30,7 @@ describe('NexusdownEditor', () => {
 
   it('falls back to rich-left for an unknown layout value', () => {
     const wrapper = mount(NexusdownEditor, {
-      props: { modelValue: '# Hello', layout: 'sideways' },
+      props: { modelValue: '# Hello', layout: 'sideways' as never },
     })
     const rich = wrapper.get('[data-nexusdown="rich-text"]').element
     const markdown = wrapper.get('[data-nexusdown="markdown-editor"]').element

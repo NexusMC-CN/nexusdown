@@ -25,7 +25,17 @@ import 'nexusdown/style.css'
 />
 ```
 
-编辑器默认高度为 `420px`、宽度为 `100%`，内容较长时会在两侧编辑区内部滚动，不会撑高外框；`width` 和 `height` 支持数字（像素）或 CSS 尺寸字符串，`syncScroll` 默认开启，可按需关闭双栏联动滚动。
+面板顺序默认是「左侧富文本、右侧 Markdown」（`layout="rich-left"`）。需要「左侧 Markdown、右侧富文本」时传入 `layout="markdown-left"`：
+
+```vue
+<NexusdownEditor
+  v-model="value"
+  layout="markdown-left"
+  :sync-scroll="true"
+/>
+```
+
+未知的 `layout` 值会安全回退到默认的 `rich-left`。编辑器默认高度为 `420px`、宽度为 `100%`，内容较长时会在两侧编辑区内部滚动，不会撑高外框；`width` 和 `height` 支持数字（像素）或 CSS 尺寸字符串，`syncScroll` 默认开启，可按需关闭双栏联动滚动。通过根节点的 `class` / `style` 可以覆盖边框、圆角、间距等外观，颜色主题使用稳定的 CSS 变量（`--nexus-bg`、`--nexus-panel`、`--nexus-border`、`--nexus-text`、`--nexus-muted`、`--nexus-accent`）作为换肤入口。
 
 ## 核心用法
 

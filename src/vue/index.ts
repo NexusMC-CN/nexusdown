@@ -1,4 +1,5 @@
 export type { ToolbarItem } from '../core/toolbar.js'
+export type { NexusdownEditorLayout } from './layout.js'
 export { useNexusdownTheme, type NexusdownTheme, type ResolvedNexusdownTheme } from './composables/useNexusdownTheme.js'
 export const vueSfcEntrypoints = {
   editor: './NexusdownEditor.vue',

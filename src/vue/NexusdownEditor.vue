@@ -13,6 +13,7 @@ import EditorToolbar from './EditorToolbar.vue'
 import MarkdownEditor from './components/MarkdownEditor.vue'
 import TableControls from './components/TableControls.vue'
 import { useNexusdownTheme, type NexusdownTheme } from './composables/useNexusdownTheme.js'
+import type { NexusdownEditorLayout } from './layout.js'
 
 type EditorDimension = number | string
 type MarkdownEditorHandle = {
@@ -28,11 +29,12 @@ const props = withDefaults(defineProps<{
   extensions?: AnyExtension[]
   extensionResolver?: (extensions: AnyExtension[]) => AnyExtension[]
   theme?: NexusdownTheme
+  layout?: NexusdownEditorLayout
   width?: EditorDimension
   height?: EditorDimension
   syncScroll?: boolean
   class?: string
-}>(), { modelValue: '', contentType: 'markdown', readonly: false, theme: 'system', width: '100%', height: 420, syncScroll: true })
+}>(), { modelValue: '', contentType: 'markdown', readonly: false, theme: 'system', layout: 'rich-left', width: '100%', height: 420, syncScroll: true })
 const emit = defineEmits<{
   'update:modelValue': [value: string]
   update: [snapshot: ReturnType<NexusdownEditorSession['getSnapshot']>]
@@ -60,6 +62,9 @@ const editorStyle = computed<Record<string, string>>(() => ({
   '--nexusdown-width': normalizeDimension(props.width, '100%'),
   '--nexusdown-height': normalizeDimension(props.height, '420px'),
 }))
+const layoutMode = computed<NexusdownEditorLayout>(() =>
+  props.layout === 'markdown-left' ? 'markdown-left' : 'rich-left'
+)
 let unsubscribe: () => void = () => undefined
 let unsubscribeError: () => void = () => undefined
 let syncingScroll = false
@@ -182,26 +187,47 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <section class="nexusdown-editor" :class="props.class" data-nexusdown="editor" :data-nexusdown-theme="resolvedTheme" :style="editorStyle">
+  <section class="nexusdown-editor" :class="props.class" data-nexusdown="editor" :data-nexusdown-theme="resolvedTheme" :data-nexusdown-layout="layoutMode" :style="editorStyle">
     <EditorToolbar v-if="session" :context="toolbarContext" :items="items" :readonly="readonly" />
     <div class="nexusdown-editor__panes">
-      <div ref="richPane" class="nexusdown-editor__pane nexusdown-editor__pane--rich" data-nexusdown="rich-text" @scroll="onRichScroll">
-        <div ref="richContent" class="nexusdown-rich-content">
-          <div ref="richElement" class="nexusdown-rich-surface" />
-          <TableControls :session="session" :container="richContent" :readonly="readonly" />
+      <template v-if="layoutMode === 'rich-left'">
+        <div ref="richPane" class="nexusdown-editor__pane nexusdown-editor__pane--rich" data-nexusdown="rich-text" @scroll="onRichScroll">
+          <div ref="richContent" class="nexusdown-rich-content">
+            <div ref="richElement" class="nexusdown-rich-surface" />
+            <TableControls :session="session" :container="richContent" :readonly="readonly" />
+          </div>
         </div>
-      </div>
-      <div class="nexusdown-editor__pane nexusdown-editor__pane--markdown">
-        <MarkdownEditor
-          ref="markdownEditor"
-          :model-value="markdownValue"
-          :readonly="readonly"
-          @update:model-value="onMarkdownInput"
-          @compositionstart="onMarkdownCompositionStart"
-          @compositionend="onMarkdownCompositionEnd"
-          @scroll="onMarkdownScroll"
-        />
-      </div>
+        <div class="nexusdown-editor__pane nexusdown-editor__pane--markdown">
+          <MarkdownEditor
+            ref="markdownEditor"
+            :model-value="markdownValue"
+            :readonly="readonly"
+            @update:model-value="onMarkdownInput"
+            @compositionstart="onMarkdownCompositionStart"
+            @compositionend="onMarkdownCompositionEnd"
+            @scroll="onMarkdownScroll"
+          />
+        </div>
+      </template>
+      <template v-else>
+        <div class="nexusdown-editor__pane nexusdown-editor__pane--markdown">
+          <MarkdownEditor
+            ref="markdownEditor"
+            :model-value="markdownValue"
+            :readonly="readonly"
+            @update:model-value="onMarkdownInput"
+            @compositionstart="onMarkdownCompositionStart"
+            @compositionend="onMarkdownCompositionEnd"
+            @scroll="onMarkdownScroll"
+          />
+        </div>
+        <div ref="richPane" class="nexusdown-editor__pane nexusdown-editor__pane--rich" data-nexusdown="rich-text" @scroll="onRichScroll">
+          <div ref="richContent" class="nexusdown-rich-content">
+            <div ref="richElement" class="nexusdown-rich-surface" />
+            <TableControls :session="session" :container="richContent" :readonly="readonly" />
+          </div>
+        </div>
+      </template>
     </div>
   </section>
 </template>
