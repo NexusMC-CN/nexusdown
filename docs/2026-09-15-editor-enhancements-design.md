@@ -47,7 +47,7 @@ Vue 适配层 prop + 核心图片命令，沿用现有 ImagePicker 弹窗。
   - 传入 → 调用回调得 URL 后插入
 - `ImagePicker.vue` 增加"本地上传"文件选择入口（`<input type="file" accept="image/*">`），上传完成后自动插入
 - 核心新增 `insertImageFromFile(file: File): Promise<boolean>`：读取 →（回调或 base64）→ `insertImage(src)`
-- 顺带支持**粘贴/拖拽图片文件**：`createNexusdownExtensions` 或 session 构造时挂 `editorProps.handlePaste`/`handleDrop` 拦截文件事件（经 imageUpload 回调或 base64 插入）——成本低、编辑器自然行为，纳入
+- 顺带支持**粘贴/拖拽图片文件**：与功能④一致，在 session 构造时挂 `editorProps.handlePaste`/`handleDrop` 拦截文件事件（经 imageUpload 回调或 base64 插入）——成本低、编辑器自然行为，纳入
 - 错误处理：imageUpload 抛错/返回空 → 面板显示错误提示，不插入；base64 超大文件由调用方 `maxFileSize`（可选 prop，默认不限制）自行控制，本次不做大小限制
 - 测试：jsdom 模拟 File/FileReader；回调返回 URL 断言；base64 回退断言；粘贴图片文件断言
 
