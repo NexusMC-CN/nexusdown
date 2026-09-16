@@ -1,69 +1,16 @@
-.nexusdown-markdown-editor {
-  --nexusdown-md-text: #1f2937;
-  --nexusdown-md-muted: #6b7280;
-  --nexusdown-md-heading: #0550ae;
-  --nexusdown-md-strong: #8250df;
-  --nexusdown-md-emphasis: #953800;
-  --nexusdown-md-code: #0a3069;
-  position: relative;
-  min-height: 372px;
-  overflow: hidden;
-  color: var(--nexusdown-md-text);
-  background: var(--nexus-panel, #fafafa);
-}
-
-.nexusdown-markdown-editor > pre,
-.nexusdown-markdown-editor > textarea {
-  box-sizing: border-box;
-  width: 100%;
-  min-height: 372px;
-  margin: 0;
-  padding: 28px;
-  border: 0;
-  outline: 0;
-  font: inherit;
-  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
-  font-size: 14px;
-  line-height: 1.65;
-  white-space: pre-wrap;
-  overflow: auto;
-  tab-size: 2;
-}
-
-.nexusdown-markdown-editor > pre {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  color: var(--nexusdown-md-text);
-  background: transparent;
-}
-
-.nexusdown-markdown-editor > textarea {
-  position: relative;
-  z-index: 1;
-  resize: none;
-  color: transparent;
-  caret-color: var(--nexusdown-md-text);
-  background: transparent;
-  -webkit-text-fill-color: transparent;
-}
-
-.nexusdown-markdown-editor > textarea::selection {
-  background: rgb(37 99 235 / 20%);
-}
-
-.nexusdown-markdown-editor .hljs-section { color: var(--nexusdown-md-heading); font-weight: 600; }
-.nexusdown-markdown-editor .hljs-strong { color: var(--nexusdown-md-strong); font-weight: 700; }
-.nexusdown-markdown-editor .hljs-emphasis { color: var(--nexusdown-md-emphasis); font-style: italic; }
-.nexusdown-markdown-editor .hljs-code,
-.nexusdown-markdown-editor .hljs-quote { color: var(--nexusdown-md-code); }
-.nexusdown-markdown-editor [data-nexusdown="markdown-color"] { color: inherit; }
-
-.nexusdown-editor[data-nexusdown-theme='dark'] .nexusdown-markdown-editor {
-  --nexusdown-md-text: #e5e7eb;
-  --nexusdown-md-muted: #94a3b8;
-  --nexusdown-md-heading: #79c0ff;
-  --nexusdown-md-strong: #d2a8ff;
-  --nexusdown-md-emphasis: #ffa657;
-  --nexusdown-md-code: #a5d6ff;
-}
+/*
+ * Deprecated compatibility shim.
+ *
+ * This file used to carry a second, independent copy of the Markdown-pane and
+ * syntax-highlight rules. Those rules now live in `src/style.css` (the single
+ * stylesheet, published as `nexusdown/style.css`), which additionally contains
+ * the responsive/touch adaptations.
+ *
+ * Keeping a duplicate here was actively harmful: it silently drifted out of sync
+ * (it still pinned `min-height: 372px` and `font-size: 14px` after the main sheet
+ * had responsive overrides), so importing it could undo the mobile behaviour.
+ *
+ * The file is retained only so existing `import 'nexusdown/vue/theme/syntax-highlight.css'`
+ * statements keep resolving. It intentionally declares nothing — import
+ * `nexusdown/style.css` instead.
+ */

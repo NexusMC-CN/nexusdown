@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { nextTick, onBeforeUnmount, ref, watch } from 'vue'
+import { useNexusdownViewport } from './composables/useNexusdownViewport.js'
 
 const props = defineProps<{
   selectedText?: string
@@ -21,16 +22,29 @@ const menuStyle = ref<Record<string, string>>({})
 const textValue = ref('')
 const hrefValue = ref('')
 
+// Tracks visualViewport so the menu stays anchored when the soft keyboard opens
+// (iOS frequently does not fire `window.resize` for keyboard transitions).
+const { viewport } = useNexusdownViewport(() => {
+  if (open.value) updatePosition()
+})
+
 function updatePosition() {
   const element = trigger.value
   if (!element) return
   const rect = element.getBoundingClientRect()
   const width = 286
   const estimatedHeight = 168
-  const top = rect.bottom + estimatedHeight + 8 > window.innerHeight
-    ? Math.max(8, rect.top - estimatedHeight - 8)
-    : rect.bottom + 8
-  const left = Math.min(Math.max(8, rect.left), Math.max(8, window.innerWidth - width - 8))
+  const visibleHeight = viewport.value.height
+  // rect is layout-viewport relative; convert to a visible-viewport offset.
+  const anchorTop = rect.top - viewport.value.offsetTop
+  const anchorBottom = rect.bottom - viewport.value.offsetTop
+  const top = anchorBottom + estimatedHeight + 8 > visibleHeight
+    ? Math.max(8, anchorTop - estimatedHeight - 8)
+    : anchorBottom + 8
+  const left = Math.min(
+    Math.max(8, rect.left - viewport.value.offsetLeft),
+    Math.max(8, viewport.value.width - width - 8),
+  )
   menuStyle.value = { top: `${top}px`, left: `${left}px` }
 }
 
@@ -69,6 +83,8 @@ function onKeydown(event: KeyboardEvent) {
   if (event.key === 'Escape') close()
 }
 
+// Position listeners (resize/orientationchange/scroll/visualViewport) are owned
+// by useNexusdownViewport, so only the dismissal listeners are managed here.
 watch(open, async (isOpen) => {
   if (!isOpen) {
     document.removeEventListener('pointerdown', onDocumentPointerDown)
@@ -80,23 +96,16 @@ watch(open, async (isOpen) => {
   document.addEventListener('pointerdown', onDocumentPointerDown)
   document.addEventListener('keydown', onKeydown)
   menu.value?.querySelector<HTMLInputElement>('input[aria-label="链接地址"]')?.focus()
+  // The menu focuses an input, so the soft keyboard opens right after layout.
+  // Re-measure once the keyboard has settled to avoid a detached menu.
+  requestAnimationFrame(() => {
+    if (open.value) updatePosition()
+  })
 })
 
 onBeforeUnmount(() => {
   document.removeEventListener('pointerdown', onDocumentPointerDown)
   document.removeEventListener('keydown', onKeydown)
-  window.removeEventListener('resize', updatePosition)
-  window.removeEventListener('scroll', updatePosition, true)
-})
-
-watch(open, (isOpen) => {
-  if (isOpen) {
-    window.addEventListener('resize', updatePosition)
-    window.addEventListener('scroll', updatePosition, true)
-  } else {
-    window.removeEventListener('resize', updatePosition)
-    window.removeEventListener('scroll', updatePosition, true)
-  }
 })
 </script>
 

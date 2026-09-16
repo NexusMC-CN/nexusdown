@@ -126,3 +126,59 @@ describe('NexusdownEditorSession extension options', () => {
     session.destroy()
   })
 })
+
+describe('findReplace storage invariants', () => {
+  type FindStorage = { matches: unknown[]; currentIndex: number }
+
+  it('resets currentIndex to 0 when an edit removes every match', () => {
+    const session = createNexusdownEditor({ content: '<p>foo foo foo</p>', contentType: 'html' })
+    const editor = session.getEditor()
+    editor.commands.find('foo')
+    const storage = editor.storage.findReplace as FindStorage
+    expect(storage.matches.length).toBe(3)
+
+    editor.commands.findNext()
+    editor.commands.findNext()
+    expect(storage.currentIndex).toBe(2)
+
+    // Removing all matches used to leave currentIndex stale at 2.
+    editor.commands.setContent('<p>bar bar bar</p>', { emitUpdate: true })
+    expect(storage.matches.length).toBe(0)
+    expect(storage.currentIndex).toBe(0)
+    session.destroy()
+  })
+
+  it('keeps currentIndex in range when matches shrink', () => {
+    const session = createNexusdownEditor({ content: '<p>foo foo foo</p>', contentType: 'html' })
+    const editor = session.getEditor()
+    editor.commands.find('foo')
+    const storage = editor.storage.findReplace as FindStorage
+    editor.commands.findNext()
+    editor.commands.findNext()
+    expect(storage.currentIndex).toBe(2)
+
+    editor.commands.setContent('<p>bar foo bar</p>', { emitUpdate: true })
+    expect(storage.matches.length).toBe(1)
+    expect(storage.currentIndex).toBe(0)
+    session.destroy()
+  })
+
+  it('keeps currentIndex a valid index after every edit', () => {
+    const session = createNexusdownEditor({ content: '<p>foo foo</p>', contentType: 'html' })
+    const editor = session.getEditor()
+    editor.commands.find('foo')
+    const storage = editor.storage.findReplace as FindStorage
+    editor.commands.findNext()
+
+    for (const html of ['<p>foo</p>', '<p>none</p>', '<p>foo foo foo</p>']) {
+      editor.commands.setContent(html, { emitUpdate: true })
+      // An empty match list must report index 0; otherwise the index must be valid.
+      if (storage.matches.length === 0) expect(storage.currentIndex).toBe(0)
+      else {
+        expect(storage.currentIndex).toBeGreaterThanOrEqual(0)
+        expect(storage.currentIndex).toBeLessThan(storage.matches.length)
+      }
+    }
+    session.destroy()
+  })
+})

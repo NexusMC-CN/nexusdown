@@ -82,7 +82,10 @@ function scheduleRefresh() {
 function can(command: 'deleteRow' | 'deleteColumn' | 'deleteTable' | 'mergeCells' | 'splitCell'): boolean {
   if (props.readonly || !visible.value) return false
   const editor = props.session.getEditor()
-  return editor.can().chain().focus()[command]().run()
+  // No `.focus()` here: this runs inside computed(), and a capability probe should
+  // not touch selection or focus. The `can()` chain only dry-runs commands, so
+  // focus is not needed for the result either.
+  return editor.can().chain()[command]().run()
 }
 
 const canDeleteRow = computed(() => can('deleteRow'))

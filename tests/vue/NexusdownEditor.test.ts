@@ -1,6 +1,8 @@
 import { mount } from '@vue/test-utils'
 import { describe, expect, it, vi } from 'vitest'
 import { readFileSync } from 'node:fs'
+import { dirname, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { Extension } from '@tiptap/core'
 import NexusdownEditor from '../../src/vue/NexusdownEditor.vue'
 import type { NexusdownEditorSession } from '../../src/core/session'
@@ -318,6 +320,60 @@ describe('NexusdownEditor', () => {
     wrapper.unmount()
   })
 
+  it('closes the heading menu on an outside pointer press', async () => {
+    const wrapper = mount(NexusdownEditor, { props: { modelValue: 'Section' } })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    await wrapper.get('button[aria-label="标题"]').trigger('click')
+    expect(document.body.querySelector('[data-nexusdown="heading-menu"]')).not.toBeNull()
+
+    document.body.dispatchEvent(new Event('pointerdown', { bubbles: true }))
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(document.body.querySelector('[data-nexusdown="heading-menu"]')).toBeNull()
+    wrapper.unmount()
+  })
+
+  it('closes the heading menu on Escape', async () => {
+    const wrapper = mount(NexusdownEditor, { props: { modelValue: 'Section' } })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    await wrapper.get('button[aria-label="标题"]').trigger('click')
+    expect(document.body.querySelector('[data-nexusdown="heading-menu"]')).not.toBeNull()
+
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(document.body.querySelector('[data-nexusdown="heading-menu"]')).toBeNull()
+    wrapper.unmount()
+  })
+
+  it('keeps the heading menu open when pressing inside it', async () => {
+    const wrapper = mount(NexusdownEditor, { props: { modelValue: 'Section' } })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    await wrapper.get('button[aria-label="标题"]').trigger('click')
+    const menu = document.body.querySelector('[data-nexusdown="heading-menu"]') as HTMLElement
+    expect(menu).not.toBeNull()
+
+    menu.dispatchEvent(new Event('pointerdown', { bubbles: true }))
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(document.body.querySelector('[data-nexusdown="heading-menu"]')).not.toBeNull()
+    wrapper.unmount()
+  })
+
+  it('detaches its dismissal listeners when the heading menu closes', async () => {
+    const wrapper = mount(NexusdownEditor, { props: { modelValue: 'Section' } })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    const removeSpy = vi.spyOn(document, 'removeEventListener')
+
+    await wrapper.get('button[aria-label="标题"]').trigger('click')
+    await wrapper.get('button[aria-label="标题"]').trigger('click')
+
+    // Dismissal listeners are per-open and must be released on close. Position
+    // listeners (resize/scroll/visualViewport) live for the component lifetime
+    // and are owned by useNexusdownViewport.
+    expect(removeSpy).toHaveBeenCalledWith('pointerdown', expect.any(Function))
+    expect(removeSpy).toHaveBeenCalledWith('keydown', expect.any(Function))
+    removeSpy.mockRestore()
+    wrapper.unmount()
+  })
+
   it('opens an independent link popup with display text and URL fields', async () => {
     const wrapper = mount(NexusdownEditor, { props: { modelValue: 'Selected text' } })
     await new Promise((resolve) => setTimeout(resolve, 0))
@@ -396,6 +452,48 @@ describe('NexusdownEditor', () => {
       expect(css).toMatch(/\.column-resize-handle\s*\{[^}]*position:\s*absolute/)
       expect(css).toMatch(/\.nexusdown-codeblock-language__trigger\s*\{[^}]*position:\s*absolute/)
       expect(css).toMatch(/\.nexusdown-codeblock-language__menu\s*\{[^}]*position:\s*absolute/)
+    }
+  })
+
+  it('keeps src and public stylesheets byte-identical', () => {
+    // `src/style.css` is the authoring source; `public/style.css` is what tsup
+    // copies into `dist/style.css` (the published `nexusdown/style.css`). They
+    // silently drifted apart once already, so lock them together. `npm run
+    // build` syncs them via the `sync:style` script.
+    const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
+    const src = readFileSync(resolve(root, 'src/style.css'), 'utf8')
+    const pub = readFileSync(resolve(root, 'public/style.css'), 'utf8')
+    expect(pub).toBe(src)
+  })
+
+  it('keeps the generated vue entry shim in sync with its TypeScript source', async () => {
+    // `src/vue/entry.ts` is the type-checked source of truth; `entry.js` is the
+    // generated shim that makes `nexusdown/vue` resolvable by plain-Node tooling.
+    // Regenerate and compare so a stale shim cannot be published.
+    const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
+    const shim = readFileSync(resolve(root, 'src/vue/entry.js'), 'utf8')
+    const { execFileSync } = await import('node:child_process')
+    execFileSync(process.execPath, [resolve(root, 'scripts/generate-vue-entry.mjs')], {
+      stdio: 'ignore',
+    })
+    const regenerated = readFileSync(resolve(root, 'src/vue/entry.js'), 'utf8')
+    expect(shim).toBe(regenerated)
+    // The shim must not contain leftover TypeScript-only syntax.
+    expect(shim).not.toMatch(/\bas\s+DefineComponent\b/)
+    expect(shim).not.toMatch(/^\s*(import|export)\s+type\s/m)
+  })
+
+  it('ships the mobile adaptations in both stylesheets', () => {
+    for (const path of ['../../src/style.css', '../../public/style.css']) {
+      const css = readFileSync(new URL(path, import.meta.url), 'utf8')
+      // 16px inputs: below this iOS Safari auto-zooms on focus.
+      expect(css).toMatch(/@media \(pointer: coarse\)/)
+      // Breakpoint that stacks the panes must relax the desktop min-height floors.
+      expect(css).toMatch(/@media \(max-width: 760px\)[\s\S]*min-height:\s*0/)
+      // Touch targets and safe-area handling.
+      expect(css).toMatch(/width:\s*44px;\s*height:\s*44px/)
+      expect(css).toMatch(/env\(safe-area-inset-bottom\)/)
+      expect(css).toMatch(/@media \(hover: none\)/)
     }
   })
 

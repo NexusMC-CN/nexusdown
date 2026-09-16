@@ -195,8 +195,11 @@ export const FindReplace = Extension.create<FindReplaceOptions, FindReplaceStora
             !transaction.getMeta('findReplace:refresh')
           ) {
             storage.matches = collectMatches(transaction.doc, storage.term, storage.caseSensitive)
-            if (storage.currentIndex >= storage.matches.length && storage.matches.length > 0) {
-              storage.currentIndex = storage.matches.length - 1
+            // Clamp unconditionally: when the edit removes every match the index
+            // must fall back to 0 too, otherwise it stays stale (e.g. 2 with
+            // `matches.length === 0`) and violates the storage contract.
+            if (storage.currentIndex >= storage.matches.length) {
+              storage.currentIndex = Math.max(0, storage.matches.length - 1)
             }
           }
           return storage

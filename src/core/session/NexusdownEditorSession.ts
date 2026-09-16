@@ -219,12 +219,23 @@ export class NexusdownEditorSession {
       if (this.destroyed) return
       const source = this.pendingSource ?? 'rich-text'
       this.pendingSource = undefined
-      const next = this.createSnapshot(source)
-      if (
-        next.markdown === this.snapshot.markdown &&
-        next.html === this.snapshot.html &&
-        JSON.stringify(next.json) === JSON.stringify(this.snapshot.json)
-      ) return
+
+      // Serialising Markdown/HTML/JSON for a large document on every keystroke is
+      // the dominant per-edit cost, so compute the cheap Markdown form first and
+      // bail out before paying for HTML + JSON when nothing changed.
+      const markdown = this.serializeMarkdown()
+      if (markdown === this.snapshot.markdown) {
+        // Markdown is unchanged. HTML/JSON can still differ (e.g. a mark change
+        // with no Markdown representation), so fall back to the full comparison.
+        const html = this.editor.getHTML()
+        if (html === this.snapshot.html) return
+        const next = { markdown, html, json: this.editor.getJSON(), source }
+        this.snapshot = next
+        for (const subscriber of this.subscribers) subscriber(next)
+        return
+      }
+
+      const next = this.createSnapshot(source, markdown)
       this.snapshot = next
       for (const subscriber of this.subscribers) subscriber(next)
     })
@@ -270,7 +281,9 @@ export class NexusdownEditorSession {
 
   can(command: EditorCommand): boolean {
     if (this.destroyed) return false
-    const chain = this.editor.can().chain().focus()
+    // `.focus()` is deliberately absent: a `can()` probe must not touch selection,
+    // and the dry-run chain does not need focus to report capability.
+    const chain = this.editor.can().chain()
     switch (command) {
       case 'undo': return chain.undo().run()
       case 'redo': return chain.redo().run()
@@ -494,9 +507,14 @@ export class NexusdownEditorSession {
     this.editor.destroy()
   }
 
-  private createSnapshot(source: SessionSource): NexusdownEditorSnapshot {
+  /** Serialise the document to Markdown, normalised exactly as snapshots store it. */
+  private serializeMarkdown(): string {
+    return this.editor.getMarkdown().replace(/\n+$/, '')
+  }
+
+  private createSnapshot(source: SessionSource, markdown = this.serializeMarkdown()): NexusdownEditorSnapshot {
     return {
-      markdown: this.editor.getMarkdown().replace(/\n+$/, ''),
+      markdown,
       html: this.editor.getHTML(),
       json: this.editor.getJSON(),
       source,

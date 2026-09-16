@@ -1,1 +1,19 @@
-<div id="app"></div><script type="module" src="/src/main.ts"></script>
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <!--
+      viewport-fit=cover lets the editor use the full screen on notched devices;
+      the library's stylesheets add env(safe-area-inset-bottom) padding for the
+      status bar and find panel. Do NOT add maximum-scale=1 / user-scalable=no:
+      the library ships 16px inputs specifically so iOS does not auto-zoom, and
+      disabling pinch-zoom would harm accessibility.
+    -->
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>nexusdown demo</title>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

@@ -30,6 +30,9 @@ iconify-icon { display: inline-block; width: 1em; height: 1em; }
 .nexusdown-markdown-editor > textarea { position: relative; z-index: 1; resize: none; color: transparent; caret-color: var(--nexus-text); background: transparent; -webkit-text-fill-color: transparent; }
 .nexusdown-markdown-editor > textarea::selection { background: rgb(37 99 235 / 20%); }
 .nexusdown-markdown-editor .hljs-section { color: #0550ae; font-weight: 600; }.nexusdown-markdown-editor .hljs-strong { color: #8250df; font-weight: 700; }.nexusdown-markdown-editor .hljs-emphasis { color: #953800; font-style: italic; }.nexusdown-markdown-editor .hljs-code, .nexusdown-markdown-editor .hljs-quote { color: #0a3069; }
+/* The inline `style="color: ..."` emitted for coloured text must win over the
+ * surrounding .hljs-* token colours, so keep this rule last in the cascade. */
+.nexusdown-markdown-editor [data-nexusdown="markdown-color"] { color: inherit; }
 .nexusdown-markdown-editor .hljs-bullet, .nexusdown-markdown-editor .hljs-meta { color: #116329; }.nexusdown-markdown-editor .hljs-link { color: #0969da; text-decoration: underline; }.nexusdown-markdown-editor .hljs-string, .nexusdown-markdown-editor .hljs-symbol { color: #953800; }
 .nexusdown-editor[data-nexusdown-theme='dark'] .nexusdown-markdown-editor .hljs-bullet, .nexusdown-editor[data-nexusdown-theme='dark'] .nexusdown-markdown-editor .hljs-meta { color: #7ee787; }.nexusdown-editor[data-nexusdown-theme='dark'] .nexusdown-markdown-editor .hljs-link { color: #58a6ff; }.nexusdown-editor[data-nexusdown-theme='dark'] .nexusdown-markdown-editor .hljs-string, .nexusdown-editor[data-nexusdown-theme='dark'] .nexusdown-markdown-editor .hljs-symbol { color: #ffa657; }
 .nexusdown-editor[data-nexusdown-theme='dark'] .nexusdown-markdown-editor .hljs-section { color: #79c0ff; }.nexusdown-editor[data-nexusdown-theme='dark'] .nexusdown-markdown-editor .hljs-strong { color: #d2a8ff; }.nexusdown-editor[data-nexusdown-theme='dark'] .nexusdown-markdown-editor .hljs-emphasis { color: #ffa657; }.nexusdown-editor[data-nexusdown-theme='dark'] .nexusdown-markdown-editor .hljs-code, .nexusdown-editor[data-nexusdown-theme='dark'] .nexusdown-markdown-editor .hljs-quote { color: #a5d6ff; }
@@ -81,3 +84,104 @@ iconify-icon { display: inline-block; width: 1em; height: 1em; }
 .nexusdown-image-picker__upload { display: grid; gap: 6px; }.nexusdown-image-picker__upload button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 32px; border: 1px dashed var(--nexus-border); border-radius: 4px; color: var(--nexus-text); background: var(--nexus-panel); cursor: pointer; }.nexusdown-image-picker__file { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }.nexusdown-image-picker__error { margin: 0; color: #b91c1c; font-size: 12px; }
 .nexusdown-status-bar { display: flex; align-items: center; gap: 12px; padding: 5px 10px; border-top: 1px solid var(--nexus-border); background: var(--nexus-panel); color: var(--nexus-muted); font-size: 12px; }
 .nexusdown-status-bar__item { white-space: nowrap; }
+
+/* ---------------------------------------------------------------------------
+ * Touch & small-viewport adaptations
+ *
+ * Everything below is additive and overrides only what breaks on phones and
+ * tablets. Layout above the breakpoint is untouched.
+ * ------------------------------------------------------------------------- */
+
+/*
+ * iOS Safari auto-zooms the page whenever a focused form control computes to
+ * less than 16px, and does not reliably zoom back out afterwards. That sticky
+ * zoom also corrupts the getBoundingClientRect()-based picker positioning.
+ * 16px is therefore a correctness requirement here, not a style preference.
+ *
+ * NOTE: `.nexusdown-markdown-editor > pre` and `> textarea` MUST keep identical
+ * font-size/metrics or the syntax-highlight overlay desynchronises from the
+ * transparent textarea, so both are set together.
+ */
+@media (pointer: coarse), (max-width: 760px) {
+  .nexusdown-link-picker__field input,
+  .nexusdown-image-picker__field input,
+  .nexusdown-find-replace__field input,
+  .nexusdown-markdown-editor > pre,
+  .nexusdown-markdown-editor > textarea { font-size: 16px; }
+}
+
+/*
+ * WCAG 2.5.5 / Apple HIG ask for a 44x44 CSS px target. Only applied on coarse
+ * pointers so desktop keeps its compact toolbar.
+ */
+@media (pointer: coarse) {
+  .nexusdown-toolbar { min-height: 56px; padding: 8px 12px; }
+  .nexusdown-toolbar__button { width: 44px; height: 44px; }
+  .nexusdown-heading-picker__trigger { min-width: 52px; padding: 0 10px; }
+  .nexusdown-color-picker__input { width: 22px; height: 22px; }
+  .nexusdown-heading-picker__menu button { min-height: 44px; padding: 10px 12px; }
+  .nexusdown-table-controls__button { width: 40px; height: 40px; }
+  .nexusdown-table-controls__group { gap: 8px; }
+  .nexusdown-table-controls__menu button { min-height: 44px; padding: 10px 12px; }
+  .nexusdown-codeblock-language__trigger { height: 40px; min-width: 160px; }
+  .nexusdown-codeblock-language__menu button { min-height: 44px; padding: 10px 12px; }
+  .nexusdown-find-replace__actions button { min-width: 44px; min-height: 44px; }
+  .nexusdown-find-replace__field input { min-height: 44px; }
+  .nexusdown-link-picker__actions button,
+  .nexusdown-image-picker__actions button,
+  .nexusdown-image-picker__upload button { min-height: 44px; }
+  .nexusdown-link-picker__field input,
+  .nexusdown-image-picker__field input { min-height: 44px; }
+  .nexusdown-rich-content .ProseMirror li[data-checked] > label input { width: 22px; height: 22px; }
+  .nexusdown-rich-content .ProseMirror li[data-checked] > label { margin-top: 2px; }
+}
+
+/*
+ * Stacked mode: the desktop floors (372px/316px) are far taller than half of a
+ * phone viewport once the keyboard is open, which letterboxes the rich pane.
+ * Relax those floors only while the panes are stacked.
+ */
+@media (max-width: 760px) {
+  .nexusdown-rich-content,
+  .nexusdown-rich-surface,
+  .nexusdown-rich-content .ProseMirror,
+  .nexusdown-rich-content .ProseMirror:focus,
+  .nexusdown-markdown-editor,
+  .nexusdown-markdown-editor > pre,
+  .nexusdown-markdown-editor > textarea { min-height: 0; }
+  .nexusdown-rich-content,
+  .nexusdown-markdown-editor > pre,
+  .nexusdown-markdown-editor > textarea { padding: 16px; }
+  /* Two stacked panes each need room to be usable. */
+  .nexusdown-editor__panes { grid-template-rows: repeat(2, minmax(120px, 1fr)); }
+  .nexusdown-status-bar { flex-wrap: wrap; gap: 4px 10px; }
+  .nexusdown-find-replace { right: 4px; left: 4px; bottom: 4px; padding: 8px; gap: 6px; }
+}
+
+/*
+ * Phone portrait: allow the editor to shrink below its configured height and
+ * respect the home-indicator area. `height` stays as the preferred size and
+ * `max-height` becomes the hard ceiling.
+ */
+@media (max-width: 480px) {
+  .nexusdown-editor { height: auto; min-height: 260px; max-height: var(--nexusdown-height, 420px); }
+  .nexusdown-editor__panes { grid-template-rows: repeat(2, minmax(140px, 1fr)); }
+  .nexusdown-toolbar__separator { margin: 0 4px; }
+}
+
+/* Notch / home-indicator safety for bottom-docked chrome. */
+@supports (padding: env(safe-area-inset-bottom)) {
+  .nexusdown-status-bar { padding-bottom: calc(5px + env(safe-area-inset-bottom)); }
+  .nexusdown-find-replace { margin-bottom: env(safe-area-inset-bottom); }
+}
+
+/*
+ * Touch devices leave :hover latched after a tap, which makes a merely-touched
+ * toolbar button read as "active". Scope hover styling to real pointers.
+ */
+@media (hover: none) {
+  .nexusdown-toolbar__button:hover { color: var(--nexus-muted); background: transparent; }
+  .nexusdown-editor[data-nexusdown-theme='dark'] .nexusdown-toolbar__button:hover { background: transparent; }
+  .nexusdown-table-controls__button:hover { filter: none; }
+}
+

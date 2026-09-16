@@ -19,15 +19,19 @@
       "require": "./dist/core/index.cjs"
     },
     "./vue": {
-      "types": "./src/vue/NexusdownEditor.vue",
-      "import": "./src/vue/NexusdownEditor.vue"
+      "types": "./src/vue/entry.ts",
+      "import": "./src/vue/entry.js",
+      "default": "./src/vue/entry.js"
     },
+    "./vue/*": "./src/vue/*",
     "./style.css": "./dist/style.css"
   },
   "scripts": {
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "build": "tsup",
+    "sync:style": "node -e \"require('fs').copyFileSync('src/style.css','public/style.css')\"",
+    "gen:vue-entry": "node scripts/generate-vue-entry.mjs",
+    "build": "npm run sync:style && npm run gen:vue-entry && tsup",
     "pack:check": "npm run build && npm pack --dry-run"
   },
   "peerDependencies": {

@@ -106,12 +106,28 @@ watch(() => props.readonly, (readonly) => {
 })
 
 let unsubscribeSelection: () => void = () => undefined
+const panel = ref<HTMLElement | null>(null)
+
+/**
+ * On phones the soft keyboard covers the bottom of the editor, and this panel is
+ * docked to the editor's bottom edge. iOS does not scroll it into view on its
+ * own, so nudge it once the keyboard has settled into place.
+ */
+function revealPanel() {
+  const element = panel.value
+  if (!element || typeof element.scrollIntoView !== 'function') return
+  requestAnimationFrame(() => {
+    if (!panel.value) return
+    panel.value.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+  })
+}
 
 onMounted(() => {
   const editor = props.session.getEditor()
   unsubscribeSelection = props.session.onSelectionChange(refreshCounts)
   editor.on('update', refreshCounts)
   findInput.value?.focus()
+  revealPanel()
 })
 
 onBeforeUnmount(() => {
@@ -123,6 +139,7 @@ onBeforeUnmount(() => {
 
 <template>
   <div
+    ref="panel"
     class="nexusdown-find-replace"
     data-nexusdown="find-replace"
     role="search"
