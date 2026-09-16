@@ -26,6 +26,9 @@ function context(overrides: Partial<ToolbarContext['session']> = {}): ToolbarCon
         setLink: vi.fn(() => true),
         insertTable: vi.fn(() => true),
         insertImage: vi.fn(() => true),
+        setTextAlign: vi.fn(() => true),
+        indent: vi.fn(() => true),
+        outdent: vi.fn(() => true),
       },
       can: vi.fn(() => true),
       isActive: vi.fn(() => false),
@@ -45,11 +48,20 @@ describe('default toolbar', () => {
       'undo', 'redo', 'heading', 'blockquote', 'bullet-list', 'ordered-list',
       'task-list', 'code-block', 'horizontal-rule', 'bold', 'italic',
       'strike', 'code', 'underline', 'superscript', 'subscript', 'color', 'highlight', 'link', 'table', 'image',
+      'align-left', 'align-center', 'align-right', 'align-justify', 'outdent', 'indent',
     ])
     expect(items.find((item) => item.id === 'bold')).toMatchObject({
       group: 'inline',
       icon: 'lucide:bold',
       label: '粗体',
+    })
+    expect(items.find((item) => item.id === 'align-center')).toMatchObject({
+      group: 'align',
+      icon: 'lucide:align-center',
+    })
+    expect(items.find((item) => item.id === 'indent')).toMatchObject({
+      group: 'indent',
+      icon: 'lucide:indent',
     })
   })
 
@@ -117,5 +129,47 @@ describe('default toolbar', () => {
 
     expect(ctx.session.commands.insertTable).toHaveBeenCalledOnce()
     expect(ctx.session.commands.insertImage).toHaveBeenCalledWith('https://example.com/image.png', 'Example', undefined)
+  })
+
+  it('exposes alignment commands', () => {
+    const ctx = context()
+    const items = createDefaultToolbarItems()
+
+    items.find((item) => item.id === 'align-left')!.execute(ctx)
+    items.find((item) => item.id === 'align-center')!.execute(ctx)
+    items.find((item) => item.id === 'align-right')!.execute(ctx)
+    items.find((item) => item.id === 'align-justify')!.execute(ctx)
+
+    expect(ctx.session.commands.setTextAlign).toHaveBeenCalledWith('left')
+    expect(ctx.session.commands.setTextAlign).toHaveBeenCalledWith('center')
+    expect(ctx.session.commands.setTextAlign).toHaveBeenCalledWith('right')
+    expect(ctx.session.commands.setTextAlign).toHaveBeenCalledWith('justify')
+  })
+
+  it('reports the active alignment via the textAlign attribute', () => {
+    const ctx = context({ isActive: vi.fn((_name: string, attrs?: Record<string, unknown>) => attrs?.textAlign === 'center') })
+    const item = createDefaultToolbarItems().find((entry) => entry.id === 'align-center')!
+
+    expect(item.isActive!(ctx)).toBe(true)
+    expect(ctx.session.isActive).toHaveBeenCalledWith('textAlign', { textAlign: 'center' })
+  })
+
+  it('exposes indent and outdent commands', () => {
+    const ctx = context()
+    const items = createDefaultToolbarItems()
+
+    items.find((item) => item.id === 'indent')!.execute(ctx)
+    items.find((item) => item.id === 'outdent')!.execute(ctx)
+
+    expect(ctx.session.commands.indent).toHaveBeenCalledOnce()
+    expect(ctx.session.commands.outdent).toHaveBeenCalledOnce()
+  })
+
+  it('disables indent controls when can() reports false', () => {
+    const ctx = context({ can: vi.fn(() => false) })
+    const items = createDefaultToolbarItems()
+
+    expect(items.find((item) => item.id === 'indent')!.isDisabled!(ctx)).toBe(true)
+    expect(items.find((item) => item.id === 'outdent')!.isDisabled!(ctx)).toBe(true)
   })
 })

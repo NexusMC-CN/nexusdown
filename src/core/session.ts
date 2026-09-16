@@ -10,6 +10,7 @@ export type {
   NexusdownEditorOptions,
   NexusdownEditorSnapshot,
   PasteMode,
+  TextAlignment,
   SessionErrorSubscriber,
   SessionSelectionSubscriber,
   SessionSource,

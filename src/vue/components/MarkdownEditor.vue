@@ -3,11 +3,10 @@ import { nextTick, onMounted, ref, watch } from 'vue'
 import hljs from 'highlight.js/lib/core'
 import markdown from 'highlight.js/lib/languages/markdown'
 
-let markdownRegistered = false
-if (!markdownRegistered) {
-  hljs.registerLanguage('markdown', markdown)
-  markdownRegistered = true
-}
+// Registering the same grammar twice is a no-op in highlight.js, so this runs
+// unconditionally at module scope. (A previous `if (!flag)` guard was dead code:
+// the flag was reassigned to false immediately before being tested.)
+hljs.registerLanguage('markdown', markdown)
 
 const props = withDefaults(defineProps<{
   modelValue?: string
@@ -20,6 +19,8 @@ const emit = defineEmits<{
   compositionstart: []
   compositionend: [value: string]
   scroll: [payload: { top: number; left: number }]
+  /** Selection range within the Markdown source, or `null` when collapsed. */
+  'selection-change': [payload: { from: number; to: number; text: string } | null]
 }>()
 const textarea = ref<HTMLTextAreaElement | null>(null)
 const highlight = ref<HTMLElement | null>(null)
@@ -80,11 +81,47 @@ function setScrollTop(value: number) {
   syncScroll()
 }
 
-defineExpose({ getScrollElement, setScrollTop })
+defineExpose({ getScrollElement, setScrollTop, getSelection })
 
 function onInput(event: Event) {
   if ((event as InputEvent).isComposing && !composing.value) onCompositionStart()
   emit('update:modelValue', (event.target as HTMLTextAreaElement).value)
+}
+
+/**
+ * Publish the textarea's selection so the shared toolbar can act on it.
+ *
+ * Without this the toolbar kept reading the rich-text selection, so choosing a
+ * formatting command after selecting Markdown text silently modified whatever
+ * the rich pane had selected instead.
+ */
+function onSelectionChange() {
+  const element = textarea.value
+  if (!element) {
+    emit('selection-change', null)
+    return
+  }
+  const { selectionStart, selectionEnd, value } = element
+  if (selectionStart === selectionEnd) {
+    emit('selection-change', null)
+    return
+  }
+  emit('selection-change', {
+    from: selectionStart,
+    to: selectionEnd,
+    text: value.slice(selectionStart, selectionEnd),
+  })
+}
+
+/** Selection range currently active in the textarea, or `null` when collapsed. */
+function getSelection() {
+  const element = textarea.value
+  if (!element || element.selectionStart === element.selectionEnd) return null
+  return {
+    from: element.selectionStart,
+    to: element.selectionEnd,
+    text: element.value.slice(element.selectionStart, element.selectionEnd),
+  }
 }
 
 function onCompositionStart() {
@@ -121,6 +158,11 @@ onMounted(syncScroll)
       @compositionstart="onCompositionStart"
       @compositionend="onCompositionEnd"
       @scroll="onScroll"
+      @select="onSelectionChange"
+      @keyup="onSelectionChange"
+      @mouseup="onSelectionChange"
+      @focus="onSelectionChange"
+      @blur="emit('selection-change', null)"
     />
   </div>
 </template>

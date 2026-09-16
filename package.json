@@ -28,10 +28,14 @@
   },
   "scripts": {
     "test": "vitest run",
+    "test:consumer": "node scripts/test-consumer.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
     "sync:style": "node -e \"require('fs').copyFileSync('src/style.css','public/style.css')\"",
     "gen:vue-entry": "node scripts/generate-vue-entry.mjs",
     "build": "npm run sync:style && npm run gen:vue-entry && tsup",
+    "verify": "npm run typecheck && npm run lint && npm test && npm run build",
     "pack:check": "npm run build && npm pack --dry-run"
   },
   "peerDependencies": {
@@ -54,6 +58,7 @@
     "@tiptap/extension-table-row": "^3.31.3",
     "@tiptap/extension-task-item": "^3.31.3",
     "@tiptap/extension-task-list": "^3.31.3",
+    "@tiptap/extension-text-align": "^3.31.3",
     "@tiptap/extension-text-style": "^3.31.3",
     "@tiptap/extension-typography": "^3.31.3",
     "@tiptap/extension-underline": "^3.31.3",
@@ -65,15 +70,23 @@
     "lowlight": "^3.3.0"
   },
   "devDependencies": {
+    "@commitlint/cli": "^21.2.2",
+    "@commitlint/config-conventional": "^21.2.2",
+    "@eslint/js": "^10.0.1",
     "@types/node": "^22.20.2",
     "@vitejs/plugin-vue": "^5.2.4",
     "@vue/test-utils": "^2.5.0",
+    "eslint": "^10.10.0",
+    "eslint-plugin-vue": "^10.11.0",
+    "globals": "^17.12.0",
     "jsdom": "^29.1.1",
     "tsup": "^8.5.1",
     "typescript": "^5.7.3",
+    "typescript-eslint": "^8.70.0",
     "vite": "^6.4.3",
     "vitest": "^5.0.0",
     "vue": "^3.0.0",
+    "vue-eslint-parser": "^10.4.1",
     "vue-tsc": "^3.3.11"
   }
 }

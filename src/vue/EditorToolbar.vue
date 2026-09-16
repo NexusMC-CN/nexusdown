@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import 'iconify-icon'
-import type { ToolbarContext, ToolbarGroup, ToolbarItem } from '../core/toolbar.js'
+import type { PasteMode, ToolbarContext, ToolbarGroup, ToolbarItem } from '../core/toolbar.js'
 import HeadingPicker from './HeadingPicker.vue'
 import LinkPicker from './LinkPicker.vue'
 import ColorPicker from './components/ColorPicker.vue'
@@ -9,9 +9,12 @@ import ImagePicker from './components/ImagePicker.vue'
 
 const props = defineProps<{ context: ToolbarContext; items: ToolbarItem[]; readonly?: boolean }>()
 const emit = defineEmits<{ executed: []; find: [] }>()
-const groups: ToolbarGroup[] = ['history', 'block', 'inline', 'extension']
+// Every group a toolbar item may declare. Keeping this list exhaustive is what
+// makes new groups render; an item whose group is missing here is silently
+// dropped from the toolbar.
+const groups: ToolbarGroup[] = ['history', 'block', 'inline', 'extension', 'align', 'indent']
 const tick = ref(0)
-const pasteMode = ref<'plain' | 'structured'>(props.context.session.getPasteMode?.() ?? 'plain')
+const pasteMode = ref<PasteMode>(props.context.session.getPasteMode?.() ?? 'plain')
 let unsubscribePasteMode: () => void = () => undefined
 watch(() => props.context.session, (session) => {
   unsubscribePasteMode()
@@ -19,9 +22,23 @@ watch(() => props.context.session, (session) => {
   unsubscribePasteMode = session.onPasteModeChange?.((mode) => { pasteMode.value = mode }) ?? (() => undefined)
 }, { immediate: true })
 onBeforeUnmount(() => unsubscribePasteMode())
+
+/** Cycle plain -> structured -> markdown -> plain. */
+const PASTE_MODE_ORDER: PasteMode[] = ['plain', 'structured', 'markdown']
+const PASTE_MODE_LABELS: Record<PasteMode, string> = {
+  plain: '纯文本',
+  structured: '富文本',
+  markdown: 'Markdown',
+}
+const PASTE_MODE_ICONS: Record<PasteMode, string> = {
+  plain: 'lucide:clipboard-type',
+  structured: 'lucide:clipboard-paste',
+  markdown: 'lucide:clipboard-list',
+}
 function togglePasteMode() {
   if (props.readonly) return
-  const next = pasteMode.value === 'plain' ? 'structured' : 'plain'
+  const index = PASTE_MODE_ORDER.indexOf(pasteMode.value)
+  const next = PASTE_MODE_ORDER[(index + 1) % PASTE_MODE_ORDER.length]
   props.context.session.setPasteMode(next)
   pasteMode.value = next
 }
@@ -84,6 +101,7 @@ function executeImage(payload: { src: string; alt: string }) {
           <button
             v-if="item.id !== 'heading' && item.id !== 'link' && item.id !== 'color' && item.id !== 'highlight' && item.id !== 'image'"
             class="nexusdown-toolbar__button"
+            :data-nexusdown-command="item.id"
             :class="{ 'is-active': item.isActive?.(context) }"
             :disabled="readonly || item.isDisabled?.(context)"
             type="button"
@@ -113,14 +131,15 @@ function executeImage(payload: { src: string; alt: string }) {
         </button>
         <button
           class="nexusdown-toolbar__button"
-          :class="{ 'is-active': pasteMode === 'structured' }"
+          :class="{ 'is-active': pasteMode !== 'plain' }"
+          data-nexusdown-command="paste-mode"
           :disabled="readonly"
           type="button"
-          :aria-label="pasteMode === 'plain' ? '粘贴模式：纯文本' : '粘贴模式：富文本'"
-          :title="pasteMode === 'plain' ? '粘贴模式：纯文本（点击切换为富文本）' : '粘贴模式：富文本（点击切换为纯文本）'"
+          :aria-label="`粘贴模式：${PASTE_MODE_LABELS[pasteMode]}`"
+          :title="`粘贴模式：${PASTE_MODE_LABELS[pasteMode]}（点击切换到${PASTE_MODE_LABELS[PASTE_MODE_ORDER[(PASTE_MODE_ORDER.indexOf(pasteMode) + 1) % PASTE_MODE_ORDER.length]]}）`"
           @click="togglePasteMode"
         >
-          <component :is="'iconify-icon'" :icon="pasteMode === 'plain' ? 'lucide:clipboard-type' : 'lucide:clipboard-paste'" aria-hidden="true" />
+          <component :is="'iconify-icon'" :icon="PASTE_MODE_ICONS[pasteMode]" aria-hidden="true" />
         </button>
       </div>
     </template>

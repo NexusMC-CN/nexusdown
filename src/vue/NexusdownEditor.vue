@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, markRaw, onMounted, onUnmounted, ref, shallowRef, watch } from 'vue'
+import { computed, markRaw, nextTick, onMounted, onUnmounted, ref, shallowRef, watch } from 'vue'
 import type { AnyExtension } from '@tiptap/core'
 import {
   createDefaultToolbarItems,
@@ -39,7 +39,7 @@ const props = withDefaults(defineProps<{
   showStatusBar?: boolean
   imageUpload?: (file: File) => Promise<string>
   maxFileSize?: number
-  pasteMode?: 'plain' | 'structured'
+  pasteMode?: PasteMode
   class?: string
 }>(), { modelValue: '', contentType: 'markdown', readonly: false, theme: 'system', layout: 'rich-left', width: '100%', height: 420, syncScroll: true, showStatusBar: true, pasteMode: 'plain' })
 const emit = defineEmits<{
@@ -48,7 +48,26 @@ const emit = defineEmits<{
   'parse-error': [error: Error]
 }>()
 
-const initialContent = props.contentType === 'json' ? JSON.parse(props.modelValue || '{}') : props.modelValue
+/**
+ * Parse the bound JSON value for the initial document.
+ *
+ * Invalid JSON must not abort setup: throwing here would leave the component
+ * unmounted, so the declared `parse-error` event could never reach the caller.
+ * Fall back to an empty document and report the failure once the session (and
+ * therefore the emit channel) exists.
+ */
+function parseInitialJson(value: string): { content: unknown; error: Error | null } {
+  if (!value.trim()) return { content: undefined, error: null }
+  try {
+    return { content: JSON.parse(value), error: null }
+  } catch (cause) {
+    const error = new Error(`Invalid JSON content: ${(cause as Error).message}`)
+    return { content: undefined, error }
+  }
+}
+
+const initialJson = props.contentType === 'json' ? parseInitialJson(props.modelValue) : null
+const initialContent = initialJson ? initialJson.content : props.modelValue
 const session = shallowRef<NexusdownEditorSession>(markRaw(createNexusdownEditor({
   content: initialContent,
   contentType: props.contentType,
@@ -79,14 +98,37 @@ let unsubscribe: () => void = () => undefined
 let unsubscribeError: () => void = () => undefined
 let syncingScroll = false
 const findReplaceOpen = ref(false)
+/**
+ * Text currently selected in the Markdown pane.
+ *
+ * The shared toolbar has a single selection concept, and it natively reflects
+ * the rich-text selection. When the user selects Markdown source instead, that
+ * selection should win — otherwise a formatting command silently applies to
+ * whatever the rich pane last had selected.
+ */
+const markdownSelection = ref<{ from: number; to: number; text: string } | null>(null)
 
 const items = computed(() => props.toolbarItems ?? createDefaultToolbarItems())
 const toolbarContext = computed<ToolbarContext>(() => {
   void revision.value
   const current = session.value
   if (!current) throw new Error('Editor session is not ready')
+  const markdownSelectionText = markdownSelection.value?.text ?? ''
   return {
-    session: current,
+    // Proxy the session so `getSelectedText()` reports the Markdown selection
+    // while one is active, and falls through to the rich-text selection
+    // otherwise. All other members are bound to the real session.
+    session: {
+      ...current,
+      commands: current.commands,
+      can: (command) => current.can(command),
+      isActive: (name, attributes) => current.isActive(name, attributes),
+      getSelectedText: () => markdownSelectionText || current.getSelectedText(),
+      getLinkHref: () => current.getLinkHref(),
+      getPasteMode: () => current.getPasteMode(),
+      setPasteMode: (mode) => current.setPasteMode(mode),
+      onPasteModeChange: current.onPasteModeChange?.bind(current),
+    },
     insertImageFile: (file) => props.readonly || !current.getEditor().isEditable
       ? Promise.resolve(false)
       : current.insertImageFromFile(file),
@@ -109,6 +151,10 @@ unsubscribe = session.value.subscribe((snapshot) => {
 })
 unsubscribeError = session.value.onError((error) => emit('parse-error', error))
 const unsubscribeSelection = session.value.onSelectionChange(() => { revision.value++ })
+
+// Surface a malformed initial JSON value through the same channel as any other
+// parse failure, now that the session is available to carry the event.
+if (initialJson?.error) emit('parse-error', initialJson.error)
 
 function normalizeDimension(value: EditorDimension | undefined, fallback: string): string {
   if (typeof value === 'number') return String(Math.max(1, value)) + 'px'
@@ -147,6 +193,17 @@ function onMarkdownScroll(payload: { top: number }) {
   syncPaneScroll('markdown', payload.top)
 }
 
+/**
+ * Track the Markdown-side selection so the toolbar acts on it.
+ *
+ * A collapsed selection clears the override, so the toolbar falls back to the
+ * rich-text selection rather than acting on a stale range.
+ */
+function onMarkdownSelectionChange(payload: { from: number; to: number; text: string } | null) {
+  markdownSelection.value = payload
+  revision.value++
+}
+
 function onEditorKeydown(event: KeyboardEvent) {
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'f') {
     if (props.readonly) return
@@ -164,6 +221,19 @@ function closeFindReplace() {
 }
 
 onMounted(() => {
+  if (richElement.value) session.value.getEditor().mount(richElement.value)
+})
+
+// Switching the layout re-renders the rich pane through a different `v-if`
+// branch, so Vue discards the DOM node Tiptap was mounted into and the new one
+// is empty. Re-mount the live editor into whichever node is current; the
+// instance (and therefore the document) is preserved.
+//
+// Watch the layout itself rather than the `richElement` ref: a template ref is
+// reassigned on every render that remounts the node, and re-mounting on each of
+// those would tear down the editor during ordinary updates.
+watch(layoutMode, async () => {
+  await nextTick()
   if (richElement.value) session.value.getEditor().mount(richElement.value)
 })
 
@@ -242,6 +312,7 @@ onUnmounted(() => {
             @compositionstart="onMarkdownCompositionStart"
             @compositionend="onMarkdownCompositionEnd"
             @scroll="onMarkdownScroll"
+            @selection-change="onMarkdownSelectionChange"
           />
         </div>
       </template>
@@ -255,6 +326,7 @@ onUnmounted(() => {
             @compositionstart="onMarkdownCompositionStart"
             @compositionend="onMarkdownCompositionEnd"
             @scroll="onMarkdownScroll"
+            @selection-change="onMarkdownSelectionChange"
           />
         </div>
         <div ref="richPane" class="nexusdown-editor__pane nexusdown-editor__pane--rich" data-nexusdown="rich-text" @scroll="onRichScroll">

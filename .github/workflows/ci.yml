@@ -1,0 +1,109 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+# Cancel superseded runs on the same ref to save runner minutes.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: verify (node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 20 is the oldest LTS with stable `require(esm)`; 24 is current LTS and
+        # matches the local development toolchain.
+        node: ['20', '22', '24']
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type check
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
+      # Fails if `npm run build` left the working tree dirty, which means a
+      # generated artifact (the vue entry shim, the synced stylesheet) was
+      # committed without being rebuilt.
+      - name: Build output is committed
+        run: |
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "::error::Build produced uncommitted changes. Run 'npm run build' and commit the result."
+            git status --porcelain
+            git --no-pager diff
+            exit 1
+          fi
+
+      - name: Package contents
+        run: npm run pack:check
+
+  consumer:
+    name: consumer smoke test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Packs the tarball, installs it into a throwaway project and builds a real
+      # Vite app against it. This is the only check that can catch packaging
+      # regressions such as an unresolvable `exports` subpath, a file missing
+      # from `files[]`, or a stale generated entry shim.
+      - name: Consumer smoke test
+        run: npm run test:consumer
+
+  commitlint:
+    name: commit messages
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    # Advisory only: the repo's history contains non-conforming Chinese subjects
+    # that predate this config. Flip `continue-on-error` to false once the
+    # convention is enforced going forward.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint commit messages
+        run: npx commitlint --from ${{ github.event.pull_request.base.sha }} --to ${{ github.event.pull_request.head.sha }} --verbose

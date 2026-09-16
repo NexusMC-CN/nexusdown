@@ -1,4 +1,4 @@
-import { computed, getCurrentInstance, isRef, onMounted, onUnmounted, ref, unref, watch, type Ref } from 'vue'
+import { getCurrentInstance, isRef, onMounted, onUnmounted, ref, unref, watch, type Ref } from 'vue'
 
 export type NexusdownTheme = 'light' | 'dark' | 'system'
 export type ResolvedNexusdownTheme = Exclude<NexusdownTheme, 'system'>

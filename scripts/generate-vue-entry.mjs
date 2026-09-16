@@ -21,8 +21,7 @@ const here = dirname(fileURLToPath(import.meta.url))
 const source = resolve(here, '../src/vue/entry.ts')
 const target = resolve(here, '../src/vue/entry.js')
 
-const banner = `/* eslint-disable */
-/*
+const banner = `/*
  * GENERATED FILE - DO NOT EDIT.
  * Produced from ./entry.ts by scripts/generate-vue-entry.mjs (runs on \`npm run build\`).
  * Edit entry.ts instead; this shim exists only so plain-Node tooling can resolve

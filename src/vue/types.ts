@@ -1,5 +1,5 @@
 import type { AnyExtension } from '@tiptap/core'
-import type { ToolbarItem } from '../core/toolbar.js'
+import type { PasteMode, ToolbarItem } from '../core/toolbar.js'
 import type { NexusdownEditorLayout } from './layout.js'
 import type { NexusdownTheme } from './composables/useNexusdownTheme.js'
 
@@ -40,8 +40,14 @@ export interface NexusdownEditorProps {
   imageUpload?: (file: File) => Promise<string>
   /** Maximum accepted local image size in bytes. Unset means no limit. */
   maxFileSize?: number
-  /** Default paste behaviour. Defaults to `'plain'`. */
-  pasteMode?: 'plain' | 'structured'
+  /**
+   * Default paste behaviour. Defaults to `'plain'`.
+   *
+   * - `'plain'`: insert the clipboard's plain text only.
+   * - `'structured'`: keep the clipboard's rich HTML structure.
+   * - `'markdown'`: parse the clipboard's plain text as Markdown.
+   */
+  pasteMode?: PasteMode
   /** Extra class on the root node. */
   class?: string
 }

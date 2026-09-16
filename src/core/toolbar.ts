@@ -1,4 +1,8 @@
-export type ToolbarGroup = 'history' | 'block' | 'inline' | 'extension'
+import type { PasteMode } from './session/NexusdownEditorSession.js'
+
+export type { PasteMode }
+
+export type ToolbarGroup = 'history' | 'block' | 'inline' | 'extension' | 'align' | 'indent'
 
 export type ToolbarCommand =
   | 'undo'
@@ -22,6 +26,12 @@ export type ToolbarCommand =
   | 'link'
   | 'table'
   | 'image'
+  | 'align-left'
+  | 'align-center'
+  | 'align-right'
+  | 'align-justify'
+  | 'indent'
+  | 'outdent'
 
 export interface ToolbarSession {
   commands: {
@@ -46,14 +56,17 @@ export interface ToolbarSession {
     setLink: (href?: string, text?: string) => boolean
     insertTable: (rows?: number, cols?: number) => boolean
     insertImage: (src: string, alt?: string, title?: string) => boolean
+    setTextAlign: (alignment?: 'left' | 'center' | 'right' | 'justify') => boolean
+    indent: () => boolean
+    outdent: () => boolean
   }
   can: (command: ToolbarCommand) => boolean
   isActive: (name: string, attributes?: Record<string, unknown>) => boolean
   getSelectedText: () => string
   getLinkHref: () => string
-  getPasteMode: () => 'plain' | 'structured'
-  setPasteMode: (mode: 'plain' | 'structured') => void
-  onPasteModeChange?: (subscriber: (mode: 'plain' | 'structured') => void) => () => void
+  getPasteMode: () => PasteMode
+  setPasteMode: (mode: PasteMode) => void
+  onPasteModeChange?: (subscriber: (mode: PasteMode) => void) => () => void
 }
 
 export interface ToolbarContext {
@@ -115,5 +128,11 @@ export function createDefaultToolbarItems(): ToolbarItem[] {
     item({ id: 'link', group: 'extension', icon: 'lucide:link', label: '链接', execute: ({ session, linkHref, linkText }) => session.commands.setLink(linkHref, linkText), isActive: ({ session }) => session.isActive('link'), disabledCommand: 'link' }),
     item({ id: 'table', group: 'extension', icon: 'lucide:table-2', label: '表格', execute: ({ session }) => session.commands.insertTable(), isActive: ({ session }) => session.isActive('table'), disabledCommand: 'table' }),
     item({ id: 'image', group: 'extension', icon: 'lucide:image', label: '图片', execute: ({ session, imageSrc, imageAlt, imageTitle }) => session.commands.insertImage(imageSrc ?? '', imageAlt, imageTitle), disabledCommand: 'image' }),
+    item({ id: 'align-left', group: 'align', icon: 'lucide:align-left', label: '左对齐', execute: ({ session }) => session.commands.setTextAlign('left'), isActive: ({ session }) => session.isActive('textAlign', { textAlign: 'left' }) }),
+    item({ id: 'align-center', group: 'align', icon: 'lucide:align-center', label: '居中对齐', execute: ({ session }) => session.commands.setTextAlign('center'), isActive: ({ session }) => session.isActive('textAlign', { textAlign: 'center' }) }),
+    item({ id: 'align-right', group: 'align', icon: 'lucide:align-right', label: '右对齐', execute: ({ session }) => session.commands.setTextAlign('right'), isActive: ({ session }) => session.isActive('textAlign', { textAlign: 'right' }) }),
+    item({ id: 'align-justify', group: 'align', icon: 'lucide:align-justify', label: '两端对齐', execute: ({ session }) => session.commands.setTextAlign('justify'), isActive: ({ session }) => session.isActive('textAlign', { textAlign: 'justify' }) }),
+    item({ id: 'outdent', group: 'indent', icon: 'lucide:outdent', label: '减少缩进', execute: ({ session }) => session.commands.outdent(), disabledCommand: 'outdent' }),
+    item({ id: 'indent', group: 'indent', icon: 'lucide:indent', label: '增加缩进', execute: ({ session }) => session.commands.indent(), disabledCommand: 'indent' }),
   ]
 }

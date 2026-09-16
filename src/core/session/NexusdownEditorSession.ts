@@ -5,7 +5,18 @@ import type { NexusdownExtensionOptions } from '../extensions/types.js'
 
 export type ContentType = 'json' | 'html' | 'markdown'
 export type SessionSource = 'rich-text' | 'markdown' | 'history'
-export type PasteMode = 'plain' | 'structured'
+/**
+ * How pasted clipboard content is interpreted.
+ *
+ * - `plain`: keep only the clipboard's plain text (default).
+ * - `structured`: keep the clipboard's rich HTML structure.
+ * - `markdown`: treat the clipboard's plain text as Markdown source and parse it
+ *   into rich nodes (headings, lists, tables, ...) instead of inserting it
+ *   literally.
+ */
+export type PasteMode = 'plain' | 'structured' | 'markdown'
+/** Horizontal alignment of a block. */
+export type TextAlignment = 'left' | 'center' | 'right' | 'justify'
 
 export interface NexusdownEditorOptions {
   content: string | JSONContent
@@ -62,6 +73,12 @@ export type EditorCommand =
   | 'link'
   | 'table'
   | 'image'
+  | 'align-left'
+  | 'align-center'
+  | 'align-right'
+  | 'align-justify'
+  | 'indent'
+  | 'outdent'
 
 export interface NexusdownEditorCommands {
   undo: () => boolean
@@ -93,9 +110,20 @@ export interface NexusdownEditorCommands {
   splitCell: () => boolean
   setCodeBlockLanguage: (language: string) => boolean
   insertImage: (src: string, alt?: string, title?: string) => boolean
+  /** Parse Markdown and insert it at the current selection as rich content. */
+  insertMarkdown: (markdown: string) => boolean
+  /** Align the selected block(s). Omit `alignment` to clear back to default. */
+  setTextAlign: (alignment?: TextAlignment) => boolean
+  /** Increase list/paragraph nesting by one level. */
+  indent: () => boolean
+  /** Decrease list/paragraph nesting by one level. */
+  outdent: () => boolean
 }
 
 type HeadingLevel = 1 | 2 | 3 | 4 | 5 | 6
+
+/** Maximum nesting level reachable with the `indent` command outside lists. */
+const MAX_INDENT = 8
 
 function normalizeHeadingLevel(level: number): HeadingLevel {
   return Math.min(6, Math.max(1, Math.trunc(level))) as HeadingLevel
@@ -183,11 +211,28 @@ export class NexusdownEditorSession {
         const chain = this.editor.chain().focus()
         if (!href) return chain.unsetLink().run()
         if (text !== undefined && text.length > 0) {
+          // Replacing the label must target the *whole* existing link when the
+          // cursor merely sits inside one. Blindly inserting would leave the
+          // surrounding link fragments behind (e.g. "[d]new[ocs]") and leave the
+          // user with duplicated text.
+          const range = this.currentLinkRange()
+          if (range) {
+            return this.editor.chain().focus()
+              .insertContentAt(range, { type: 'text', text, marks: [{ type: 'link', attrs: { href } }] })
+              .run()
+          }
           return chain.insertContent({
             type: 'text',
             text,
             marks: [{ type: 'link', attrs: { href } }],
           }).run()
+        }
+        // No explicit label: retarget every link touched by the selection, or the
+        // one the cursor is inside.
+        const range = this.currentLinkRange()
+        if (range) {
+          const mark = this.editor.schema.marks.link.create({ href })
+          return this.editor.chain().focus().setTextSelection(range).setMark('link', mark.attrs).run()
         }
         return chain.setLink({ href }).run()
       },
@@ -213,6 +258,19 @@ export class NexusdownEditorSession {
           title: title?.trim() || undefined,
         }).run()
       },
+      insertMarkdown: (markdown) => {
+        if (this.destroyed || !markdown) return false
+        const parsed = this.parseMarkdown(markdown)
+        if (!parsed) return false
+        return this.editor.chain().focus().insertContent(parsed).run()
+      },
+      setTextAlign: (alignment) => {
+        const chain = this.editor.chain().focus()
+        if (!alignment || alignment === 'left') return chain.unsetTextAlign().run()
+        return chain.setTextAlign(alignment).run()
+      },
+      indent: () => this.sinkBlock(),
+      outdent: () => this.liftBlock(),
     }
     this.snapshot = this.createSnapshot(options.contentType === 'markdown' ? 'markdown' : 'rich-text')
     this.editor.on('update', () => {
@@ -255,6 +313,19 @@ export class NexusdownEditorSession {
   getJSON(): JSONContent { return this.snapshot.json }
   getSnapshot(): NexusdownEditorSnapshot { return this.snapshot }
   getEditor(): Editor { return this.editor }
+
+  /**
+   * Plain-text rendering of the document.
+   *
+   * Block-level nodes are separated by newlines, so this round-trips the visual
+   * line structure closely enough for word counts, search excerpts, list
+   * previews and "copy as plain text". Inline formatting is intentionally
+   * dropped, and images contribute their `alt` text instead of their source.
+   */
+  getText(): string {
+    if (this.destroyed) return ''
+    return this.serializeText()
+  }
   getSelectedText(): string {
     if (this.destroyed) return ''
     const { from, to } = this.editor.state.selection
@@ -306,6 +377,15 @@ export class NexusdownEditorSession {
       case 'link': return chain.setLink({ href: 'https://example.com' }).run()
       case 'table': return chain.insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()
       case 'image': return chain.setImage({ src: 'https://example.com/image.png' }).run()
+      case 'align-left': return chain.setTextAlign('left').run()
+      case 'align-center': return chain.setTextAlign('center').run()
+      case 'align-right': return chain.setTextAlign('right').run()
+      case 'align-justify': return chain.setTextAlign('justify').run()
+      // Indent/outdent legality depends on the block, not on a ProseMirror
+      // command, so they are probed by dry-running the same logic the commands
+      // use rather than through `chain`.
+      case 'indent': return !this.destroyed && this.currentIndent() < MAX_INDENT
+      case 'outdent': return !this.destroyed && this.currentIndent() > 0
     }
   }
 
@@ -474,7 +554,47 @@ export class NexusdownEditorSession {
       if (text) view.pasteText(text)
       return true
     }
+    if (this.pasteMode === 'markdown') {
+      if (!event.clipboardData) return false
+      // Prefer the clipboard's plain text: even when the source app also
+      // supplied HTML we still want the Markdown interpretation, which is the
+      // entire point of this mode.
+      const text = event.clipboardData.getData('text/plain')
+      event.preventDefault()
+      if (!text) return true
+      const parsed = this.parseMarkdown(text)
+      if (!parsed) {
+        // Unparseable Markdown must not silently drop the paste: fall back to
+        // inserting the literal text so nothing is lost.
+        view.pasteText(text)
+        return true
+      }
+      const { from, to } = view.state.selection
+      this.editor.chain().focus().insertContentAt({ from, to }, parsed).run()
+      return true
+    }
     return false
+  }
+
+  /**
+   * Parse Markdown source into Tiptap JSON using the registered Markdown
+   * manager. Returns `undefined` when parsing fails or yields nothing usable, so
+   * callers can fall back to plain-text insertion.
+   */
+  private parseMarkdown(markdown: string): JSONContent | undefined {
+    if (!markdown.trim()) return undefined
+    try {
+      const storage = this.editor.storage as { markdown?: { manager?: { parse?: (value: string) => JSONContent } } }
+      const parsed = storage.markdown?.manager?.parse?.(markdown)
+      if (!parsed || typeof parsed !== 'object') return undefined
+      const content = (parsed as { content?: unknown[] }).content
+      if (!Array.isArray(content) || content.length === 0) return undefined
+      return parsed
+    } catch (error) {
+      // A malformed paste should degrade to plain text, not surface an error.
+      this.emitError(error instanceof Error ? error : new Error(String(error)))
+      return undefined
+    }
   }
 
   private handleDropEvent(
@@ -507,9 +627,143 @@ export class NexusdownEditorSession {
     this.editor.destroy()
   }
 
+  /**
+   * Indent the current block.
+   *
+   * Inside a list this sinks the item one level (Tiptap's own command). Outside
+   * a list there is no standard indent command, so the block's `indent`
+   * attribute is raised instead (capped at {@link MAX_INDENT}) and rendered back
+   * through Markdown as an inline style by the paragraph/heading extensions.
+   */
+  private sinkBlock(): boolean {
+    if (this.destroyed) return false
+    if (this.editor.can().sinkListItem('listItem')) {
+      return this.editor.chain().focus().sinkListItem('listItem').run()
+    }
+    if (this.editor.can().sinkListItem('taskItem')) {
+      return this.editor.chain().focus().sinkListItem('taskItem').run()
+    }
+    const current = this.currentIndent()
+    if (current >= MAX_INDENT) return false
+    return this.editor.chain().focus().updateAttributes(this.currentBlockName(), { indent: current + 1 }).run()
+  }
+
+  /** Outdent the current block, mirroring {@link sinkBlock}. */
+  private liftBlock(): boolean {
+    if (this.destroyed) return false
+    if (this.editor.can().liftListItem('listItem')) {
+      return this.editor.chain().focus().liftListItem('listItem').run()
+    }
+    if (this.editor.can().liftListItem('taskItem')) {
+      return this.editor.chain().focus().liftListItem('taskItem').run()
+    }
+    const current = this.currentIndent()
+    if (current <= 0) return false
+    const chain = this.editor.chain().focus()
+    if (current === 1) return chain.updateAttributes(this.currentBlockName(), { indent: null }).run()
+    return chain.updateAttributes(this.currentBlockName(), { indent: current - 1 }).run()
+  }
+
+  /** Current indentation level of the selected block (0 when unset). */
+  private currentIndent(): number {
+    const { $from } = this.editor.state.selection
+    for (let depth = $from.depth; depth > 0; depth -= 1) {
+      const node = $from.node(depth)
+      if (node.type.name === 'paragraph' || node.type.name === 'heading') {
+        const value = node.attrs?.indent
+        return typeof value === 'number' && value > 0 ? value : 0
+      }
+    }
+    return 0
+  }
+
+  /** Name of the block node containing the selection. */
+  private currentBlockName(): string {
+    const { $from } = this.editor.state.selection
+    for (let depth = $from.depth; depth > 0; depth -= 1) {
+      const name = $from.node(depth).type.name
+      if (name === 'heading') return 'heading'
+    }
+    return 'paragraph'
+  }
+
+  /**
+   * The contiguous range of link-marked text the selection touches, or
+   * `undefined` when the selection is not in a link.
+   *
+   * When text is selected, the range is expanded to cover every link the
+   * selection overlaps, so editing a partially selected link does not leave
+   * orphaned fragments behind. When the selection is a bare cursor, the
+   * enclosing link is returned if one exists.
+   */
+  private currentLinkRange(): { from: number; to: number } | undefined {
+    const { state } = this.editor
+    const { from, to, empty } = state.selection
+    if (!state.schema.marks.link) return undefined
+
+    if (empty) {
+      const $from = state.selection.$from
+      const marks = $from.marks()
+      if (!marks.some((mark) => mark.type === state.schema.marks.link)) return undefined
+      // Walk outwards from the cursor to the edges of the link-marked run.
+      const start = $from.start()
+      const end = $from.end()
+      let rangeFrom = from
+      let rangeTo = to
+      state.doc.nodesBetween(start, end, (node, pos) => {
+        if (!node.isText || !node.marks.some((mark) => mark.type === state.schema.marks.link)) return true
+        const nodeFrom = pos
+        const nodeTo = pos + node.nodeSize
+        if (nodeFrom <= from && from <= nodeTo) {
+          rangeFrom = Math.min(rangeFrom, nodeFrom)
+          rangeTo = Math.max(rangeTo, nodeTo)
+        }
+        return true
+      })
+      return rangeFrom === rangeTo ? undefined : { from: rangeFrom, to: rangeTo }
+    }
+
+    let rangeFrom: number | undefined
+    let rangeTo: number | undefined
+    state.doc.nodesBetween(from, to, (node, pos) => {
+      if (!node.isText || !node.marks.some((mark) => mark.type === state.schema.marks.link)) return true
+      const nodeFrom = pos
+      const nodeTo = pos + node.nodeSize
+      rangeFrom = rangeFrom === undefined ? nodeFrom : Math.min(rangeFrom, nodeFrom)
+      rangeTo = rangeTo === undefined ? nodeTo : Math.max(rangeTo, nodeTo)
+      return true
+    })
+    if (rangeFrom === undefined || rangeTo === undefined) return undefined
+    return { from: rangeFrom, to: rangeTo }
+  }
+
   /** Serialise the document to Markdown, normalised exactly as snapshots store it. */
   private serializeMarkdown(): string {
     return this.editor.getMarkdown().replace(/\n+$/, '')
+  }
+
+  /**
+   * Flatten the document to plain text.
+   *
+   * `textBetween` with `blockSeparator` already inserts the separator between
+   * block nodes (including list items and table cells), so this stays correct
+   * for nested structures without walking the tree manually. Image nodes carry
+   * no text, so their `alt` attribute is substituted to keep the text meaningful.
+   */
+  private serializeText(): string {
+    const doc = this.editor.state.doc
+    const parts: string[] = []
+    doc.descendants((node) => {
+      if (node.type.name === 'image' && node.attrs?.alt) {
+        parts.push(String(node.attrs.alt))
+      }
+      return true
+    })
+    const body = doc.textBetween(0, doc.content.size, '\n', '\n')
+    // Image alts are appended only when the document actually has images, to
+    // avoid altering the common case.
+    if (parts.length === 0) return body.trim()
+    return `${body}${body ? '\n' : ''}${parts.join('\n')}`.trim()
   }
 
   private createSnapshot(source: SessionSource, markdown = this.serializeMarkdown()): NexusdownEditorSnapshot {

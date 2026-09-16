@@ -5,6 +5,7 @@ import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { Extension } from '@tiptap/core'
 import NexusdownEditor from '../../src/vue/NexusdownEditor.vue'
+import { createDefaultToolbarItems } from '../../src/core/toolbar'
 import type { NexusdownEditorSession } from '../../src/core/session'
 
 describe('NexusdownEditor', () => {
@@ -700,14 +701,25 @@ describe('NexusdownEditor', () => {
     }
   })
 
-  it('toggles paste mode through the toolbar button', async () => {
+  it('cycles paste mode through plain, structured and markdown via the toolbar button', async () => {
     const wrapper = mount(NexusdownEditor, { props: { modelValue: 'Hello' } })
     await new Promise((resolve) => setTimeout(resolve, 0))
     const vm = wrapper.vm as unknown as { session: NexusdownEditorSession }
+    const button = () => wrapper.get('button[aria-label*="粘贴模式"]')
+
     expect(vm.session.getPasteMode()).toBe('plain')
-    await wrapper.get('button[aria-label*="粘贴模式"]').trigger('click')
+    expect(button().attributes('aria-label')).toContain('纯文本')
+
+    await button().trigger('click')
     expect(vm.session.getPasteMode()).toBe('structured')
-    await wrapper.get('button[aria-label*="粘贴模式"]').trigger('click')
+    expect(button().attributes('aria-label')).toContain('富文本')
+
+    await button().trigger('click')
+    expect(vm.session.getPasteMode()).toBe('markdown')
+    expect(button().attributes('aria-label')).toContain('Markdown')
+
+    // Wraps back around to the start.
+    await button().trigger('click')
     expect(vm.session.getPasteMode()).toBe('plain')
     wrapper.unmount()
   })
@@ -769,6 +781,30 @@ describe('NexusdownEditor', () => {
 
     await wrapper.setProps({ showStatusBar: false })
     expect(wrapper.find('[data-nexusdown="status-bar"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('renders every toolbar group declared by the default items', async () => {
+    // Regression: EditorToolbar kept a hardcoded group list, so items in a new
+    // group (align, indent) were silently dropped from the rendered toolbar.
+    const wrapper = mount(NexusdownEditor, { props: { modelValue: '# Title' } })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    const items = createDefaultToolbarItems()
+    // These render through dedicated child components rather than a plain button.
+    const dedicated = new Set(['heading', 'link', 'color', 'highlight', 'image'])
+    const rendered = new Set(
+      wrapper
+        .findAll('.nexusdown-toolbar__group')
+        .flatMap((group) => group.findAll('[data-nexusdown-command]'))
+        .map((button) => button.attributes('data-nexusdown-command') ?? ''),
+    )
+
+    const missing = items
+      .map((item) => item.id)
+      .filter((id) => !dedicated.has(id) && !rendered.has(id))
+
+    expect(missing, 'toolbar items declared but not rendered').toEqual([])
     wrapper.unmount()
   })
 })

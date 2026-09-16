@@ -1,0 +1,26 @@
+# Normalise line endings so builds are reproducible across platforms.
+#
+# Without this, `core.autocrlf=true` (the Windows default) checks files out as
+# CRLF, while the build scripts always write LF. CI compares the build output
+# against the committed tree, so a CRLF checkout would make that check fail
+# spuriously — and only on some machines.
+* text=auto eol=lf
+
+# Generated build inputs/outputs that CI byte-compares. Pin them explicitly so
+# the comparison is meaningful.
+src/vue/entry.js text eol=lf
+public/style.css text eol=lf
+
+# Binary assets must never be line-ending converted.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+
+# Lockfiles are generated; keep them out of diffs and merge conflicts.
+package-lock.json -diff linguist-generated

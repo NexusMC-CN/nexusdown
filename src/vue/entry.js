@@ -1,4 +1,3 @@
-/* eslint-disable */
 /*
  * GENERATED FILE - DO NOT EDIT.
  * Produced from ./entry.ts by scripts/generate-vue-entry.mjs (runs on `npm run build`).
