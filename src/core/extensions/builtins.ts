@@ -14,7 +14,13 @@ import Typography from '@tiptap/extension-typography'
 import Underline from '@tiptap/extension-underline'
 import { Markdown } from '@tiptap/markdown'
 import StarterKit from '@tiptap/starter-kit'
+import CodeBlockLowlight from '@tiptap/extension-code-block-lowlight'
+import { common, createLowlight } from 'lowlight'
+import { FindReplace } from './find-replace.js'
 import type { AnyExtension, MarkdownLexerConfiguration, MarkdownToken } from '@tiptap/core'
+
+/** Highlight.js grammars shared by the code-block lowlight extension. */
+const nexusdownLowlight = createLowlight(common)
 
 const markdownColorPattern = /^\[color\s+color\s*=\s*(?:"([^"]+)"|'([^']+)'|([^\s\]]+))\]([\s\S]*?)\[\/color\]/i
 const simpleMarkdownColorPattern = /^(?:#[\da-f]{3,8}|(?:rgb|hsl)a?\([^)]*\)|[a-z]+)$/i
@@ -67,7 +73,7 @@ const MarkdownTextStyle = TextStyle.extend({
 /** The extensions included in every Nexusdown editor by default. */
 export function createBuiltInExtensions(): AnyExtension[] {
   return [
-    StarterKit.configure({ link: false, underline: false }),
+    StarterKit.configure({ link: false, underline: false, codeBlock: false }),
     MarkdownTextStyle,
     Color.configure({ types: ['textStyle'] }),
     Highlight.configure({ multicolor: true }),
@@ -77,13 +83,18 @@ export function createBuiltInExtensions(): AnyExtension[] {
     Typography,
     Placeholder.configure({ placeholder: '开始输入…' }),
     CharacterCount,
-    Image,
+    Image.configure({ allowBase64: true }),
     Link,
+    CodeBlockLowlight.configure({
+      lowlight: nexusdownLowlight,
+      defaultLanguage: 'plaintext',
+    }),
     TableKit.configure({
-      table: { resizable: false, renderWrapper: false },
+      table: { resizable: true, renderWrapper: false },
     }),
     TaskList,
     TaskItem,
     Markdown,
+    FindReplace,
   ]
 }

@@ -1,9 +1,11 @@
 import { Editor, type JSONContent } from '@tiptap/core'
+import { Selection, type Transaction } from '@tiptap/pm/state'
 import { createNexusdownExtensions } from '../extensions/index.js'
 import type { NexusdownExtensionOptions } from '../extensions/types.js'
 
 export type ContentType = 'json' | 'html' | 'markdown'
 export type SessionSource = 'rich-text' | 'markdown' | 'history'
+export type PasteMode = 'plain' | 'structured'
 
 export interface NexusdownEditorOptions {
   content: string | JSONContent
@@ -12,6 +14,18 @@ export interface NexusdownEditorOptions {
   extensions?: NexusdownExtensionOptions['extensions']
   /** Customize the final extension list before creating the editor. */
   extensionResolver?: NexusdownExtensionOptions['resolve']
+  /**
+   * Resolve an image file to its final source. When omitted the file is read
+   * as a base64 data URL. When provided, its resolved value is used instead.
+   */
+  imageUpload?: (file: File) => Promise<string>
+  /** Maximum accepted local image size in bytes. Omit to allow any size. */
+  maxFileSize?: number
+  /**
+   * Default paste behavior. `plain` keeps only the clipboard text while
+   * `structured` keeps rich HTML. Defaults to `plain`.
+   */
+  pasteMode?: PasteMode
 }
 
 export interface NexusdownEditorSnapshot {
@@ -24,6 +38,7 @@ export interface NexusdownEditorSnapshot {
 export type SessionSubscriber = (snapshot: NexusdownEditorSnapshot) => void
 export type SessionErrorSubscriber = (error: Error) => void
 export type SessionSelectionSubscriber = () => void
+type PendingImageAnchor = { from: number; to: number }
 
 export type EditorCommand =
   | 'undo'
@@ -71,6 +86,12 @@ export interface NexusdownEditorCommands {
   insertTable: (rows?: number, cols?: number) => boolean
   addTableRow: () => boolean
   addTableColumn: () => boolean
+  deleteTableRow: () => boolean
+  deleteTableColumn: () => boolean
+  deleteTable: () => boolean
+  mergeCells: () => boolean
+  splitCell: () => boolean
+  setCodeBlockLanguage: (language: string) => boolean
   insertImage: (src: string, alt?: string, title?: string) => boolean
 }
 
@@ -84,21 +105,44 @@ function normalizeTableSize(size: number | undefined): number {
   return Math.min(10, Math.max(1, Math.trunc(size ?? 3)))
 }
 
+function normalizeMaxFileSize(size: number | undefined): number | undefined {
+  return typeof size === 'number' && Number.isFinite(size) && size >= 0
+    ? Math.trunc(size)
+    : undefined
+}
+
 function isSafeImageSource(src: string): boolean {
   return !/^javascript:/i.test(src.trim())
 }
 
+function readFileAsDataURL(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : '')
+    reader.onerror = () => reject(new Error('Unable to read image file'))
+    reader.readAsDataURL(file)
+  })
+}
+
 export class NexusdownEditorSession {
   private readonly editor: Editor
+  private pasteMode: PasteMode
+  private imageUpload: ((file: File) => Promise<string>) | undefined
+  private maxFileSize: number | undefined
   readonly commands: NexusdownEditorCommands
   private readonly subscribers = new Set<SessionSubscriber>()
   private readonly errorSubscribers = new Set<SessionErrorSubscriber>()
   private readonly selectionSubscribers = new Set<SessionSelectionSubscriber>()
+  private readonly pasteModeSubscribers = new Set<(mode: PasteMode) => void>()
+  private readonly pendingImageAnchors = new Set<PendingImageAnchor>()
   private destroyed = false
   private pendingSource: SessionSource | undefined
   private snapshot: NexusdownEditorSnapshot
 
   constructor(options: NexusdownEditorOptions) {
+    this.pasteMode = options.pasteMode ?? 'plain'
+    this.imageUpload = options.imageUpload
+    this.maxFileSize = normalizeMaxFileSize(options.maxFileSize)
     this.editor = new Editor({
       element: typeof document === 'undefined' ? null : document.createElement('div'),
       extensions: createNexusdownExtensions({
@@ -107,6 +151,10 @@ export class NexusdownEditorSession {
       }),
       content: options.content,
       contentType: options.contentType,
+      editorProps: {
+        handlePaste: (view, event) => this.handlePasteEvent(view, event),
+        handleDrop: (view, event, slice, moved) => this.handleDropEvent(view, event, slice, moved),
+      },
     })
     this.commands = {
       undo: () => this.undo(),
@@ -150,6 +198,12 @@ export class NexusdownEditorSession {
       }).run(),
       addTableRow: () => this.editor.chain().focus().addRowAfter().run(),
       addTableColumn: () => this.editor.chain().focus().addColumnAfter().run(),
+      deleteTableRow: () => this.editor.chain().focus().deleteRow().run(),
+      deleteTableColumn: () => this.editor.chain().focus().deleteColumn().run(),
+      deleteTable: () => this.editor.chain().focus().deleteTable().run(),
+      mergeCells: () => this.editor.chain().focus().mergeCells().run(),
+      splitCell: () => this.editor.chain().focus().splitCell().run(),
+      setCodeBlockLanguage: (language) => this.editor.chain().focus().updateAttributes('codeBlock', { language }).run(),
       insertImage: (src, alt = '', title) => {
         const value = src.trim()
         if (!value || !isSafeImageSource(value)) return false
@@ -166,9 +220,18 @@ export class NexusdownEditorSession {
       const source = this.pendingSource ?? 'rich-text'
       this.pendingSource = undefined
       const next = this.createSnapshot(source)
-      if (next.markdown === this.snapshot.markdown) return
+      if (
+        next.markdown === this.snapshot.markdown &&
+        next.html === this.snapshot.html &&
+        JSON.stringify(next.json) === JSON.stringify(this.snapshot.json)
+      ) return
       this.snapshot = next
       for (const subscriber of this.subscribers) subscriber(next)
+    })
+    this.editor.on('transaction', ({ transaction, appendedTransactions }) => {
+      for (const pendingTransaction of [transaction, ...appendedTransactions]) {
+        this.mapPendingImageAnchors(pendingTransaction)
+      }
     })
     this.editor.on('selectionUpdate', () => {
       if (this.destroyed) return
@@ -308,12 +371,126 @@ export class NexusdownEditorSession {
   canUndo(): boolean { return !this.destroyed && this.editor.can().undo() }
   canRedo(): boolean { return !this.destroyed && this.editor.can().redo() }
 
+  getPasteMode(): PasteMode {
+    return this.pasteMode
+  }
+
+  setPasteMode(mode: PasteMode): void {
+    if (this.destroyed || mode === this.pasteMode) return
+    this.pasteMode = mode
+    for (const subscriber of this.pasteModeSubscribers) subscriber(mode)
+  }
+
+  onPasteModeChange(subscriber: (mode: PasteMode) => void): () => void {
+    if (this.destroyed) return () => undefined
+    this.pasteModeSubscribers.add(subscriber)
+    return () => this.pasteModeSubscribers.delete(subscriber)
+  }
+
+  setImageUpload(imageUpload: ((file: File) => Promise<string>) | undefined): void {
+    if (!this.destroyed) this.imageUpload = imageUpload
+  }
+
+  setMaxFileSize(maxFileSize: number | undefined): void {
+    if (!this.destroyed) this.maxFileSize = normalizeMaxFileSize(maxFileSize)
+  }
+
+  insertImageFromFile(file: File, position?: number): Promise<boolean> {
+    if (this.destroyed) return Promise.resolve(false)
+    if (typeof position === 'number' && Number.isFinite(position)) {
+      return this.insertImageFromFileAtRange(file, position, position)
+    }
+    const { from, to } = this.editor.state.selection
+    return this.insertImageFromFileAtRange(file, from, to)
+  }
+
+  private insertImageFromFileAtRange(file: File, from?: number, to?: number): Promise<boolean> {
+    if (this.destroyed || !this.editor.isEditable) return Promise.resolve(false)
+    if (!file.type.startsWith('image/')) return Promise.resolve(false)
+    if (this.maxFileSize !== undefined && file.size > this.maxFileSize) {
+      this.emitError(new Error(`Image file exceeds the ${this.maxFileSize} bytes limit`))
+      return Promise.resolve(false)
+    }
+    const anchor = typeof from === 'number' && Number.isFinite(from)
+      ? this.createPendingImageAnchor(from, to)
+      : undefined
+    if (anchor) this.pendingImageAnchors.add(anchor)
+    let sourcePromise: Promise<string>
+    try {
+      sourcePromise = this.imageUpload
+        ? Promise.resolve(this.imageUpload(file))
+        : readFileAsDataURL(file)
+    } catch (error) {
+      sourcePromise = Promise.reject(error)
+    }
+    return sourcePromise.then((src) => {
+      if (this.destroyed || !this.editor.isEditable) return false
+      const value = src.trim()
+      if (!value || !isSafeImageSource(value)) {
+        throw new Error('Image upload returned an invalid source')
+      }
+      if (!anchor) {
+        return this.editor.chain().focus().setImage({ src: value, alt: file.name }).run()
+      }
+      const range = this.createPendingImageAnchor(anchor.from, anchor.to)
+      return this.editor.chain().focus().insertContentAt(range, {
+        type: 'image',
+        attrs: { src: value, alt: file.name },
+      }).run()
+    }).catch((error) => {
+      this.emitError(error instanceof Error ? error : new Error(String(error)))
+      return false
+    }).finally(() => {
+      if (anchor) this.pendingImageAnchors.delete(anchor)
+    })
+  }
+
+  private handlePasteEvent(view: import('@tiptap/pm/view').EditorView, event: ClipboardEvent): boolean {
+    if (this.destroyed || !this.editor.isEditable) return false
+    const files = Array.from(event.clipboardData?.files ?? [])
+    const image = files.find((file) => file.type.startsWith('image/'))
+    if (image) {
+      event.preventDefault()
+      void this.insertImageFromFileAtRange(image, view.state.selection.from, view.state.selection.to)
+      return true
+    }
+    if (this.pasteMode === 'plain') {
+      if (!event.clipboardData) return false
+      const text = event.clipboardData.getData('text/plain')
+      event.preventDefault()
+      if (text) view.pasteText(text)
+      return true
+    }
+    return false
+  }
+
+  private handleDropEvent(
+    view: import('@tiptap/pm/view').EditorView,
+    event: DragEvent,
+    _slice: unknown,
+    _moved: boolean,
+  ): boolean {
+    if (this.destroyed || !this.editor.isEditable) return false
+    const files = Array.from(event.dataTransfer?.files ?? [])
+    const image = files.find((file) => file.type.startsWith('image/'))
+    if (!image) return false
+    event.preventDefault()
+    const coordinates = view.posAtCoords({ left: event.clientX, top: event.clientY })
+    const position = coordinates
+      ? Selection.near(view.state.doc.resolve(coordinates.pos)).from
+      : view.state.selection.from
+    void this.insertImageFromFile(image, position)
+    return true
+  }
+
   destroy(): void {
     if (this.destroyed) return
     this.destroyed = true
     this.subscribers.clear()
     this.errorSubscribers.clear()
     this.selectionSubscribers.clear()
+    this.pasteModeSubscribers.clear()
+    this.pendingImageAnchors.clear()
     this.editor.destroy()
   }
 
@@ -323,6 +500,33 @@ export class NexusdownEditorSession {
       html: this.editor.getHTML(),
       json: this.editor.getJSON(),
       source,
+    }
+  }
+
+  private createPendingImageAnchor(from: number, to = from): PendingImageAnchor {
+    const maxPosition = this.editor.state.doc.content.size
+    const safeFrom = Math.min(Math.max(0, Math.trunc(from)), maxPosition)
+    const safeTo = Math.min(Math.max(0, Math.trunc(to)), maxPosition)
+    return { from: Math.min(safeFrom, safeTo), to: Math.max(safeFrom, safeTo) }
+  }
+
+  private mapPendingImageAnchors(transaction: Transaction): void {
+    for (const anchor of this.pendingImageAnchors) {
+      if (anchor.from === anchor.to) {
+        const position = transaction.mapping.map(anchor.from, 1)
+        anchor.from = position
+        anchor.to = position
+        continue
+      }
+      const from = transaction.mapping.map(anchor.from, 1)
+      const to = transaction.mapping.map(anchor.to, -1)
+      if (from > to) {
+        anchor.from = from
+        anchor.to = from
+        continue
+      }
+      anchor.from = from
+      anchor.to = to
     }
   }
 

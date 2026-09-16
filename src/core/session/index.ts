@@ -5,6 +5,7 @@ export type {
   NexusdownEditorCommands,
   NexusdownEditorOptions,
   NexusdownEditorSnapshot,
+  PasteMode,
   SessionErrorSubscriber,
   SessionSelectionSubscriber,
   SessionSource,

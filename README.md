@@ -20,10 +20,16 @@ import 'nexusdown/style.css'
   :width="960"
   height="70vh"
   :sync-scroll="true"
+  :show-status-bar="false"
   :extensions="[MyExtension]"
   :extension-resolver="extensions => extensions"
+  paste-mode="plain"
+  :image-upload="uploadImage"
+  :max-file-size="5 * 1024 * 1024"
 />
 ```
+
+`imageUpload(file)` 返回最终图片 URL；未提供时，本地图片会以内嵌 base64 保存。`maxFileSize` 以字节为单位，默认不限制；图片文件也可以直接粘贴或拖入富文本编辑区。`pasteMode` 默认是 `plain`，只保留剪贴板纯文本；工具栏可切换到 `structured`，保留剪贴板中的富文本结构。底部字符和行数状态栏默认显示，传入 `:show-status-bar="false"` 可隐藏它。
 
 面板顺序默认是「左侧富文本、右侧 Markdown」（`layout="rich-left"`）。需要「左侧 Markdown、右侧富文本」时传入 `layout="markdown-left"`：
 
@@ -45,7 +51,16 @@ const editor = createNexusdownEditor({ content: '# Hello', contentType: 'markdow
 editor.setMarkdown('# Updated')
 ```
 
-默认扩展已包含文字颜色、高亮、下划线、上下标、Typography、Placeholder、字符统计、任务列表、表格和图片节点；工具栏支持表格插入、图片 URL/替代文本弹窗以及链接编辑，光标进入表格后还会在表格底部和右侧提供增加行列的控件。文字颜色优先使用可解析的 `[color color="#2563eb"]文本[/color]` 短代码语法，无法安全表达的复杂 CSS 颜色才回退为 `<span style="color: ...">...</span>`，右侧镜像会按实际颜色显示。工具栏模型可通过 `createDefaultToolbarItems()` 继续扩展。发布前运行 `npm run pack:check`。
+默认扩展已包含文字颜色、高亮、下划线、上下标、Typography、Placeholder、字符统计、任务列表、可调列宽表格、图片节点和 Lowlight 代码块。编辑器内置以下能力：
+
+- 表格增加/删除行列、删除整表、合并/拆分单元格和拖拽列宽
+- 图片 URL、本地上传、base64 回退、粘贴与拖拽插入
+- `Ctrl/Cmd+F` 查找替换、上下一个结果、大小写敏感和全部替换
+- 纯文本/结构化粘贴模式切换
+- 常用代码语言选择、Markdown fenced code 往返和语法高亮
+- 字符数、不含空格字符数和文本行数状态栏
+
+文字颜色优先使用可解析的 `[color color="#2563eb"]文本[/color]` 短代码语法，无法安全表达的复杂 CSS 颜色才回退为 `<span style="color: ...">...</span>`，右侧镜像会按实际颜色显示。工具栏模型可通过 `createDefaultToolbarItems()` 继续扩展。发布前运行 `npm run pack:check`。
 
 ## 自定义 Markdown 语法
 

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import 'iconify-icon'
 import type { ToolbarContext, ToolbarGroup, ToolbarItem } from '../core/toolbar.js'
 import HeadingPicker from './HeadingPicker.vue'
@@ -8,9 +8,23 @@ import ColorPicker from './components/ColorPicker.vue'
 import ImagePicker from './components/ImagePicker.vue'
 
 const props = defineProps<{ context: ToolbarContext; items: ToolbarItem[]; readonly?: boolean }>()
-const emit = defineEmits<{ executed: [] }>()
+const emit = defineEmits<{ executed: []; find: [] }>()
 const groups: ToolbarGroup[] = ['history', 'block', 'inline', 'extension']
 const tick = ref(0)
+const pasteMode = ref<'plain' | 'structured'>(props.context.session.getPasteMode?.() ?? 'plain')
+let unsubscribePasteMode: () => void = () => undefined
+watch(() => props.context.session, (session) => {
+  unsubscribePasteMode()
+  pasteMode.value = session.getPasteMode()
+  unsubscribePasteMode = session.onPasteModeChange?.((mode) => { pasteMode.value = mode }) ?? (() => undefined)
+}, { immediate: true })
+onBeforeUnmount(() => unsubscribePasteMode())
+function togglePasteMode() {
+  if (props.readonly) return
+  const next = pasteMode.value === 'plain' ? 'structured' : 'plain'
+  props.context.session.setPasteMode(next)
+  pasteMode.value = next
+}
 const grouped = computed(() => {
   void tick.value
   return groups.map((group) => ({ group, items: props.items.filter((item) => item.group === group) })).filter((entry) => entry.items.length)
@@ -80,10 +94,34 @@ function executeImage(payload: { src: string; alt: string }) {
             <component :is="'iconify-icon'" :icon="item.icon" aria-hidden="true" />
           </button>
           <ColorPicker v-if="item.id === 'color' || item.id === 'highlight'" :context="context" :item="item" :readonly="readonly" :kind="item.id" />
-          <ImagePicker v-if="item.id === 'image'" :disabled="item.isDisabled?.(context)" :readonly="readonly" @apply="executeImage" />
+          <ImagePicker v-if="item.id === 'image'" :disabled="item.isDisabled?.(context)" :readonly="readonly" :upload="context.insertImageFile" @apply="executeImage" />
         </template>
         <HeadingPicker v-if="entry.group === 'block' && headingItem" :active-level="activeHeadingLevel" :disabled="headingItem.isDisabled?.(context)" :readonly="readonly" @select="executeHeading" />
         <LinkPicker v-if="linkItem && entry.items.some((item) => item.id === 'link')" :selected-text="linkSelectedText" :href="linkHref" :get-selected-text="readSelectedText" :get-href="readLinkHref" :active="linkItem.isActive?.(context)" :disabled="linkItem.isDisabled?.(context)" :readonly="readonly" @apply="executeLink" />
+      </div>
+      <span v-if="entry.group === 'history'" class="nexusdown-toolbar__separator nexusdown-toolbar__separator--find" aria-hidden="true" />
+      <div v-if="entry.group === 'history'" class="nexusdown-toolbar__group">
+        <button
+          class="nexusdown-toolbar__button"
+          :disabled="readonly"
+          type="button"
+          aria-label="查找替换"
+          title="查找替换 (Ctrl+F)"
+          @click="emit('find')"
+        >
+          <component :is="'iconify-icon'" icon="lucide:search" aria-hidden="true" />
+        </button>
+        <button
+          class="nexusdown-toolbar__button"
+          :class="{ 'is-active': pasteMode === 'structured' }"
+          :disabled="readonly"
+          type="button"
+          :aria-label="pasteMode === 'plain' ? '粘贴模式：纯文本' : '粘贴模式：富文本'"
+          :title="pasteMode === 'plain' ? '粘贴模式：纯文本（点击切换为富文本）' : '粘贴模式：富文本（点击切换为纯文本）'"
+          @click="togglePasteMode"
+        >
+          <component :is="'iconify-icon'" :icon="pasteMode === 'plain' ? 'lucide:clipboard-type' : 'lucide:clipboard-paste'" aria-hidden="true" />
+        </button>
       </div>
     </template>
   </div>

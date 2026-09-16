@@ -51,6 +51,9 @@ export interface ToolbarSession {
   isActive: (name: string, attributes?: Record<string, unknown>) => boolean
   getSelectedText: () => string
   getLinkHref: () => string
+  getPasteMode: () => 'plain' | 'structured'
+  setPasteMode: (mode: 'plain' | 'structured') => void
+  onPasteModeChange?: (subscriber: (mode: 'plain' | 'structured') => void) => () => void
 }
 
 export interface ToolbarContext {
@@ -63,6 +66,8 @@ export interface ToolbarContext {
   imageSrc?: string
   imageAlt?: string
   imageTitle?: string
+  /** Insert an image file (upload callback or base64 fallback). */
+  insertImageFile?: (file: File) => Promise<boolean>
 }
 
 export interface ToolbarItem {

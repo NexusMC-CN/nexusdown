@@ -12,6 +12,9 @@ import {
 import EditorToolbar from './EditorToolbar.vue'
 import MarkdownEditor from './components/MarkdownEditor.vue'
 import TableControls from './components/TableControls.vue'
+import CodeBlockLanguage from './components/CodeBlockLanguage.vue'
+import FindReplacePanel from './components/FindReplacePanel.vue'
+import EditorStatusBar from './components/EditorStatusBar.vue'
 import { useNexusdownTheme, type NexusdownTheme } from './composables/useNexusdownTheme.js'
 import type { NexusdownEditorLayout } from './layout.js'
 
@@ -33,8 +36,12 @@ const props = withDefaults(defineProps<{
   width?: EditorDimension
   height?: EditorDimension
   syncScroll?: boolean
+  showStatusBar?: boolean
+  imageUpload?: (file: File) => Promise<string>
+  maxFileSize?: number
+  pasteMode?: 'plain' | 'structured'
   class?: string
-}>(), { modelValue: '', contentType: 'markdown', readonly: false, theme: 'system', layout: 'rich-left', width: '100%', height: 420, syncScroll: true })
+}>(), { modelValue: '', contentType: 'markdown', readonly: false, theme: 'system', layout: 'rich-left', width: '100%', height: 420, syncScroll: true, showStatusBar: true, pasteMode: 'plain' })
 const emit = defineEmits<{
   'update:modelValue': [value: string]
   update: [snapshot: ReturnType<NexusdownEditorSession['getSnapshot']>]
@@ -47,6 +54,9 @@ const session = shallowRef<NexusdownEditorSession>(markRaw(createNexusdownEditor
   contentType: props.contentType,
   extensions: props.extensions,
   extensionResolver: props.extensionResolver,
+  imageUpload: props.imageUpload,
+  maxFileSize: props.maxFileSize,
+  pasteMode: props.pasteMode,
 })))
 session.value.getEditor().setEditable(!props.readonly)
 const markdownValue = ref(props.modelValue)
@@ -68,13 +78,19 @@ const layoutMode = computed<NexusdownEditorLayout>(() =>
 let unsubscribe: () => void = () => undefined
 let unsubscribeError: () => void = () => undefined
 let syncingScroll = false
+const findReplaceOpen = ref(false)
 
 const items = computed(() => props.toolbarItems ?? createDefaultToolbarItems())
 const toolbarContext = computed<ToolbarContext>(() => {
   void revision.value
   const current = session.value
   if (!current) throw new Error('Editor session is not ready')
-  return { session: current }
+  return {
+    session: current,
+    insertImageFile: (file) => props.readonly || !current.getEditor().isEditable
+      ? Promise.resolve(false)
+      : current.insertImageFromFile(file),
+  }
 })
 
 defineExpose({ session })
@@ -131,6 +147,22 @@ function onMarkdownScroll(payload: { top: number }) {
   syncPaneScroll('markdown', payload.top)
 }
 
+function onEditorKeydown(event: KeyboardEvent) {
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'f') {
+    if (props.readonly) return
+    event.preventDefault()
+    findReplaceOpen.value = true
+  }
+}
+
+function openFindReplace() {
+  findReplaceOpen.value = true
+}
+
+function closeFindReplace() {
+  findReplaceOpen.value = false
+}
+
 onMounted(() => {
   if (richElement.value) session.value.getEditor().mount(richElement.value)
 })
@@ -157,6 +189,9 @@ watch([() => props.modelValue, () => props.contentType], ([value, contentType]) 
 })
 
 watch(() => props.readonly, (readonly) => session.value.getEditor().setEditable(!readonly))
+watch(() => props.imageUpload, (imageUpload) => session.value.setImageUpload(imageUpload))
+watch(() => props.maxFileSize, (maxFileSize) => session.value.setMaxFileSize(maxFileSize))
+watch(() => props.pasteMode, (pasteMode) => session.value.setPasteMode(pasteMode))
 
 function onMarkdownInput(value: string) {
   markdownValue.value = value
@@ -187,14 +222,15 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <section class="nexusdown-editor" :class="props.class" data-nexusdown="editor" :data-nexusdown-theme="resolvedTheme" :data-nexusdown-layout="layoutMode" :style="editorStyle">
-    <EditorToolbar v-if="session" :context="toolbarContext" :items="items" :readonly="readonly" />
+  <section class="nexusdown-editor" :class="props.class" data-nexusdown="editor" :data-nexusdown-theme="resolvedTheme" :data-nexusdown-layout="layoutMode" :style="editorStyle" @keydown.capture="onEditorKeydown">
+    <EditorToolbar v-if="session" :context="toolbarContext" :items="items" :readonly="readonly" @find="openFindReplace" />
     <div class="nexusdown-editor__panes">
       <template v-if="layoutMode === 'rich-left'">
         <div ref="richPane" class="nexusdown-editor__pane nexusdown-editor__pane--rich" data-nexusdown="rich-text" @scroll="onRichScroll">
           <div ref="richContent" class="nexusdown-rich-content">
             <div ref="richElement" class="nexusdown-rich-surface" />
             <TableControls :session="session" :container="richContent" :readonly="readonly" />
+            <CodeBlockLanguage :session="session" :container="richContent" :readonly="readonly" />
           </div>
         </div>
         <div class="nexusdown-editor__pane nexusdown-editor__pane--markdown">
@@ -225,9 +261,17 @@ onUnmounted(() => {
           <div ref="richContent" class="nexusdown-rich-content">
             <div ref="richElement" class="nexusdown-rich-surface" />
             <TableControls :session="session" :container="richContent" :readonly="readonly" />
+            <CodeBlockLanguage :session="session" :container="richContent" :readonly="readonly" />
           </div>
         </div>
       </template>
     </div>
+    <EditorStatusBar v-if="showStatusBar" :session="session" />
+    <FindReplacePanel
+      v-if="findReplaceOpen"
+      :session="session"
+      :readonly="readonly"
+      @close="closeFindReplace"
+    />
   </section>
 </template>

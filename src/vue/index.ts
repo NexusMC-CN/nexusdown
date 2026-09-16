@@ -9,4 +9,7 @@ export const vueSfcEntrypoints = {
   colorPicker: './components/ColorPicker.vue',
   imagePicker: './components/ImagePicker.vue',
   tableControls: './components/TableControls.vue',
+  codeBlockLanguage: './components/CodeBlockLanguage.vue',
+  findReplacePanel: './components/FindReplacePanel.vue',
+  statusBar: './components/EditorStatusBar.vue',
 } as const

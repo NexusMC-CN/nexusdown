@@ -4,6 +4,9 @@ export type NexusdownCore = NexusdownEditorSession
 export {
   createBuiltInExtensions,
   createNexusdownExtensions,
+  FindReplace,
+  type FindReplaceOptions,
+  type FindReplaceStorage,
   type NexusdownExtensionOptions,
   type NexusdownMarkdownExtensionConfig,
 } from './extensions/index.js'
@@ -21,6 +24,7 @@ export {
   type ContentType,
   type NexusdownEditorOptions,
   type NexusdownEditorSnapshot,
+  type PasteMode,
   type SessionErrorSubscriber,
   type SessionSource,
   type SessionSubscriber,
