@@ -1,6 +1,7 @@
 import { Editor, type AnyExtension, type JSONContent } from '@tiptap/core'
 import { Selection, type Transaction } from '@tiptap/pm/state'
 import { createNexusdownExtensions } from '../extensions/index.js'
+import { repairInlineCodeFences } from '../extensions/markdown-escape.js'
 import type { NexusdownExtensionOptions } from '../extensions/types.js'
 
 export type ContentType = 'json' | 'html' | 'markdown'
@@ -1311,7 +1312,7 @@ export class NexusdownEditorSession {
 
   /** Serialise the document to Markdown, normalised exactly as snapshots store it. */
   private serializeMarkdown(): string {
-    return this.editor.getMarkdown().replace(/\n+$/, '')
+    return repairInlineCodeFences(this.editor.getMarkdown().replace(/\n+$/, ''), this.editor.state.doc)
   }
 
   /**

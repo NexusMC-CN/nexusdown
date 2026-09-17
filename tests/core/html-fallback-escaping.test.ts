@@ -44,20 +44,14 @@ describe('HTML fallback blocks keep literal delimiters intact', () => {
     expect(r.text).toBe('==x==')
   })
 
-  // KNOWN LIMITATION: inside the inline-HTML fallback (used when a block has
-  // alignment or indent, which Markdown cannot express) the content is literal,
-  // and CommonMark does not process Markdown inside an inline HTML tag. So any
-  // inline *mark* degrades to its literal delimiters — `**b**`, `` `c` ``, `==hi==`.
-  // The text itself is preserved; only the formatting is lost on reload.
-  //
-  // This is the same root cause the CHANGELOG records for unexpressible colours,
-  // and it predates the sentinel fix above: the fix only stopped the escaping
-  // sentinels from leaking a backslash. Fixing the marks would require emitting
-  // nested HTML for the children, which a mark renderer cannot do — it only ever
-  // receives a synthetic placeholder node.
-  it('documents that marks inside an aligned block lose their formatting', () => {
+  // Marks inside the fallback block used to degrade to literal markup: the block
+  // is inline HTML and CommonMark does not process Markdown inside an inline HTML
+  // tag, so `==hi==` came back as literal text. The fallback now renders its
+  // children as HTML too, so the mark survives — see `html-fallback-marks.test.ts`
+  // for the full matrix (bold/italic/code/highlight colour/underline/text colour).
+  it('keeps a mark inside an aligned block', () => {
     const r = roundTrip('<p style="text-align: center"><mark>hi</mark></p>')
-    expect(r.text).toBe('==hi==')
-    expect(r.html).not.toContain('<mark>')
+    expect(r.text).toBe('hi')
+    expect(r.html).toContain('<mark>')
   })
 })

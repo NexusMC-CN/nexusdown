@@ -88,6 +88,69 @@ export function renderCodeFence(content: string, language: string | undefined): 
   return `${fence}${info}\n${body}\n${fence}`
 }
 
+/** Longest run of backticks inside `text`. */
+function longestBacktickRun(text: string): number {
+  return (text.match(/`+/g) ?? []).reduce((max, run) => Math.max(max, run.length), 0)
+}
+
+/**
+ * Widen inline code spans whose content contains a backtick.
+ *
+ * A code span must be fenced by a run of backticks *longer* than any run inside
+ * it, so ``a`b`` has to be written as ` ``a`b`` ` rather than `` `a`b` `` (which
+ * re-parses as `<code>a</code>b\``).
+ *
+ * This cannot be done by the `code` mark's `renderMarkdown`: the manager derives
+ * a mark's delimiters by calling the renderer with a synthetic node whose only
+ * content is a fixed placeholder, then keeps the text before/after it. The real
+ * content never reaches the renderer, so the fence length cannot be chosen there.
+ * The document itself does know the real text, so the emitted Markdown is
+ * repaired afterwards against the code spans actually present in the document.
+ *
+ * Only spans that need it are rewritten, so ordinary inline code is untouched.
+ */
+export function repairInlineCodeFences(markdown: string, doc: ProseMirrorDocumentLike): string {
+  const contents = collectCodeSpanContents(doc).filter((text) => text.includes('`'))
+  if (contents.length === 0) return markdown
+
+  let output = markdown
+  for (const content of contents) {
+    const fence = '`'.repeat(longestBacktickRun(content) + 1)
+    // The stock renderer wraps the content in single backticks. CommonMark trims
+    // one leading/trailing space from a span whose content starts or ends with a
+    // backtick, so the padded form is required when the content has such an edge.
+    const padded = content.startsWith('`') || content.endsWith('`') ? ` ${content} ` : content
+    const replacement = `${fence}${padded}${fence}`
+    const broken = `\`${content}\``
+    output = output.split(broken).join(replacement)
+  }
+  return output
+}
+
+/** Minimal structural view of a ProseMirror document; avoids importing the type here. */
+interface ProseMirrorDocumentLike {
+  descendants: (callback: (node: ProseMirrorNodeLike) => boolean | void) => void
+}
+
+interface ProseMirrorNodeLike {
+  isText?: boolean
+  text?: string | null
+  marks?: ReadonlyArray<{ type: { name: string } }>
+  descendants?: (callback: (node: ProseMirrorNodeLike) => boolean | void) => void
+}
+
+/** Text of every `code`-marked span in the document, in document order. */
+function collectCodeSpanContents(doc: ProseMirrorDocumentLike): string[] {
+  const spans: string[] = []
+  doc.descendants((node) => {
+    if (!node.isText || typeof node.text !== 'string') return true
+    const isCode = (node.marks ?? []).some((mark) => mark.type.name === 'code')
+    if (isCode) spans.push(node.text)
+    return true
+  })
+  return spans
+}
+
 /** Escape a link/image destination for use inside `(...)`. */
 export function escapeDestination(value: string): string {
   // Unbalanced parentheses end the destination early. Angle brackets are the

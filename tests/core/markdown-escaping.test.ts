@@ -89,18 +89,25 @@ describe('code escaping (issue #1 comments)', () => {
     expect(markdown).not.toContain('````')
   })
 
-  // KNOWN LIMITATION: inline code containing a backtick is still written with a
-  // single-backtick fence, so `` `a`b` `` reparses as `<code>a</code>b\``.
+  // Inline code containing a backtick must be fenced by a *longer* run than any
+  // run inside it, so ``a`b`` is written as `` ``a`b`` `` instead of `` `a`b` ``
+  // (which reparsed as `<code>a</code>b\``).
   //
-  // This is not fixable through the public API: `@tiptap/markdown` renders a
-  // *mark* by calling the mark's `renderMarkdown` with a synthetic node whose
-  // only child is a fixed placeholder string, and it caches the opening/closing
-  // delimiter from that placeholder before the real text is emitted. The fence
-  // therefore cannot be chosen from the content. The block-level case above *is*
-  // fixed because a code block is a node, whose real content is available.
-  it('documents the current single-backtick limitation', () => {
+  // The fence cannot be chosen inside the `code` mark's `renderMarkdown`:
+  // `@tiptap/markdown` calls that renderer with a synthetic node whose only child
+  // is a fixed placeholder, and caches the delimiters from it before the real
+  // text is emitted — so the renderer never sees its content. The session instead
+  // repairs the emitted Markdown against the code spans in the document itself
+  // (see `repairInlineCodeFences`), and a `codespan` tokenizer reads the wider
+  // fence back. Full matrix: `inline-code-fence.test.ts`.
+  it('widens the fence when inline code contains a backtick', () => {
     const { markdown } = roundTrip('<p><code>a`b</code></p>')
-    expect(markdown).toBe('`a`b`')
+    expect(markdown).toBe('``a`b``')
+  })
+
+  it('leaves inline code without backticks single-fenced', () => {
+    const { markdown } = roundTrip('<p><code>plain</code></p>')
+    expect(markdown).toBe('`plain`')
   })
 })
 

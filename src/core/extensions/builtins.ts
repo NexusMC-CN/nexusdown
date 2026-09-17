@@ -16,6 +16,7 @@ import Underline from '@tiptap/extension-underline'
 import { Markdown } from '@tiptap/markdown'
 import StarterKit from '@tiptap/starter-kit'
 import CodeBlockLowlight from '@tiptap/extension-code-block-lowlight'
+import Code from '@tiptap/extension-code'
 import { common, createLowlight } from 'lowlight'
 import { FindReplace } from './find-replace.js'
 import {
@@ -88,6 +89,122 @@ const MarkdownTextStyle = TextStyle.extend({
 })
 
 /**
+ * Render a node's inline content as HTML.
+ *
+ * Used by the inline-HTML fallback block: CommonMark does not process Markdown
+ * inside an inline HTML tag, so any child mark written as Markdown (`**b**`,
+ * `*i*`, `` `c` ``, `==h==`) came back as literal markup and the formatting was
+ * lost — the whole point of the fallback is to *preserve* the block, so its
+ * children have to be HTML as well.
+ *
+ * `renderChildren` cannot be asked for this: the markdown manager renders marks
+ * through their own Markdown renderers with no way to switch a subtree to HTML,
+ * and `htmlReopen` only covers marks that reopen after an overlap boundary.
+ *
+ * Marks are emitted as the same tags the editor's own HTML serializer produces,
+ * so a re-parse through the HTML parser restores them.
+ */
+function renderInlineHtml(nodes: unknown): string {
+  if (!Array.isArray(nodes)) return ''
+  return nodes.map((child) => {
+    if (!child || typeof child !== 'object') return ''
+    const node = child as {
+      type?: string
+      text?: string
+      attrs?: Record<string, unknown>
+      marks?: Array<{ type?: string; attrs?: Record<string, unknown> }>
+      content?: unknown
+    }
+    const typeName = typeof node.type === 'string' ? node.type : (node.type as { name?: string } | undefined)?.name
+    if (typeName === 'text') return applyInlineMarks(escapeHtmlText(node.text ?? ''), node.marks ?? [])
+    if (typeName === 'hardBreak') return '<br>'
+    if (Array.isArray(node.content)) return renderInlineHtml(node.content)
+    return ''
+  }).join('')
+}
+
+/** Escape the characters that would otherwise be read as HTML. */
+function escapeHtmlText(text: string): string {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+}
+
+/** Wrap `text` in the HTML tags for each mark it carries. */
+function applyInlineMarks(text: string, marks: Array<{ type?: string; attrs?: Record<string, unknown> }>): string {
+  let output = text
+  for (const mark of marks) {
+    const name = typeof mark.type === 'string' ? mark.type : (mark.type as { name?: string } | undefined)?.name
+    const attrs = mark.attrs ?? {}
+    if (name === 'bold') output = `<strong>${output}</strong>`
+    else if (name === 'italic') output = `<em>${output}</em>`
+    else if (name === 'strike') output = `<s>${output}</s>`
+    else if (name === 'underline') output = `<u>${output}</u>`
+    else if (name === 'code') output = `<code>${output}</code>`
+    else if (name === 'superscript') output = `<sup>${output}</sup>`
+    else if (name === 'subscript') output = `<sub>${output}</sub>`
+    else if (name === 'highlight') {
+      const color = typeof attrs.color === 'string' ? attrs.color : ''
+      output = color ? `<mark data-color="${escapeHtmlAttribute(color)}">${output}</mark>` : `<mark>${output}</mark>`
+    } else if (name === 'textStyle') {
+      const color = safeColorValue(attrs.color)
+      if (color) output = `<span style="color: ${escapeHtmlAttribute(color)}">${output}</span>`
+    } else if (name === 'link') {
+      const href = typeof attrs.href === 'string' ? attrs.href : ''
+      const title = typeof attrs.title === 'string' ? ` title="${escapeHtmlAttribute(attrs.title)}"` : ''
+      if (href) output = `<a href="${escapeHtmlAttribute(href)}"${title}>${output}</a>`
+    }
+  }
+  return output
+}
+
+/** Escape a value destined for a double-quoted HTML attribute. */
+function escapeHtmlAttribute(value: string): string {
+  return value.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+}
+
+/**
+ * Whether a table row contains a cell spanning more than one column or row.
+ *
+ * Markdown cannot express either, so such a table is serialised as HTML.
+ */
+function rowHasMergedCell(row: unknown): boolean {
+  const children = (row as { content?: unknown[] } | null)?.content
+  if (!Array.isArray(children)) return false
+  return children.some((cell) => {
+    const attrs = (cell as { attrs?: Record<string, unknown> } | null)?.attrs ?? {}
+    const colspan = typeof attrs.colspan === 'number' ? attrs.colspan : 1
+    const rowspan = typeof attrs.rowspan === 'number' ? attrs.rowspan : 1
+    return colspan > 1 || rowspan > 1
+  })
+}
+
+/**
+ * Render a table as HTML, preserving `colspan` / `rowspan`.
+ *
+ * Cell contents go through {@link renderInlineHtml} for the same reason the
+ * aligned-block fallback does: CommonMark does not process Markdown inside an
+ * inline HTML tag, so Markdown children would come back as literal markup.
+ */
+function renderTableHtml(rows: JSONContent[]): string {
+  const body = rows.map((row) => {
+    const cells = (row.content ?? []) as JSONContent[]
+    const rendered = cells.map((cell) => {
+      const attrs = (cell.attrs ?? {}) as Record<string, unknown>
+      const tag = cell.type === 'tableHeader' ? 'th' : 'td'
+      const span = [
+        typeof attrs.colspan === 'number' && attrs.colspan > 1 ? ` colspan="${attrs.colspan}"` : '',
+        typeof attrs.rowspan === 'number' && attrs.rowspan > 1 ? ` rowspan="${attrs.rowspan}"` : '',
+      ].join('')
+      return `<${tag}${span}>${renderInlineHtml(cell.content ?? [])}</${tag}>`
+    }).join('')
+    return `<tr>${rendered}</tr>`
+  }).join('')
+  return `<table>${body}</table>`
+}
+
+/**
  * Render a paragraph/heading as Markdown, persisting block alignment and indent.
  *
  * `@tiptap/extension-text-align` ships no Markdown support, so alignment was
@@ -112,10 +229,6 @@ function renderAlignedBlock(
   // `{ name }` object on ProseMirror nodes; accept both.
   const typeName = typeof node.type === 'string' ? node.type : (node.type as { name?: string } | undefined)?.name
   const level = typeof node.attrs?.level === 'number' ? node.attrs.level : 1
-  // Always pass the child *array*, not the node: handing back the node makes the
-  // manager re-render the same block through this handler and recurse forever.
-  // A copy is used so the live document is not mutated by the escaping pass.
-  const children = helpers.renderChildren(escapeProseDelimitersDeep(node.content ?? []) as unknown[])
 
   // Without alignment or indent, emit exactly what the stock renderers would.
   // Delegating to `this.parent()` is not an option: that handler is bound to the
@@ -125,6 +238,11 @@ function renderAlignedBlock(
   // would otherwise be re-read as a block construct, so escape line starts.
   // Headings are exempt: their leading `#` is the syntax being emitted.
   if (!aligned && !indent) {
+    // Always pass the child *array*, not the node: handing back the node makes
+    // the manager re-render the same block through this handler and recurse
+    // forever. A copy is used so the live document is not mutated by the
+    // escaping pass.
+    const children = helpers.renderChildren(escapeProseDelimitersDeep(node.content ?? []) as unknown[])
     const rendered = typeName === 'heading' ? `${'#'.repeat(level)} ${children}` : escapeLineStart(children)
     return rendered.split(ESCAPE_SENTINEL).join('\\')
   }
@@ -133,12 +251,12 @@ function renderAlignedBlock(
   const style = [aligned ? `text-align: ${align}` : '', indent ? `margin-left: ${indent * 2}em` : '']
     .filter(Boolean)
     .join('; ')
-  // Inside the HTML fallback the text is literal, so no Markdown escaping is
-  // needed — and the sentinels injected above must be *removed*, not turned into
-  // backslashes. Converting them (as the plain path does) leaked a visible "\"
-  // into the document: `<p style="text-align: center">==x==</p>` came back as the
-  // literal text `\=\=x\=\=`, because nothing on the HTML path consumes an escape.
-  return `<${tag} style="${style}">${children.split(ESCAPE_SENTINEL).join('')}</${tag}>`
+  // CommonMark does not process Markdown inside an inline HTML tag, so the
+  // children are rendered as HTML too — otherwise every inline mark in the block
+  // (`**b**`, `*i*`, `` `c` ``, `==h==`) came back as literal markup and the
+  // formatting was lost. Text is HTML-escaped, so no Markdown escaping applies
+  // here and the sentinels injected above are simply dropped.
+  return `<${tag} style="${style}">${renderInlineHtml(node.content)}</${tag}>`
 }
 
 /** Default `indent` attribute contributed to paragraph and heading nodes. */
@@ -416,6 +534,30 @@ export function createBuiltInExtensions(): AnyExtension[] {
       parseMarkdown: (token, helpers) =>
         helpers.applyMark('underline', helpers.parseInline(token.tokens || [])),
     }),
+    // Inline code may be fenced by a run of backticks longer than one when the
+    // content itself contains a backtick (``a`b`` must be written `` ``a`b`` ``).
+    // The stock tokenizer only understands a single backtick, so the wider fence
+    // written by `repairInlineCodeFences` would not read back. CommonMark trims
+    // one leading/trailing space when the content begins or ends with a backtick,
+    // which is why the writer pads those cases.
+    Code.extend({
+      markdownTokenizer: {
+        name: 'codespan',
+        level: 'inline' as const,
+        start: (src: string) => src.indexOf('`'),
+        tokenize(src: string) {
+          const match = /^(`+)([\s\S]*?[^`])\1(?!`)/.exec(src)
+          if (!match) return undefined
+          let text = match[2].replace(/\n/g, ' ')
+          if (text.length > 2 && text.startsWith(' ') && text.endsWith(' ') && text.trim().startsWith('`')) {
+            text = text.slice(1, -1)
+          } else if (text.length > 2 && text.startsWith(' ') && text.endsWith(' ') && text.trim().endsWith('`')) {
+            text = text.slice(1, -1)
+          }
+          return { type: 'codespan', raw: match[0], text, tokens: [] } as unknown as MarkdownToken
+        },
+      },
+    }),
     Superscript,
     Subscript,
     Typography,
@@ -481,6 +623,12 @@ export function createBuiltInExtensions(): AnyExtension[] {
     // touched and a content pipe is still distinguishable.
     Table.extend({
       renderMarkdown: (node, helpers) => {
+        // Markdown has no syntax for a merged cell, and the library flattens
+        // `colspan` / `rowspan` into blank padding cells — so a merged table lost
+        // its structure on export while the HTML side kept it. Emit such a table
+        // as HTML, where the span attributes survive the round trip intact.
+        const content = (node.content ?? []) as JSONContent[]
+        if (content.some(rowHasMergedCell)) return renderTableHtml(content)
         const rendered = renderTableToMarkdown(
           { ...node, content: escapeCellContentPipes(node.content) as JSONContent[] },
           helpers,
