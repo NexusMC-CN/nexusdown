@@ -2,8 +2,17 @@ import type { PasteMode } from './session/NexusdownEditorSession.js'
 
 export type { PasteMode }
 
-export type ToolbarGroup = 'history' | 'block' | 'inline' | 'extension' | 'align' | 'indent'
+export type ToolbarGroup = 'history' | 'block' | 'inline' | 'extension' | 'align' | 'indent' | (string & {})
 
+/**
+ * Identifier for a toolbar item.
+ *
+ * The built-in commands are named for discoverability and autocompletion, but
+ * consumers registering their own extensions need to add buttons such as
+ * `badge`. The union is therefore widened with `(string & {})`, which keeps the
+ * literal suggestions while still accepting any string — narrowing the type to
+ * the built-in names made a custom button a compile error.
+ */
 export type ToolbarCommand =
   | 'undo'
   | 'redo'
@@ -32,6 +41,9 @@ export type ToolbarCommand =
   | 'align-justify'
   | 'indent'
   | 'outdent'
+  // Accept any other identifier so custom extension buttons type-check while the
+  // built-in names above still autocomplete.
+  | (string & {})
 
 export interface ToolbarSession {
   commands: {
@@ -62,6 +74,14 @@ export interface ToolbarSession {
   }
   can: (command: ToolbarCommand) => boolean
   isActive: (name: string, attributes?: Record<string, unknown>) => boolean
+  /**
+   * Whether the selection carries a text colour.
+   *
+   * With no argument, reports whether *any* colour is set. `textStyle` is shared
+   * with attributes such as `fontFamily`, so `isActive('textStyle')` cannot
+   * answer this.
+   */
+  hasTextColor: (color?: string) => boolean
   getSelectedText: () => string
   getLinkHref: () => string
   getPasteMode: () => PasteMode
@@ -123,8 +143,15 @@ export function createDefaultToolbarItems(): ToolbarItem[] {
     item({ id: 'underline', group: 'inline', icon: 'lucide:underline', label: '下划线', execute: ({ session }) => session.commands.toggleUnderline(), isActive: ({ session }) => session.isActive('underline'), disabledCommand: 'underline' }),
     item({ id: 'superscript', group: 'inline', icon: 'lucide:superscript', label: '上标', execute: ({ session }) => session.commands.toggleSuperscript(), isActive: ({ session }) => session.isActive('superscript'), disabledCommand: 'superscript' }),
     item({ id: 'subscript', group: 'inline', icon: 'lucide:subscript', label: '下标', execute: ({ session }) => session.commands.toggleSubscript(), isActive: ({ session }) => session.isActive('subscript'), disabledCommand: 'subscript' }),
-    item({ id: 'color', group: 'extension', icon: 'lucide:palette', label: '文字颜色', execute: ({ session, color }) => session.commands.setColor(color ?? '#2563eb'), isActive: ({ session, color }) => color ? session.isActive('textStyle', { color }) : session.isActive('textStyle') }),
-    item({ id: 'highlight', group: 'extension', icon: 'lucide:highlighter', label: '高亮', execute: ({ session, highlightColor }) => session.commands.setHighlight(highlightColor ?? '#fef08a'), isActive: ({ session, highlightColor }) => highlightColor ? session.isActive('highlight', { color: highlightColor }) : session.isActive('highlight') }),
+    // `textStyle` is shared with other attributes (notably `fontFamily`), so
+    // `isActive('textStyle')` is true for text that merely has a font set. That
+    // made the colour button report "already coloured", and clicking it ran the
+    // clear branch in a loop instead of applying a colour.
+    // `undefined` colour means "clear": the picker routes its clear action
+    // through `execute` so custom callbacks still run, and the default command
+    // treats a missing colour as a reset rather than falling back to a default.
+    item({ id: 'color', group: 'extension', icon: 'lucide:palette', label: '文字颜色', execute: ({ session, color }) => session.commands.setColor(color), isActive: ({ session, color }) => session.hasTextColor(color) }),
+    item({ id: 'highlight', group: 'extension', icon: 'lucide:highlighter', label: '高亮', execute: ({ session, highlightColor }) => session.commands.setHighlight(highlightColor), isActive: ({ session, highlightColor }) => highlightColor ? session.isActive('highlight', { color: highlightColor }) : session.isActive('highlight') }),
     item({ id: 'link', group: 'extension', icon: 'lucide:link', label: '链接', execute: ({ session, linkHref, linkText }) => session.commands.setLink(linkHref, linkText), isActive: ({ session }) => session.isActive('link'), disabledCommand: 'link' }),
     item({ id: 'table', group: 'extension', icon: 'lucide:table-2', label: '表格', execute: ({ session }) => session.commands.insertTable(), isActive: ({ session }) => session.isActive('table'), disabledCommand: 'table' }),
     item({ id: 'image', group: 'extension', icon: 'lucide:image', label: '图片', execute: ({ session, imageSrc, imageAlt, imageTitle }) => session.commands.insertImage(imageSrc ?? '', imageAlt, imageTitle), disabledCommand: 'image' }),

@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { nextTick, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useNexusdownViewport } from './composables/useNexusdownViewport.js'
+import { resolveOverlayTarget, nexusdownThemeVariables } from './overlay-target.js'
 
 const props = defineProps<{
   selectedText?: string
@@ -19,6 +20,9 @@ const open = ref(false)
 const trigger = ref<HTMLElement | null>(null)
 const menu = ref<HTMLElement | null>(null)
 const menuStyle = ref<Record<string, string>>({})
+// Teleport into a modal dialog when the editor lives in one: a menu teleported
+// to `body` would fall outside the dialog's top layer and be inert.
+const overlayTarget = computed(() => resolveOverlayTarget(trigger.value))
 const textValue = ref('')
 const hrefValue = ref('')
 
@@ -45,7 +49,12 @@ function updatePosition() {
     Math.max(8, rect.left - viewport.value.offsetLeft),
     Math.max(8, viewport.value.width - width - 8),
   )
-  menuStyle.value = { top: `${top}px`, left: `${left}px` }
+  // The menu is teleported out of `.nexusdown-editor`, which owns `--nexus-*`,
+  // so mirror the resolved theme values onto it or dark mode falls back to the
+  // `:root` light palette. Read fresh on every reposition so a runtime theme
+  // change is reflected.
+  const variables = nexusdownThemeVariables(element) ?? {}
+  menuStyle.value = { top: `${top}px`, left: `${left}px`, ...variables }
 }
 
 function toggle() {
@@ -68,10 +77,20 @@ function apply() {
   close()
 }
 
+/**
+ * Enter is bound to `apply`, but with Chinese/Japanese/Korean input the Enter
+ * that confirms a candidate also arrives as a keydown carrying `isComposing` —
+ * submitting on it closed the dialog before the user had finished typing.
+ * `keyCode === 229` covers older browsers that do not set `isComposing`.
+ */
+function onFieldEnter(event: KeyboardEvent) {
+  if (event.isComposing || event.keyCode === 229) return
+  apply()
+}
+
 function remove() {
   emit('apply', { href: '', text: '' })
-  close()
-}
+  close()}
 
 function onDocumentPointerDown(event: PointerEvent) {
   const target = event.target as Node | null
@@ -125,7 +144,7 @@ onBeforeUnmount(() => {
     >
       <component :is="'iconify-icon'" icon="lucide:link" aria-hidden="true" />
     </button>
-    <Teleport to="body">
+    <Teleport :to="overlayTarget">
       <div
         v-if="open"
         ref="menu"
@@ -142,7 +161,7 @@ onBeforeUnmount(() => {
         </label>
         <label class="nexusdown-link-picker__field">
           <span>链接</span>
-          <input v-model="hrefValue" aria-label="链接地址" type="url" placeholder="https://" @keydown.enter.prevent="apply" />
+          <input v-model="hrefValue" aria-label="链接地址" type="url" placeholder="https://" @keydown.enter.prevent="onFieldEnter" />
         </label>
         <div class="nexusdown-link-picker__actions">
           <button v-if="active" type="button" aria-label="移除链接" @click="remove">移除</button>

@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { nextTick, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useNexusdownViewport } from './composables/useNexusdownViewport.js'
+import { resolveOverlayTarget, nexusdownThemeVariables } from './overlay-target.js'
 
 const props = defineProps<{ activeLevel?: number; disabled?: boolean; readonly?: boolean }>()
 const emit = defineEmits<{ select: [level: number] }>()
@@ -8,6 +9,10 @@ const open = ref(false)
 const trigger = ref<HTMLElement | null>(null)
 const menu = ref<HTMLElement | null>(null)
 const menuStyle = ref<Record<string, string>>({})
+
+// Teleport into a modal dialog when the editor lives in one: a menu teleported
+// to `body` would fall outside the dialog's top layer and be inert.
+const overlayTarget = computed(() => resolveOverlayTarget(trigger.value))
 
 // Tracks visualViewport so the menu stays anchored through keyboard and
 // orientation changes.
@@ -25,7 +30,12 @@ function updatePosition() {
   const anchorLeft = rect.left - viewport.value.offsetLeft
   const anchorTop = rect.bottom - viewport.value.offsetTop
   const left = Math.min(Math.max(8, anchorLeft), Math.max(8, viewport.value.width - width - 8))
-  menuStyle.value = { top: `${anchorTop + 6}px`, left: `${left}px` }
+  // The menu is teleported out of `.nexusdown-editor`, which owns `--nexus-*`,
+  // so mirror the resolved theme values onto it or dark mode falls back to the
+  // `:root` light palette. Read fresh on every reposition so a runtime theme
+  // change is reflected.
+  const variables = nexusdownThemeVariables(element) ?? {}
+  menuStyle.value = { top: `${anchorTop + 6}px`, left: `${left}px`, ...variables }
 }
 
 function toggle() {
@@ -75,7 +85,7 @@ onBeforeUnmount(() => {
       <span aria-hidden="true">H{{ activeLevel ?? '' }}</span>
       <component :is="'iconify-icon'" icon="lucide:chevron-down" aria-hidden="true" />
     </button>
-    <Teleport to="body">
+    <Teleport :to="overlayTarget">
       <div v-if="open" ref="menu" class="nexusdown-heading-picker__menu" data-nexusdown="heading-menu" role="menu" :style="menuStyle">
         <button v-for="level in 6" :key="level" type="button" role="menuitem" :aria-label="`H${level}`" @click="choose(level)">H{{ level }}</button>
       </div>

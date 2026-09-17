@@ -32,6 +32,7 @@ function context(overrides: Partial<ToolbarContext['session']> = {}): ToolbarCon
       },
       can: vi.fn(() => true),
       isActive: vi.fn(() => false),
+      hasTextColor: vi.fn(() => false),
       getSelectedText: vi.fn(() => ''),
       getLinkHref: vi.fn(() => ''),
       getPasteMode: vi.fn(() => 'plain' as const),

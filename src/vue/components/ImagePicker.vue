@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { nextTick, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useNexusdownViewport } from '../composables/useNexusdownViewport.js'
+import { resolveOverlayTarget, nexusdownThemeVariables } from '../overlay-target.js'
 import 'iconify-icon'
 
 const props = defineProps<{
@@ -18,6 +19,9 @@ const uploadError = ref('')
 const trigger = ref<HTMLElement | null>(null)
 const menu = ref<HTMLElement | null>(null)
 const menuStyle = ref<Record<string, string>>({})
+// Teleport into a modal dialog when the editor lives in one: a menu teleported
+// to `body` would fall outside the dialog's top layer and be inert.
+const overlayTarget = computed(() => resolveOverlayTarget(trigger.value))
 const fileInput = ref<HTMLInputElement | null>(null)
 const srcValue = ref('')
 const altValue = ref('')
@@ -45,7 +49,12 @@ function updatePosition() {
     Math.max(8, rect.left - viewport.value.offsetLeft),
     Math.max(8, viewport.value.width - width - 8),
   )
-  menuStyle.value = { top: `${top}px`, left: `${left}px` }
+  // The menu is teleported out of `.nexusdown-editor`, which owns `--nexus-*`,
+  // so mirror the resolved theme values onto it or dark mode falls back to the
+  // `:root` light palette. Read fresh on every reposition so a runtime theme
+  // change is reflected.
+  const variables = nexusdownThemeVariables(element) ?? {}
+  menuStyle.value = { top: `${top}px`, left: `${left}px`, ...variables }
 }
 
 function toggle() {
@@ -64,6 +73,19 @@ function apply() {
   if (!src) return
   emit('apply', { src, alt: altValue.value.trim() })
   close()
+}
+
+/**
+ * Enter submits the dialog — but not the Enter that confirms an IME candidate.
+ *
+ * With Chinese/Japanese/Korean input the Enter that picks a candidate arrives as
+ * a keydown carrying `isComposing`, and applying on it submitted the dialog
+ * before the user had finished typing. `keyCode === 229` covers older browsers
+ * that do not set `isComposing`.
+ */
+function onFieldEnter(event: KeyboardEvent) {
+  if (event.isComposing || event.keyCode === 229) return
+  apply()
 }
 
 function pickFile() {
@@ -145,7 +167,7 @@ onBeforeUnmount(() => {
     >
       <component :is="'iconify-icon'" icon="lucide:image" aria-hidden="true" />
     </button>
-    <Teleport to="body">
+    <Teleport :to="overlayTarget">
       <div
         v-if="open"
         ref="menu"
@@ -158,11 +180,11 @@ onBeforeUnmount(() => {
       >
         <label class="nexusdown-image-picker__field">
           <span>图片地址</span>
-          <input v-model="srcValue" aria-label="图片地址" type="url" placeholder="https://" :disabled="readonly" @keydown.enter.prevent="apply" />
+          <input v-model="srcValue" aria-label="图片地址" type="url" placeholder="https://" :disabled="readonly" @keydown.enter.prevent="onFieldEnter" />
         </label>
         <label class="nexusdown-image-picker__field">
           <span>替代文本</span>
-          <input v-model="altValue" aria-label="图片描述" type="text" placeholder="图片描述" :disabled="readonly" @keydown.enter.prevent="apply" />
+          <input v-model="altValue" aria-label="图片描述" type="text" placeholder="图片描述" :disabled="readonly" @keydown.enter.prevent="onFieldEnter" />
         </label>
         <div v-if="upload" class="nexusdown-image-picker__upload">
           <button

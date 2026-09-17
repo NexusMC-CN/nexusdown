@@ -55,15 +55,19 @@ describe('invalid initial JSON content', () => {
     wrapper.unmount()
   })
 
-  it('reports a non-object JSON payload the same way', async () => {
+  it('reports a non-object JSON payload instead of silently emptying the document', async () => {
     const wrapper = mount(NexusdownEditor, {
       props: { modelValue: '"just a string"', contentType: 'json' },
     })
     await new Promise((resolve) => setTimeout(resolve, 0))
 
-    // A JSON string parses fine, so it must not be reported as a parse error;
-    // it simply yields an empty document.
-    expect(wrapper.emitted('parse-error')).toBeFalsy()
+    // A JSON string is syntactically valid but cannot be a document. It used to
+    // be passed through to ProseMirror, which silently produced an empty editor
+    // with no signal to the caller; it is now reported like any other unusable
+    // value, and the editor still mounts so the error can be acted on.
+    const errors = wrapper.emitted('parse-error') as [Error][] | undefined
+    expect(errors, 'parse-error should be emitted').toBeTruthy()
+    expect(errors![0][0]).toBeInstanceOf(Error)
     expect(wrapper.find('.ProseMirror').exists()).toBe(true)
     wrapper.unmount()
   })

@@ -15,9 +15,11 @@ const contextKey = props.kind === 'color' ? 'color' : 'highlightColor'
 
 function apply(source: 'button' | 'input') {
   if (props.readonly || props.item.isDisabled?.(props.context)) return
+  // Clearing goes through `item.execute` as well. Calling the command directly
+  // bypassed the item's own callback, so a consumer whose `execute` validates or
+  // records the action (or refuses it) still had the formatting removed.
   if (source === 'button' && props.item.isActive?.(props.context)) {
-    if (props.kind === 'color') props.context.session.commands.setColor()
-    else props.context.session.commands.setHighlight()
+    props.item.execute({ ...props.context, [contextKey]: undefined })
     return
   }
   props.item.execute({ ...props.context, [contextKey]: value.value })

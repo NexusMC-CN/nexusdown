@@ -123,6 +123,7 @@ const toolbarContext = computed<ToolbarContext>(() => {
       commands: current.commands,
       can: (command) => current.can(command),
       isActive: (name, attributes) => current.isActive(name, attributes),
+      hasTextColor: (color) => current.hasTextColor(color),
       getSelectedText: () => markdownSelectionText || current.getSelectedText(),
       getLinkHref: () => current.getLinkHref(),
       getPasteMode: () => current.getPasteMode(),
@@ -139,7 +140,12 @@ defineExpose({ session })
 
 markdownValue.value = session.value.getMarkdown()
 unsubscribe = session.value.subscribe((snapshot) => {
-  markdownValue.value = snapshot.markdown
+  // Echoing the normalised Markdown back into the textarea while the user is
+  // typing into it rewrites what they wrote — an unfinished `see [link` came
+  // back as `see \[link`, so `[`, `*` and friends could never be typed. The
+  // panel keeps the user's own text while it is the source of the change; the
+  // rich-text side still drives the value as usual.
+  if (snapshot.source !== 'markdown') markdownValue.value = snapshot.markdown
   revision.value++
   const value = props.contentType === 'html'
     ? snapshot.html
@@ -149,7 +155,7 @@ unsubscribe = session.value.subscribe((snapshot) => {
   emit('update:modelValue', value)
   emit('update', snapshot)
 })
-unsubscribeError = session.value.onError((error) => emit('parse-error', error))
+unsubscribeError = session.value.onError(onSessionError)
 const unsubscribeSelection = session.value.onSelectionChange(() => { revision.value++ })
 
 // Surface a malformed initial JSON value through the same channel as any other
@@ -221,7 +227,7 @@ function closeFindReplace() {
 }
 
 onMounted(() => {
-  if (richElement.value) session.value.getEditor().mount(richElement.value)
+  session.value.mountEditor(richElement.value)
 })
 
 // Switching the layout re-renders the rich pane through a different `v-if`
@@ -234,7 +240,7 @@ onMounted(() => {
 // those would tear down the editor during ordinary updates.
 watch(layoutMode, async () => {
   await nextTick()
-  if (richElement.value) session.value.getEditor().mount(richElement.value)
+  session.value.mountEditor(richElement.value)
 })
 
 watch([() => props.modelValue, () => props.contentType], ([value, contentType]) => {
@@ -270,8 +276,28 @@ function onMarkdownInput(value: string) {
   try {
     session.value?.setMarkdown(value)
   } catch (error) {
-    emit('parse-error', error instanceof Error ? error : new Error(String(error)))
+    const failure = error instanceof Error ? error : new Error(String(error))
+    // The session reports parse failures instead of throwing, so revert here too
+    // rather than relying on the catch above.
+    markdownValue.value = session.value?.getMarkdown() ?? ''
+    emit('parse-error', failure)
   }
+}
+
+/**
+ * Put the Markdown panel back on the last value the session accepted.
+ *
+ * A rejected edit left the textarea holding the draft while `v-model` and the
+ * rich-text pane had already reverted, so the panel disagreed with everything
+ * else and the user could not see that their text had been refused.
+ */
+function onSessionError(error: Error) {
+  // A rejected edit left the textarea holding the refused draft: `modelValue`
+  // goes back to the last accepted value, which Vue sees as "unchanged" and
+  // therefore never patches into the DOM. Ask the panel to resync explicitly.
+  markdownValue.value = session.value?.getMarkdown() ?? ''
+  void nextTick(() => markdownEditor.value?.syncValueFromProp())
+  emit('parse-error', error)
 }
 
 function onMarkdownCompositionStart() {

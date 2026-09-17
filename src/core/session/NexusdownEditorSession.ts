@@ -1,4 +1,4 @@
-import { Editor, type JSONContent } from '@tiptap/core'
+import { Editor, type AnyExtension, type JSONContent } from '@tiptap/core'
 import { Selection, type Transaction } from '@tiptap/pm/state'
 import { createNexusdownExtensions } from '../extensions/index.js'
 import type { NexusdownExtensionOptions } from '../extensions/types.js'
@@ -39,6 +39,51 @@ export interface NexusdownEditorOptions {
   pasteMode?: PasteMode
 }
 
+/**
+ * Split a Markdown table row into its cells, or return `undefined` when the line
+ * is not a table row at all.
+ *
+ * A `|` preceded by an odd number of backslashes is escaped content, not a cell
+ * boundary, so `\|` stays inside its cell.
+ */
+function splitTableRow(line: string): string[] | undefined {
+  const trimmed = line.trim()
+  if (!trimmed.includes('|')) return undefined
+  const cells: string[] = []
+  let current = ''
+  let escaped = false
+  for (const char of trimmed) {
+    if (escaped) {
+      current += char
+      escaped = false
+      continue
+    }
+    if (char === '\\') {
+      escaped = true
+      continue
+    }
+    if (char === '|') {
+      cells.push(current)
+      current = ''
+      continue
+    }
+    current += char
+  }
+  cells.push(current)
+  // A leading/trailing pipe produces an empty first/last entry; drop those so
+  // `| a | b |` and `a | b` report the same cell count.
+  if (cells.length > 0 && cells[0].trim() === '') cells.shift()
+  if (cells.length > 0 && cells[cells.length - 1].trim() === '') cells.pop()
+  return cells.length > 0 ? cells : undefined
+}
+
+/** Whether a line is the `| --- | :-: |` delimiter under a table header. */
+function isTableDelimiterRow(line: string): boolean {
+  const cells = splitTableRow(line)
+  if (!cells || cells.length === 0) return false
+  return cells.every((cell) => /^:?-{1,}:?$/.test(cell.trim()))
+}
+
 export interface NexusdownEditorSnapshot {
   markdown: string
   html: string
@@ -47,9 +92,91 @@ export interface NexusdownEditorSnapshot {
 }
 
 export type SessionSubscriber = (snapshot: NexusdownEditorSnapshot) => void
+/**
+ * Whether a transaction comes from ProseMirror's history plugin.
+ *
+ * The plugin does not expose a public flag, but it marks the transactions it
+ * creates with `appendedTransaction` metadata carrying its own plugin key, and
+ * sets `history$`/`rebased` on the steps it applies. Checking the plugin key is
+ * the stable part of that contract.
+ */
+function isHistoryTransaction(transaction: Transaction): boolean {
+  // ProseMirror's history plugin stamps every transaction it produces with a
+  // `history$` meta entry holding its plugin state. That is what makes an
+  // undo/redo triggered by a keyboard shortcut distinguishable from an ordinary
+  // edit, since such a shortcut never reaches `undo()` / `redo()` below.
+  return transaction.getMeta('history$') !== undefined
+}
+
 export type SessionErrorSubscriber = (error: Error) => void
 export type SessionSelectionSubscriber = () => void
-type PendingImageAnchor = { from: number; to: number }
+
+/**
+ * Screen a JSON document before it reaches the editor, returning a description
+ * of the problem or `null` when it is usable.
+ *
+ * ProseMirror does not reject a bad document. Given an unknown node type it
+ * substitutes a text node containing the raw JSON, so the user is shown the
+ * JSON source as document content; given one that violates the content schema it
+ * throws later, mid-transaction. Neither is acceptable for an initial value, and
+ * neither is detectable from the content alone — hence a structural check before
+ * construction. Schema-level validity is left to `validateJsonContent`, which
+ * can consult the built schema.
+ */
+function screenJsonContent(content: string | JSONContent | undefined, knownTypes: Set<string>): string | null {
+  // No content at all is not an error: an empty bound value means an empty
+  // document, which is exactly what the fallback below produces anyway.
+  if (content === undefined || content === null) return null
+  if (typeof content === 'string') {
+    const trimmed = content.trim()
+    if (!trimmed) return null
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(trimmed)
+    } catch {
+      return 'Invalid JSON content'
+    }
+    return screenJsonContent(parsed as JSONContent, knownTypes)
+  }
+  if (typeof content !== 'object' || content.type !== 'doc') {
+    return 'JSON content must have type "doc"'
+  }
+  return findUnknownType(content, knownTypes)
+}
+
+/**
+ * Collect the node names an extension list actually produces.
+ *
+ * Bundles such as `StarterKit` compute their members from their options, and
+ * that computation depends on being called with the right receiver, so walking
+ * the extension objects by hand is unreliable. Building a throwaway editor lets
+ * Tiptap resolve the list exactly as it will for the real editor, and the
+ * resulting schema is the authoritative answer.
+ */
+function collectNodeNames(extensions: AnyExtension[]): Set<string> {
+  const probe = new Editor({ element: null, extensions, content: '' })
+  try {
+    return new Set(Object.keys(probe.schema.nodes))
+  } finally {
+    probe.destroy()
+  }
+}
+
+/**
+ * Report the first node type in the document that this editor does not register.
+ *
+ * `doc` itself is excluded because it is the root, which is always present.
+ */
+function findUnknownType(node: JSONContent, knownTypes: Set<string>): string | null {
+  if (typeof node.type === 'string' && node.type !== 'doc' && !knownTypes.has(node.type)) {
+    return `Unknown node type "${node.type}"`
+  }
+  for (const child of node.content ?? []) {
+    const found = findUnknownType(child, knownTypes)
+    if (found) return found
+  }
+  return null
+}type PendingImageAnchor = { from: number; to: number }
 
 export type EditorCommand =
   | 'undo'
@@ -165,25 +292,66 @@ export class NexusdownEditorSession {
   private readonly pendingImageAnchors = new Set<PendingImageAnchor>()
   private destroyed = false
   private pendingSource: SessionSource | undefined
+  /** True while `notifySubscribers` is draining, so re-entrant calls queue. */
+  private notifying = false
+  /** Snapshot produced by a re-entrant `notifySubscribers` call, if any. */
+  private pendingNotifications: NexusdownEditorSnapshot | undefined
   private snapshot: NexusdownEditorSnapshot
+  /** Element the Tiptap view is currently mounted into, if any. */
+  private mountedElement: HTMLElement | null = null
+
+  /** Reason the initial JSON document was rejected, reported once listeners can attach. */
+  private readonly initialContentError: string | null = null
 
   constructor(options: NexusdownEditorOptions) {
     this.pasteMode = options.pasteMode ?? 'plain'
     this.imageUpload = options.imageUpload
     this.maxFileSize = normalizeMaxFileSize(options.maxFileSize)
+    const extensions = createNexusdownExtensions({
+      extensions: options.extensions,
+      resolve: options.extensionResolver,
+    })
+    // An unusable JSON document is not rejected by ProseMirror: it is coerced
+    // into a text node holding the raw JSON, which the user then sees as
+    // content. Screen it against the node names these extensions provide, and
+    // fall back to an empty document so construction still succeeds; the reason
+    // is reported below once the error channel exists.
+    this.initialContentError =
+      options.contentType === 'json'
+        ? screenJsonContent(options.content, collectNodeNames(extensions))
+        : null
+    // A JSON *string* is opaque to the editor, which would treat it as literal
+    // document text. Parse it up front so the document is applied structurally,
+    // and so the screening above is the only place string handling happens.
+    const initialContent =
+      options.contentType === 'json' && typeof options.content === 'string'
+        ? ((): JSONContent | '' => {
+            const trimmed = options.content.trim()
+            if (!trimmed) return ''
+            try {
+              return JSON.parse(trimmed) as JSONContent
+            } catch {
+              return ''
+            }
+          })()
+        : options.content
     this.editor = new Editor({
+      // Mount into a detached element so the session is fully usable in
+      // headless contexts (no component, no DOM target). Consumers that have a
+      // real host call `mountEditor()`, which tears this view down first rather
+      // than leaving a second `EditorView` behind.
       element: typeof document === 'undefined' ? null : document.createElement('div'),
-      extensions: createNexusdownExtensions({
-        extensions: options.extensions,
-        resolve: options.extensionResolver,
-      }),
-      content: options.content,
-      contentType: options.contentType,
+      extensions,
+      content: this.initialContentError ? '' : initialContent,
+      contentType: this.initialContentError ? 'html' : options.contentType,
       editorProps: {
         handlePaste: (view, event) => this.handlePasteEvent(view, event),
         handleDrop: (view, event, slice, moved) => this.handleDropEvent(view, event, slice, moved),
       },
     })
+    // Record the throwaway target so `mountEditor()` knows a view already
+    // exists and must be unmounted before moving.
+    this.mountedElement = typeof document === 'undefined' ? null : (this.editor.options.element as HTMLElement | null)
     this.commands = {
       undo: () => this.undo(),
       redo: () => this.redo(),
@@ -191,23 +359,30 @@ export class NexusdownEditorSession {
       toggleBlockquote: () => this.editor.chain().focus().toggleBlockquote().run(),
       toggleBulletList: () => this.editor.chain().focus().toggleBulletList().run(),
       toggleOrderedList: () => this.editor.chain().focus().toggleOrderedList().run(),
-      toggleTaskList: () => this.editor.chain().focus().toggleTaskList().run(),
+      toggleTaskList: () => this.safeCommand((chain) => chain.toggleTaskList()),
       toggleCodeBlock: () => this.editor.chain().focus().toggleCodeBlock().run(),
       setHorizontalRule: () => this.editor.chain().focus().setHorizontalRule().run(),
       toggleBold: () => this.editor.chain().focus().toggleBold().run(),
       toggleItalic: () => this.editor.chain().focus().toggleItalic().run(),
       toggleStrike: () => this.editor.chain().focus().toggleStrike().run(),
       toggleCode: () => this.editor.chain().focus().toggleCode().run(),
-      toggleUnderline: () => this.editor.chain().focus().toggleUnderline().run(),
-      toggleSuperscript: () => this.editor.chain().focus().toggleSuperscript().run(),
-      toggleSubscript: () => this.editor.chain().focus().toggleSubscript().run(),
-      setColor: (color) => color
-        ? this.editor.chain().focus().setColor(color).run()
-        : this.editor.chain().focus().unsetColor().run(),
-      setHighlight: (color) => color
-        ? this.editor.chain().focus().setHighlight({ color }).run()
-        : this.editor.chain().focus().unsetHighlight().run(),
+      // Routed through `safeCommand`: these extensions are optional, and calling
+      // the chained method on an editor that lacks them throws
+      // `chain.toggleX is not a function`, which escaped the toolbar click
+      // handler. An unavailable command should report that it did nothing.
+      toggleUnderline: () => this.safeCommand((chain) => chain.toggleUnderline()),
+      toggleSuperscript: () => this.safeCommand((chain) => chain.toggleSuperscript()),
+      toggleSubscript: () => this.safeCommand((chain) => chain.toggleSubscript()),
+      setColor: (color) => this.safeCommand((chain) => color
+        ? chain.setColor(color)
+        : chain.unsetColor()),
+      setHighlight: (color) => this.safeCommand((chain) => color
+        ? chain.setHighlight({ color })
+        : chain.unsetHighlight()),
       setLink: (href, text) => {
+        // The Link extension is optional, so `unsetLink`/`setLink` may not exist
+        // on the chain; report "did nothing" instead of escaping the click handler.
+        if (!this.hasMarkType('link')) return false
         const chain = this.editor.chain().focus()
         if (!href) return chain.unsetLink().run()
         if (text !== undefined && text.length > 0) {
@@ -216,16 +391,17 @@ export class NexusdownEditorSession {
           // surrounding link fragments behind (e.g. "[d]new[ocs]") and leave the
           // user with duplicated text.
           const range = this.currentLinkRange()
+          // A replacement text node carries only the marks given to it, so
+          // building it with the link alone silently dropped bold/colour/italic
+          // from the selection. Collect the marks already present and add the
+          // link on top of them.
+          const marks = this.selectionMarksFor('link', { href })
           if (range) {
             return this.editor.chain().focus()
-              .insertContentAt(range, { type: 'text', text, marks: [{ type: 'link', attrs: { href } }] })
+              .insertContentAt(range, { type: 'text', text, marks })
               .run()
           }
-          return chain.insertContent({
-            type: 'text',
-            text,
-            marks: [{ type: 'link', attrs: { href } }],
-          }).run()
+          return chain.insertContent({ type: 'text', text, marks }).run()
         }
         // No explicit label: retarget every link touched by the selection, or the
         // one the cursor is inside.
@@ -236,27 +412,33 @@ export class NexusdownEditorSession {
         }
         return chain.setLink({ href }).run()
       },
-      insertTable: (rows = 3, cols = 3) => this.editor.chain().focus().insertTable({
+      insertTable: (rows = 3, cols = 3) => this.safeCommand((chain) => chain.insertTable({
         rows: normalizeTableSize(rows),
         cols: normalizeTableSize(cols),
         withHeaderRow: true,
-      }).run(),
-      addTableRow: () => this.editor.chain().focus().addRowAfter().run(),
-      addTableColumn: () => this.editor.chain().focus().addColumnAfter().run(),
-      deleteTableRow: () => this.editor.chain().focus().deleteRow().run(),
-      deleteTableColumn: () => this.editor.chain().focus().deleteColumn().run(),
-      deleteTable: () => this.editor.chain().focus().deleteTable().run(),
-      mergeCells: () => this.editor.chain().focus().mergeCells().run(),
-      splitCell: () => this.editor.chain().focus().splitCell().run(),
-      setCodeBlockLanguage: (language) => this.editor.chain().focus().updateAttributes('codeBlock', { language }).run(),
+      })),
+      addTableRow: () => this.safeCommand((chain) => chain.addRowAfter()),
+      addTableColumn: () => this.safeCommand((chain) => chain.addColumnAfter()),
+      deleteTableRow: () => this.safeCommand((chain) => chain.deleteRow()),
+      deleteTableColumn: () => this.safeCommand((chain) => chain.deleteColumn()),
+      deleteTable: () => this.safeCommand((chain) => chain.deleteTable()),
+      mergeCells: () => this.safeCommand((chain) => chain.mergeCells()),
+      splitCell: () => this.safeCommand((chain) => chain.splitCell()),
+      setCodeBlockLanguage: (language) => this.safeCommand((chain) => chain.updateAttributes('codeBlock', { language })),
       insertImage: (src, alt = '', title) => {
-        const value = src.trim()
+        // `src` reaches here from an untyped toolbar item that may be rendered
+        // without `imageSrc` configured, and `alt` likewise; reading `.trim()`
+        // off either threw a TypeError straight out of the toolbar's click
+        // handler. An insert with nothing to insert is simply a no-op.
+        const value = typeof src === 'string' ? src.trim() : ''
         if (!value || !isSafeImageSource(value)) return false
-        return this.editor.chain().focus().setImage({
+        const altText = typeof alt === 'string' ? alt.trim() : ''
+        const titleText = typeof title === 'string' ? title.trim() : ''
+        return this.safeCommand((chain) => chain.setImage({
           src: value,
-          alt: alt.trim() || undefined,
-          title: title?.trim() || undefined,
-        }).run()
+          alt: altText || undefined,
+          title: titleText || undefined,
+        }))
       },
       insertMarkdown: (markdown) => {
         if (this.destroyed || !markdown) return false
@@ -287,25 +469,89 @@ export class NexusdownEditorSession {
         // with no Markdown representation), so fall back to the full comparison.
         const html = this.editor.getHTML()
         if (html === this.snapshot.html) return
-        const next = { markdown, html, json: this.editor.getJSON(), source }
-        this.snapshot = next
-        for (const subscriber of this.subscribers) subscriber(next)
+        this.notifySubscribers({ markdown, html, json: this.editor.getJSON(), source })
         return
       }
 
-      const next = this.createSnapshot(source, markdown)
-      this.snapshot = next
-      for (const subscriber of this.subscribers) subscriber(next)
+      this.notifySubscribers(this.createSnapshot(source, markdown))
     })
     this.editor.on('transaction', ({ transaction, appendedTransactions }) => {
       for (const pendingTransaction of [transaction, ...appendedTransactions]) {
         this.mapPendingImageAnchors(pendingTransaction)
+        // Undo/redo driven by a keyboard shortcut never reaches `undo()` /
+        // `redo()` below, so the source would be reported as `rich-text` and a
+        // consumer keying off the source would treat a history step as an
+        // ordinary edit. ProseMirror's history plugin tags its transactions, so
+        // read the tag rather than relying on the call path.
+        if (isHistoryTransaction(pendingTransaction)) this.pendingSource = 'history'
+        // Toggling a mark with a collapsed cursor (`Mod-b` on an empty selection)
+        // only sets `storedMarks`: the document and the selection are both
+        // unchanged, so no `update` or `selectionUpdate` fires and the toolbar
+        // kept showing the previous state even though the next character typed
+        // would carry the new format. Announce those transactions explicitly.
+        if (this.changesStoredMarks(pendingTransaction)) {
+          this.notifySelectionSubscribers()
+        }
       }
     })
     this.editor.on('selectionUpdate', () => {
       if (this.destroyed) return
-      for (const subscriber of this.selectionSubscribers) subscriber()
+      this.notifySelectionSubscribers()
     })
+    // Report a rejected initial document now that `onError` can be subscribed.
+    // Deferred through a microtask so a listener registered immediately after
+    // construction receives it, matching how component hosts wire things up.
+    if (this.initialContentError) {
+      const message = this.initialContentError
+      queueMicrotask(() => this.emitError(new Error(message)))
+    }
+  }
+
+  /**
+   * Notify every subscriber, isolating failures.
+   *
+   * A subscriber that throws must not stop the others: they would silently miss
+   * the update and keep a stale document. Each error is reported through the
+   * error channel instead, and the snapshot is committed before any subscriber
+   * runs so a throwing callback cannot leave the session inconsistent.
+   */
+  private notifySubscribers(next: NexusdownEditorSnapshot): void {
+    this.snapshot = next
+    // A subscriber may mutate the document from inside its callback. That edit
+    // calls back into this method *while the current loop is still running*, so
+    // naively continuing the outer loop hands every subscriber positioned after
+    // the mutating one a snapshot that is already obsolete — a consumer that
+    // persists on each notification would then overwrite the new content with
+    // the stale one. Only the newest snapshot may reach subscribers, so a
+    // re-entrant call records its snapshot and asks the running loop to abandon
+    // the remainder of its pass; the loop then restarts from the top with the
+    // newer snapshot (which also updates subscribers that had already seen the
+    // older one).
+    if (this.notifying) {
+      this.pendingNotifications = next
+      return
+    }
+    this.notifying = true
+    try {
+      let current: NexusdownEditorSnapshot | undefined = next
+      while (current) {
+        this.pendingNotifications = undefined
+        for (const subscriber of [...this.subscribers]) {
+          try {
+            subscriber(current)
+          } catch (error) {
+            this.emitError(error instanceof Error ? error : new Error(String(error)))
+          }
+          // A subscriber produced a newer snapshot: stop this pass so nobody
+          // else is told about `current`, and re-broadcast the newer one.
+          if (this.pendingNotifications) break
+        }
+        current = this.pendingNotifications
+      }
+    } finally {
+      this.notifying = false
+      this.pendingNotifications = undefined
+    }
   }
 
   getMarkdown(): string { return this.snapshot.markdown }
@@ -313,6 +559,30 @@ export class NexusdownEditorSession {
   getJSON(): JSONContent { return this.snapshot.json }
   getSnapshot(): NexusdownEditorSnapshot { return this.snapshot }
   getEditor(): Editor { return this.editor }
+
+  /**
+   * Mount the editor's view into `element`, replacing any previous view.
+   *
+   * Tiptap's `Editor.mount()` installs a *new* `EditorView` without tearing down
+   * the existing one, so calling it repeatedly (for example on every layout
+   * switch, or once in the constructor plus once from `onMounted`) leaked the
+   * old view and re-ran extension `create` hooks. Unmount first so mounting is
+   * idempotent.
+   */
+  mountEditor(element: HTMLElement | null): void {
+    if (this.destroyed || !element) return
+    // Nothing to do when the view already lives in this element; re-mounting
+    // would needlessly rebuild the view and re-run `create`.
+    if (this.mountedElement === element) return
+    if (this.mountedElement) this.editor.unmount()
+    this.editor.mount(element)
+    this.mountedElement = element
+  }
+
+  /** The element the editor view is currently attached to, if any. */
+  getMountedElement(): HTMLElement | null {
+    return this.mountedElement
+  }
 
   /**
    * Plain-text rendering of the document.
@@ -332,33 +602,94 @@ export class NexusdownEditorSession {
     if (from !== to) return this.editor.state.doc.textBetween(from, to, '\n')
     const href = this.getLinkHref()
     if (!href) return ''
-    const parent = this.editor.state.selection.$from.parent
-    const offset = this.editor.state.selection.$from.parentOffset
-    let cursor = 0
-    let activeText = ''
-    parent.forEach((node) => {
-      if (!node.isText) {
-        cursor += node.nodeSize
-        return
-      }
-      const end = cursor + node.nodeSize
-      const isLink = node.marks.some((mark) => mark.type.name === 'link' && mark.attrs.href === href)
-      if (isLink && offset >= cursor && offset <= end) activeText = node.text ?? ''
-      cursor = end
-    })
-    return activeText
+    // A link containing styled runs (`<a>ab<strong>cd</strong>ef</a>`) is split
+    // into several text nodes, only the last of which sits under the cursor.
+    // Reporting just that node's text showed a fragment such as "ef" as the link
+    // label, making it look as though the rest had been lost. The dialog needs
+    // the link's full text, so gather every fragment in the enclosing run.
+    const range = this.currentLinkRange()
+    if (!range) return ''
+    return this.editor.state.doc.textBetween(range.from, range.to, '\n')
   }
+  /**
+   * Marks to attach to replacement text: everything already on the selection,
+   * plus (or with) the named mark.
+   *
+   * Replacing a selection with a bare text node drops the marks it used to
+   * carry, so adding a link to bold text produced unformatted text. Marks are
+   * de-duplicated by type, keeping the caller's values for the mark being set.
+   */
+  private selectionMarksFor(
+    type: string,
+    attrs: Record<string, unknown>,
+  ): { type: string; attrs?: Record<string, unknown> }[] {
+    const { from, to } = this.editor.state.selection
+    // `$from.marks()` is empty for a node selection or when the range spans
+    // several marked runs, so fall back to the marks common to the whole range.
+    const source =
+      this.editor.state.storedMarks ??
+      this.editor.state.selection.$from.marksAcross(this.editor.state.selection.$to) ??
+      this.editor.state.doc.resolve(from).marks()
+    const existing = source
+      .filter((mark) => mark.type.name !== type)
+      .map((mark) => ({ type: mark.type.name, attrs: mark.attrs as Record<string, unknown> }))
+    // A multi-node selection may carry marks on only part of the range; collect
+    // those too so styling is not silently dropped from the replacement.
+    if (from !== to) {
+      const seen = new Set(existing.map((mark) => mark.type))
+      this.editor.state.doc.nodesBetween(from, to, (node) => {
+        if (!node.isText) return
+        for (const mark of node.marks) {
+          if (mark.type.name === type || seen.has(mark.type.name)) continue
+          seen.add(mark.type.name)
+          existing.push({ type: mark.type.name, attrs: mark.attrs as Record<string, unknown> })
+        }
+      })
+    }
+    return [...existing, { type, attrs }]
+  }
+
   getLinkHref(): string { return this.destroyed ? '' : String(this.editor.getAttributes('link').href ?? '') }
 
   can(command: EditorCommand): boolean {
     if (this.destroyed) return false
+    try {
+      return this.canInternal(command)
+    } catch {
+      // The command belongs to an extension this editor does not have — a
+      // consumer may remove optional extensions such as the table, task list or
+      // image. An unavailable command is simply not usable; letting the
+      // TypeError escape crashed the whole toolbar render.
+      return false
+    }
+  }
+
+  private canInternal(command: EditorCommand): boolean {
+    if (this.destroyed) return false
     // `.focus()` is deliberately absent: a `can()` probe must not touch selection,
     // and the dry-run chain does not need focus to report capability.
+    //
+    // The whole dispatch is guarded because the chained methods come from
+    // *optional* extensions. When a consumer removes one (say TaskList or Table),
+    // probing its command threw `chain.toggleTaskList is not a function` out of
+    // the toolbar's render path. An unavailable command is not an error: the
+    // button is simply disabled.
+    try {
+      return this.resolveCan(command)
+    } catch {
+      return false
+    }
+  }
+
+  private resolveCan(command: EditorCommand): boolean {
     const chain = this.editor.can().chain()
     switch (command) {
       case 'undo': return chain.undo().run()
       case 'redo': return chain.redo().run()
-      case 'heading': return chain.setHeading({ level: 2 }).run()
+      // Testing only level 2 would disable the whole heading menu when a
+      // consumer configures heading levels that exclude H2, even though other
+      // levels are perfectly usable.
+      case 'heading': return this.canSetAnyHeadingLevel()
       case 'blockquote': return chain.toggleBlockquote().run()
       case 'bullet-list': return chain.toggleBulletList().run()
       case 'ordered-list': return chain.toggleOrderedList().run()
@@ -387,10 +718,82 @@ export class NexusdownEditorSession {
       case 'indent': return !this.destroyed && this.currentIndent() < MAX_INDENT
       case 'outdent': return !this.destroyed && this.currentIndent() > 0
     }
+    // An unrecognised command name reaches here from untyped JavaScript or a
+    // template ref. Returning `undefined` from a `boolean`-declared method made
+    // `can('heading1')` falsy-by-accident and hid the mistake; report `false`.
+    return false
+  }
+
+  /**
+   * Run a chained command, reporting `false` when its extension is absent.
+   *
+   * Commands belonging to optional extensions (task list, table, image, colour,
+   * highlight) do not exist on the chain when a consumer removes those
+   * extensions. Calling one threw `TypeError: chain.x is not a function`, which
+   * escaped from the toolbar's click handler; an unavailable command should
+   * simply report that it did nothing.
+   */
+  private safeCommand(build: (chain: ReturnType<Editor['chain']>) => { run: () => boolean }): boolean {
+    if (this.destroyed) return false
+    try {
+      return build(this.editor.chain().focus()).run()
+    } catch {
+      return false
+    }
+  }
+
+  /**
+   * Whether the editor can turn the selection into a heading of any level it
+   * actually supports.
+   *
+   * The set of levels comes from the configured `heading` extension, so a
+   * consumer that restricts levels (say `[1, 3]`) still gets a usable heading
+   * menu. Returns `false` when no heading node is registered at all.
+   */
+  private canSetAnyHeadingLevel(): boolean {
+    const levels = this.headingLevels()
+    for (const level of levels) {
+      const valid = level >= 1 && level <= 6
+      if (!valid) continue
+      if (this.editor.can().chain().setHeading({ level: level as 1 | 2 | 3 | 4 | 5 | 6 }).run()) {
+        return true
+      }
+    }
+    return false
+  }
+
+  /** Heading levels the configured `heading` extension accepts. */
+  private headingLevels(): number[] {
+    const heading = this.editor.extensionManager.extensions.find((ext) => ext.name === 'heading')
+    const configured = heading?.options?.levels
+    if (Array.isArray(configured) && configured.length > 0) {
+      return configured.filter((level): level is number => typeof level === 'number')
+    }
+    // Fall back to the levels the schema actually declares.
+    const levels: number[] = []
+    for (let level = 1; level <= 6; level += 1) {
+      if (this.editor.schema.nodes.heading) levels.push(level)
+    }
+    return levels.length > 0 ? levels : [1, 2, 3, 4, 5, 6]
   }
 
   isActive(name: string, attributes?: Record<string, unknown>): boolean {
     return !this.destroyed && this.editor.isActive(name, attributes)
+  }
+
+  /**
+   * Whether the current selection carries a text colour.
+   *
+   * `textStyle` is shared by several attributes — setting only a font through
+   * `FontFamily` also produces a `textStyle` mark — so `isActive('textStyle')`
+   * reports true for text that has no colour at all.
+   */
+  hasTextColor(color?: string): boolean {
+    if (this.destroyed) return false
+    const mark = this.editor.getAttributes('textStyle') as { color?: unknown }
+    const current = typeof mark.color === 'string' ? mark.color : undefined
+    if (!current) return false
+    return color ? current === color : true
   }
 
   focus(): void {
@@ -403,16 +806,77 @@ export class NexusdownEditorSession {
       this.emitError(new Error('Markdown content must be a string'))
       return
     }
+    // ProseMirror silently coerces unusable JSON into a text node, so a document
+    // containing an unknown node type was inserted as a paragraph of raw JSON
+    // text and shown to the user. Validate before handing it over, and parse a
+    // JSON *string* so the editor never receives it as literal text.
+    let payload: string | JSONContent = content
+    if (contentType === 'json') {
+      const problem = this.validateJsonContent(content)
+      if (problem) {
+        this.emitError(new Error(problem))
+        return
+      }
+      if (typeof content === 'string') {
+        const trimmed = content.trim()
+        payload = trimmed ? (JSON.parse(trimmed) as JSONContent) : ''
+      }
+    }
     const previous = this.editor.getJSON()
     try {
       this.pendingSource = contentType === 'markdown' ? 'markdown' : 'rich-text'
-      const applied = this.editor.commands.setContent(content, { contentType, emitUpdate: true })
+      const applied = this.editor.commands.setContent(payload, { contentType, emitUpdate: true })
       if (!applied) throw new Error('Unable to set content')
     } catch (error) {
       this.pendingSource = undefined
       this.editor.commands.setContent(previous, { contentType: 'json', emitUpdate: false })
       this.emitError(error instanceof Error ? error : new Error(String(error)))
     }
+  }
+
+  /**
+   * Check that JSON content can actually be applied.
+   *
+   * Returns a human-readable problem description, or `null` when the content is
+   * usable. ProseMirror does not reject a bad document: an unknown node type is
+   * dropped in favour of a text node containing the raw JSON, and a node that
+   * violates the content schema throws only once the transaction is applied.
+   */
+  private validateJsonContent(content: string | JSONContent): string | null {
+    let document: JSONContent
+    if (typeof content === 'string') {
+      const trimmed = content.trim()
+      if (!trimmed) return null
+      try {
+        document = JSON.parse(trimmed) as JSONContent
+      } catch {
+        return 'Invalid JSON content'
+      }
+    } else {
+      document = content
+    }
+    if (!document || typeof document !== 'object') return 'JSON content must be an object'
+    if (document.type !== 'doc') return 'JSON content must have type "doc"'
+    const unknown = this.findUnknownNodeType(document)
+    if (unknown) return `Unknown node type "${unknown}"`
+    try {
+      // `nodeFromJSON` runs the same schema check the editor uses, so a
+      // structural violation surfaces here instead of corrupting the document.
+      this.editor.schema.nodeFromJSON(document)
+    } catch (error) {
+      return error instanceof Error ? error.message : 'Invalid JSON content'
+    }
+    return null
+  }
+
+  /** Depth-first search for a node type the schema does not know about. */
+  private findUnknownNodeType(node: JSONContent): string | null {
+    if (typeof node.type === 'string' && !this.editor.schema.nodes[node.type]) return node.type
+    for (const child of node.content ?? []) {
+      const found = this.findUnknownNodeType(child)
+      if (found) return found
+    }
+    return null
   }
 
   subscribe(subscriber: SessionSubscriber): () => void {
@@ -441,24 +905,110 @@ export class NexusdownEditorSession {
       this.pendingSource = 'markdown'
       const applied = this.editor.commands.setContent(markdown, { contentType: 'markdown', emitUpdate: true })
       if (!applied) throw new Error('Unable to set markdown content')
+      this.reportTableColumnLoss(markdown)
     } catch (error) {
       this.pendingSource = undefined
-      this.editor.commands.setContent(previous, { contentType: 'json', emitUpdate: false })
+      this.restoreDocument(previous)
       const normalized = error instanceof Error ? error : new Error(String(error))
       this.emitError(normalized)
     }
   }
 
+  /**
+   * Tell selection listeners that toolbar-relevant state may have changed.
+   *
+   * Routed through one place so the `destroyed` guard cannot be forgotten.
+   */
+  private notifySelectionSubscribers(): void {
+    if (this.destroyed) return
+    for (const subscriber of [...this.selectionSubscribers]) {
+      try {
+        subscriber()
+      } catch (error) {
+        // A throwing listener must not stop the remaining ones, matching how
+        // content subscribers are notified.
+        this.emitError(error instanceof Error ? error : new Error(String(error)))
+      }
+    }
+  }
+
+  /**
+   * Whether a transaction changed the marks that will be applied to the next
+   * character typed, without changing the document or the selection.
+   *
+   * `storedMarks` is only ever set as transaction metadata, so its presence on
+   * the transaction is the signal; a mark applied to an actual range also
+   * changes the document and therefore already notifies through `update`.
+   */
+  private changesStoredMarks(transaction: Transaction): boolean {
+    return transaction.storedMarks !== null && transaction.storedMarks !== undefined
+  }
+
+  /**
+   * Report Markdown tables whose rows carry more cells than their header.
+   *
+   * The upstream table tokenizer builds the row from the header's column count
+   * and discards any surplus cells, so `| a | b |` followed by `| 1 | 2 | 3 |`
+   * silently loses `3`. The parse "succeeds", so nothing else would tell the
+   * user their content is gone. Detection lives here rather than in the
+   * tokenizer so the error surfaces through the same channel as other parse
+   * problems. Rows with *fewer* cells are not reported: the parser pads those
+   * with empty cells, which loses nothing.
+   */
+  private reportTableColumnLoss(markdown: string): void {
+    const lines = markdown.split(/\r?\n/)
+    for (let index = 0; index < lines.length - 1; index += 1) {
+      const header = splitTableRow(lines[index])
+      // A table starts with a header row followed by a delimiter row.
+      if (!header || !isTableDelimiterRow(lines[index + 1])) continue
+      const columns = header.length
+      for (let row = index + 2; row < lines.length; row += 1) {
+        const cells = splitTableRow(lines[row])
+        if (!cells) break
+        if (cells.length > columns) {
+          this.emitError(new Error(
+            `Table row ${row + 1} has ${cells.length} cells but the header defines ${columns}; `
+            + `the extra cell(s) were discarded.`,
+          ))
+        }
+      }
+    }
+  }
+
+  /**
+   * Roll the document back to a known-good state without recording history.
+   *
+   * A plain `setContent` produces an ordinary transaction, which pushes a step
+   * onto the undo stack and clears the redo stack. After a rejected edit that
+   * destroyed the user's redo history for no reason, and left a no-op entry in
+   * the undo stack. Applying the restoration as a transaction explicitly marked
+   * `addToHistory: false` keeps the history stack untouched.
+   */
+  private restoreDocument(previous: JSONContent): void {
+    const restored = this.editor.schema.nodeFromJSON(previous)
+    const transaction = this.editor.state.tr
+      .replaceWith(0, this.editor.state.doc.content.size, restored.content)
+      .setMeta('addToHistory', false)
+      .setMeta('preventUpdate', true)
+    this.editor.view.dispatch(transaction)
+  }
+
   undo(): boolean {
     if (this.destroyed) return false
+    // Set the flag only when the command actually applies a step. Setting it up
+    // front left it stale when there was nothing to undo: no `update` fires to
+    // clear it, so the *next* unrelated edit was reported as coming from
+    // history, and a consumer keying off the source would misclassify it.
+    if (!this.editor.commands.undo()) return false
     this.pendingSource = 'history'
-    return this.editor.commands.undo()
+    return true
   }
 
   redo(): boolean {
     if (this.destroyed) return false
+    if (!this.editor.commands.redo()) return false
     this.pendingSource = 'history'
-    return this.editor.commands.redo()
+    return true
   }
 
   canUndo(): boolean { return !this.destroyed && this.editor.can().undo() }
@@ -637,10 +1187,13 @@ export class NexusdownEditorSession {
    */
   private sinkBlock(): boolean {
     if (this.destroyed) return false
-    if (this.editor.can().sinkListItem('listItem')) {
+    // `can().sinkListItem(name)` resolves the node type eagerly and throws when
+    // the extension is absent, so an unavailable list type must be skipped
+    // rather than probed.
+    if (this.hasNodeType('listItem') && this.editor.can().sinkListItem('listItem')) {
       return this.editor.chain().focus().sinkListItem('listItem').run()
     }
-    if (this.editor.can().sinkListItem('taskItem')) {
+    if (this.hasNodeType('taskItem') && this.editor.can().sinkListItem('taskItem')) {
       return this.editor.chain().focus().sinkListItem('taskItem').run()
     }
     const current = this.currentIndent()
@@ -651,10 +1204,10 @@ export class NexusdownEditorSession {
   /** Outdent the current block, mirroring {@link sinkBlock}. */
   private liftBlock(): boolean {
     if (this.destroyed) return false
-    if (this.editor.can().liftListItem('listItem')) {
+    if (this.hasNodeType('listItem') && this.editor.can().liftListItem('listItem')) {
       return this.editor.chain().focus().liftListItem('listItem').run()
     }
-    if (this.editor.can().liftListItem('taskItem')) {
+    if (this.hasNodeType('taskItem') && this.editor.can().liftListItem('taskItem')) {
       return this.editor.chain().focus().liftListItem('taskItem').run()
     }
     const current = this.currentIndent()
@@ -662,6 +1215,16 @@ export class NexusdownEditorSession {
     const chain = this.editor.chain().focus()
     if (current === 1) return chain.updateAttributes(this.currentBlockName(), { indent: null }).run()
     return chain.updateAttributes(this.currentBlockName(), { indent: current - 1 }).run()
+  }
+
+  /** Whether a node type is registered in the current schema. */
+  private hasNodeType(name: string): boolean {
+    return typeof this.editor.schema.nodes[name] !== 'undefined'
+  }
+
+  /** Whether a mark type is registered in the current schema. */
+  private hasMarkType(name: string): boolean {
+    return typeof this.editor.schema.marks[name] !== 'undefined'
   }
 
   /** Current indentation level of the selected block (0 when unset). */
@@ -705,22 +1268,31 @@ export class NexusdownEditorSession {
       const $from = state.selection.$from
       const marks = $from.marks()
       if (!marks.some((mark) => mark.type === state.schema.marks.link)) return undefined
-      // Walk outwards from the cursor to the edges of the link-marked run.
+      // Expand to the whole contiguous run of link-marked siblings, not just the
+      // node under the cursor. A link whose label mixes styling is several text
+      // nodes (`ab` / bold `cd` / `ef`), and stopping at one of them reported a
+      // fragment as the link's text and would have replaced only that fragment.
       const start = $from.start()
       const end = $from.end()
-      let rangeFrom = from
-      let rangeTo = to
+      // Collect every link-marked text node in the block, then keep the maximal
+      // run that contains the cursor. Walking adjacent siblings this way is what
+      // joins `ab` / bold `cd` / `ef` back into one link; requiring each node to
+      // overlap the cursor would stop at the fragment the cursor happens to sit
+      // in and report "ef" as the whole label.
+      const runs: { from: number; to: number }[] = []
       state.doc.nodesBetween(start, end, (node, pos) => {
-        if (!node.isText || !node.marks.some((mark) => mark.type === state.schema.marks.link)) return true
+        if (!node.isText) return true
+        if (!node.marks.some((mark) => mark.type === state.schema.marks.link)) return true
         const nodeFrom = pos
         const nodeTo = pos + node.nodeSize
-        if (nodeFrom <= from && from <= nodeTo) {
-          rangeFrom = Math.min(rangeFrom, nodeFrom)
-          rangeTo = Math.max(rangeTo, nodeTo)
-        }
+        const last = runs[runs.length - 1]
+        if (last && last.to === nodeFrom) last.to = nodeTo
+        else runs.push({ from: nodeFrom, to: nodeTo })
         return true
       })
-      return rangeFrom === rangeTo ? undefined : { from: rangeFrom, to: rangeTo }
+      const run = runs.find((candidate) => candidate.from <= from && from <= candidate.to)
+      if (!run || run.from === run.to) return undefined
+      return { from: run.from, to: run.to }
     }
 
     let rangeFrom: number | undefined

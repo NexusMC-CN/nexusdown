@@ -20,10 +20,16 @@ iconify-icon { display: inline-block; width: 1em; height: 1em; }
 .nexusdown-editor[data-nexusdown-layout='markdown-left'] .nexusdown-editor__pane--rich { border-right: 0; border-left: 1px solid var(--nexus-border); }
 .nexusdown-rich-content, .nexusdown-markdown-input { box-sizing: border-box; width: 100%; min-height: 372px; padding: 28px; border: 0; outline: 0; font: inherit; line-height: 1.65; }
 .nexusdown-rich-content .ProseMirror, .nexusdown-rich-content .ProseMirror:focus { min-height: 316px; border: 0; outline: 0; box-shadow: none; }
+/* Placeholder text. The `Placeholder` extension decorates the empty node with
+   `is-empty` (and `is-editor-empty` for a wholly empty document) and puts the
+   text in `data-placeholder`; without this rule the configured prompt is never
+   rendered. `float: left; height: 0` keeps it from affecting layout. */
+.nexusdown-rich-content .ProseMirror p.is-editor-empty:first-child::before,
+.nexusdown-rich-content .ProseMirror p.is-empty::before { content: attr(data-placeholder); float: left; height: 0; pointer-events: none; color: var(--nexus-muted); }
 .nexusdown-rich-content .ProseMirror ul[data-type="taskList"] { margin: 0; padding: 0; list-style: none; }.nexusdown-rich-content .ProseMirror li[data-checked] { display: flex; align-items: flex-start; gap: 8px; margin: 4px 0; }.nexusdown-rich-content .ProseMirror li[data-checked] > label { flex: 0 0 auto; margin-top: 5px; line-height: 1; cursor: pointer; }.nexusdown-rich-content .ProseMirror li[data-checked] > label input { width: 15px; height: 15px; margin: 0; accent-color: var(--nexus-accent); cursor: pointer; }.nexusdown-rich-content .ProseMirror li[data-checked] > div { flex: 1; min-width: 0; }.nexusdown-rich-content .ProseMirror li[data-checked] > div p { margin: 0; }.nexusdown-rich-content .ProseMirror li[data-checked="true"] > div { color: var(--nexus-muted); text-decoration: line-through; }
 .nexusdown-markdown-input { resize: none; color: var(--nexus-text); background: var(--nexus-panel); font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
 .nexusdown-markdown-editor { position: relative; min-height: 372px; overflow: hidden; color: var(--nexus-text); background: var(--nexus-panel); }
-.nexusdown-markdown-editor > pre, .nexusdown-markdown-editor > textarea { box-sizing: border-box; width: 100%; min-height: 372px; margin: 0; padding: 28px; border: 0; outline: 0; font: inherit; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 14px; line-height: 1.65; white-space: pre-wrap; overflow: auto; tab-size: 2; }
+.nexusdown-markdown-editor > pre, .nexusdown-markdown-editor > textarea { box-sizing: border-box; width: 100%; min-height: 372px; margin: 0; padding: 28px; border: 0; outline: 0; font: inherit; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 14px; line-height: 1.65; white-space: pre-wrap; overflow-wrap: break-word; word-break: break-word; overflow: auto; tab-size: 2; }
 .nexusdown-markdown-editor > pre { position: absolute; inset: 0; pointer-events: none; color: var(--nexus-text); background: transparent; }
 .nexusdown-editor__pane--markdown .nexusdown-markdown-editor { height: 100%; min-height: 0; }
 .nexusdown-editor__pane--markdown .nexusdown-markdown-editor > pre, .nexusdown-editor__pane--markdown .nexusdown-markdown-editor > textarea { height: 100%; min-height: 0; }

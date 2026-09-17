@@ -9,10 +9,11 @@ import ImagePicker from './components/ImagePicker.vue'
 
 const props = defineProps<{ context: ToolbarContext; items: ToolbarItem[]; readonly?: boolean }>()
 const emit = defineEmits<{ executed: []; find: [] }>()
-// Every group a toolbar item may declare. Keeping this list exhaustive is what
-// makes new groups render; an item whose group is missing here is silently
-// dropped from the toolbar.
-const groups: ToolbarGroup[] = ['history', 'block', 'inline', 'extension', 'align', 'indent']
+// Canonical ordering for the built-in groups. Any *other* group a consumer
+// declares is rendered too, appended after these in first-seen order — an item
+// whose group was missing from a fixed allow-list used to be dropped silently,
+// so moving (say) the heading item into a custom group made its button vanish.
+const GROUP_ORDER: ToolbarGroup[] = ['history', 'block', 'inline', 'extension', 'align', 'indent']
 const tick = ref(0)
 const pasteMode = ref<PasteMode>(props.context.session.getPasteMode?.() ?? 'plain')
 let unsubscribePasteMode: () => void = () => undefined
@@ -44,7 +45,11 @@ function togglePasteMode() {
 }
 const grouped = computed(() => {
   void tick.value
-  return groups.map((group) => ({ group, items: props.items.filter((item) => item.group === group) })).filter((entry) => entry.items.length)
+  // Preserve the canonical order, then append any custom groups in the order the
+  // consumer declared them so nothing is silently dropped.
+  const declared = props.items.map((item) => item.group)
+  const ordered = [...GROUP_ORDER.filter((group) => declared.includes(group)), ...declared.filter((group, index) => !GROUP_ORDER.includes(group) && declared.indexOf(group) === index)]
+  return ordered.map((group) => ({ group, items: props.items.filter((item) => item.group === group) })).filter((entry) => entry.items.length)
 })
 function execute(item: ToolbarItem) {
   if (props.readonly || item.isDisabled?.(props.context)) return
@@ -113,8 +118,12 @@ function executeImage(payload: { src: string; alt: string }) {
           </button>
           <ColorPicker v-if="item.id === 'color' || item.id === 'highlight'" :context="context" :item="item" :readonly="readonly" :kind="item.id" />
           <ImagePicker v-if="item.id === 'image'" :disabled="item.isDisabled?.(context)" :readonly="readonly" :upload="context.insertImageFile" @apply="executeImage" />
+          <!-- The heading picker replaces the plain heading button, so it must
+               render in whichever group the heading item declares rather than
+               only in `block`: a consumer moving it to another group otherwise
+               lost the control entirely. -->
+          <HeadingPicker v-if="item.id === 'heading'" :active-level="activeHeadingLevel" :disabled="item.isDisabled?.(context)" :readonly="readonly" @select="executeHeading" />
         </template>
-        <HeadingPicker v-if="entry.group === 'block' && headingItem" :active-level="activeHeadingLevel" :disabled="headingItem.isDisabled?.(context)" :readonly="readonly" @select="executeHeading" />
         <LinkPicker v-if="linkItem && entry.items.some((item) => item.id === 'link')" :selected-text="linkSelectedText" :href="linkHref" :get-selected-text="readSelectedText" :get-href="readLinkHref" :active="linkItem.isActive?.(context)" :disabled="linkItem.isDisabled?.(context)" :readonly="readonly" @apply="executeLink" />
       </div>
       <span v-if="entry.group === 'history'" class="nexusdown-toolbar__separator nexusdown-toolbar__separator--find" aria-hidden="true" />

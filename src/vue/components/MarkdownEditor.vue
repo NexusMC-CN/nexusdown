@@ -81,7 +81,7 @@ function setScrollTop(value: number) {
   syncScroll()
 }
 
-defineExpose({ getScrollElement, setScrollTop, getSelection })
+defineExpose({ getScrollElement, setScrollTop, getSelection, syncValueFromProp })
 
 function onInput(event: Event) {
   if ((event as InputEvent).isComposing && !composing.value) onCompositionStart()
@@ -140,6 +140,21 @@ function onScroll() {
 }
 
 watch(() => props.modelValue, renderMarkdown, { immediate: true })
+
+/**
+ * Force the DOM value back in line with `modelValue`.
+ *
+ * Vue skips the DOM patch when the bound value is unchanged, so restoring the
+ * prop after a rejected edit would otherwise leave the refused draft on screen.
+ * Exposed for the parent to call once it has rejected an edit.
+ */
+function syncValueFromProp() {
+  if (textarea.value && textarea.value.value !== props.modelValue) {
+    textarea.value.value = props.modelValue
+  }
+  renderMarkdown(props.modelValue)
+}
+
 onMounted(syncScroll)
 </script>
 
