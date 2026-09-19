@@ -1,16 +1,21 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useNexusdownViewport } from '../composables/useNexusdownViewport.js'
+import { useNexusdownOverlayTheme } from '../composables/useNexusdownOverlayTheme.js'
 import { resolveOverlayTarget, nexusdownThemeVariables } from '../overlay-target.js'
 import 'iconify-icon'
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   disabled?: boolean
   readonly?: boolean
   upload?: (file: File) => Promise<boolean>
-}>()
+  showLabel?: boolean
+}>(), {
+  showLabel: false,
+})
 const emit = defineEmits<{
   apply: [payload: { src: string; alt: string }]
+  overlayFocus: [event: FocusEvent]
 }>()
 
 const open = ref(false)
@@ -22,9 +27,11 @@ const menuStyle = ref<Record<string, string>>({})
 // Teleport into a modal dialog when the editor lives in one: a menu teleported
 // to `body` would fall outside the dialog's top layer and be inert.
 const overlayTarget = computed(() => resolveOverlayTarget(trigger.value))
+const { skin } = useNexusdownOverlayTheme(trigger, open, updatePosition)
 const fileInput = ref<HTMLInputElement | null>(null)
 const srcValue = ref('')
 const altValue = ref('')
+const isDisabled = computed(() => props.disabled || props.readonly)
 
 // Tracks visualViewport so the menu stays anchored when the soft keyboard opens
 // (iOS frequently does not fire `window.resize` for keyboard transitions).
@@ -119,7 +126,10 @@ function onDocumentPointerDown(event: PointerEvent) {
 }
 
 function onKeydown(event: KeyboardEvent) {
-  if (event.key === 'Escape') close()
+  if (event.key !== 'Escape') return
+  event.preventDefault()
+  close()
+  trigger.value?.focus({ preventScroll: true })
 }
 
 // Position listeners (resize/orientationchange/scroll/visualViewport) are owned
@@ -146,6 +156,10 @@ watch(() => props.readonly, (readonly) => {
   if (readonly) close()
 })
 
+watch(isDisabled, (disabled) => {
+  if (disabled) close()
+})
+
 onBeforeUnmount(() => {
   document.removeEventListener('pointerdown', onDocumentPointerDown)
   document.removeEventListener('keydown', onKeydown)
@@ -157,7 +171,7 @@ onBeforeUnmount(() => {
     <button
       ref="trigger"
       class="nexusdown-toolbar__button"
-      :disabled="disabled || readonly"
+      :disabled="isDisabled"
       type="button"
       aria-label="图片"
       title="图片"
@@ -166,6 +180,7 @@ onBeforeUnmount(() => {
       @click="toggle"
     >
       <component :is="'iconify-icon'" icon="lucide:image" aria-hidden="true" />
+      <span v-if="showLabel">图片</span>
     </button>
     <Teleport :to="overlayTarget">
       <div
@@ -173,9 +188,12 @@ onBeforeUnmount(() => {
         ref="menu"
         class="nexusdown-image-picker__menu"
         data-nexusdown="image-menu"
+        data-nexusdown-overlay-root
+        :data-nexusdown-skin="skin"
         role="dialog"
         aria-label="图片设置"
         :style="menuStyle"
+        @focusin="emit('overlayFocus', $event)"
         @mousedown.stop
       >
         <label class="nexusdown-image-picker__field">

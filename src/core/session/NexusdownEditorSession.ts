@@ -73,8 +73,8 @@ function splitTableRow(line: string): string[] | undefined {
   cells.push(current)
   // A leading/trailing pipe produces an empty first/last entry; drop those so
   // `| a | b |` and `a | b` report the same cell count.
-  if (cells.length > 0 && cells[0].trim() === '') cells.shift()
-  if (cells.length > 0 && cells[cells.length - 1].trim() === '') cells.pop()
+  if (cells[0]?.trim() === '') cells.shift()
+  if (cells[cells.length - 1]?.trim() === '') cells.pop()
   return cells.length > 0 ? cells : undefined
 }
 
@@ -408,7 +408,8 @@ export class NexusdownEditorSession {
         // one the cursor is inside.
         const range = this.currentLinkRange()
         if (range) {
-          const mark = this.editor.schema.marks.link.create({ href })
+          // currentLinkRange only returns a range when the link mark exists.
+          const mark = this.editor.schema.marks.link!.create({ href })
           return this.editor.chain().focus().setTextSelection(range).setMark('link', mark.attrs).run()
         }
         return chain.setLink({ href }).run()
@@ -468,7 +469,7 @@ export class NexusdownEditorSession {
       if (markdown === this.snapshot.markdown) {
         // Markdown is unchanged. HTML/JSON can still differ (e.g. a mark change
         // with no Markdown representation), so fall back to the full comparison.
-        const html = this.editor.getHTML()
+        const html = this.serializeHtml()
         if (html === this.snapshot.html) return
         this.notifySubscribers({ markdown, html, json: this.editor.getJSON(), source })
         return
@@ -959,12 +960,12 @@ export class NexusdownEditorSession {
   private reportTableColumnLoss(markdown: string): void {
     const lines = markdown.split(/\r?\n/)
     for (let index = 0; index < lines.length - 1; index += 1) {
-      const header = splitTableRow(lines[index])
+      const header = splitTableRow(lines[index]!)
       // A table starts with a header row followed by a delimiter row.
-      if (!header || !isTableDelimiterRow(lines[index + 1])) continue
+      if (!header || !isTableDelimiterRow(lines[index + 1]!)) continue
       const columns = header.length
       for (let row = index + 2; row < lines.length; row += 1) {
-        const cells = splitTableRow(lines[row])
+        const cells = splitTableRow(lines[row]!)
         if (!cells) break
         if (cells.length > columns) {
           this.emitError(new Error(
@@ -1342,10 +1343,28 @@ export class NexusdownEditorSession {
   private createSnapshot(source: SessionSource, markdown = this.serializeMarkdown()): NexusdownEditorSnapshot {
     return {
       markdown,
-      html: this.editor.getHTML(),
+      html: this.serializeHtml(),
       json: this.editor.getJSON(),
       source,
     }
+  }
+
+  /**
+   * Serialise the document to HTML, tolerating a DOM-less (SSR) environment.
+   *
+   * `editor.getHTML()` goes through ProseMirror's DOMSerializer, which needs a
+   * `document` to create the fragment — so constructing an editor during server
+   * rendering threw `Cannot read properties of undefined (reading
+   * 'createDocumentFragment')` from the very first snapshot, aborting the render.
+   *
+   * The document itself is still parsed and the Markdown snapshot is still
+   * produced, so a server-rendered pass can read `getMarkdown()`; only HTML is
+   * unavailable until a real DOM exists, which is the expected outcome for a
+   * DOM-only serialisation format.
+   */
+  private serializeHtml(): string {
+    if (typeof document === 'undefined') return ''
+    return this.editor.getHTML()
   }
 
   private createPendingImageAnchor(from: number, to = from): PendingImageAnchor {

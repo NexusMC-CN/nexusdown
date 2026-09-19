@@ -57,7 +57,7 @@ if (/\bas\s+(const|unknown|any)\b/.test(body) || /<[A-Za-z][^>]*>\(/.test(body))
   )
 }
 
-body = body.replace(/\n{3,}/g, '\n\n').trimStart()
+body = body.replace(/\n{3,}/g, '\n\n').trim()
 writeFileSync(target, `${banner}${body}\n`, 'utf8')
 
 console.log(`generate-vue-entry: wrote ${target.replace(here, '.')}`)

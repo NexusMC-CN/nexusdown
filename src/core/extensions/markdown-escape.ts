@@ -41,12 +41,13 @@ export function escapeLineStart(text: string): string {
       for (const pattern of LINE_START_MARKERS) {
         const match = pattern.exec(line)
         if (match) {
-          const indent = match[1].length
+          // Every marker pattern contains a required leading-indent capture.
+          const indent = match[1]!.length
           if (pattern === ORDERED_LIST_PATTERN) {
             // `\1. text` is not an escape: CommonMark only allows a backslash
             // before ASCII punctuation, and `1` is not punctuation, so the
             // backslash survives as literal text. Escape the delimiter instead.
-            const delimiterIndex = indent + match[2].length
+            const delimiterIndex = indent + match[2]!.length
             return `${line.slice(0, delimiterIndex)}\\${line.slice(delimiterIndex)}`
           }
           // Insert a backslash before the first marker character.

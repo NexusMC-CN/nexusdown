@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import { mount } from '@vue/test-utils'
 import EditorToolbar from '../../src/vue/EditorToolbar.vue'
-import { createDefaultToolbarItems, type ToolbarItem } from '../../src/core/toolbar'
+import { createDefaultToolbarItems, type PasteMode, type ToolbarCommand, type ToolbarItem } from '../../src/core/toolbar'
 import { createNexusdownEditor } from '../../src/core/session'
+import type { EditorCommand } from '../../src/core/session'
 
 /**
  * The heading control is a picker, not a plain button, so it is rendered from its
@@ -18,13 +19,13 @@ function mountWith(items: ToolbarItem[]) {
       context: {
         session: {
           commands: session.commands,
-          can: (c: never) => session.can(c),
+          can: (command: ToolbarCommand) => session.can(command as EditorCommand),
           isActive: (n: string, a?: Record<string, unknown>) => session.isActive(n, a),
           hasTextColor: (c?: string) => session.hasTextColor(c),
           getSelectedText: () => session.getSelectedText(),
           getLinkHref: () => session.getLinkHref(),
           getPasteMode: () => session.getPasteMode(),
-          setPasteMode: (m: never) => session.setPasteMode(m),
+          setPasteMode: (mode: PasteMode) => session.setPasteMode(mode),
         },
       },
     },

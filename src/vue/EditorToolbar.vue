@@ -1,20 +1,16 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import 'iconify-icon'
-import type { PasteMode, ToolbarContext, ToolbarGroup, ToolbarItem } from '../core/toolbar.js'
-import HeadingPicker from './HeadingPicker.vue'
-import LinkPicker from './LinkPicker.vue'
-import ColorPicker from './components/ColorPicker.vue'
-import ImagePicker from './components/ImagePicker.vue'
+import type { PasteMode, ToolbarContext, ToolbarItem } from '../core/toolbar.js'
+import { createToolbarControls } from './toolbar-controls.js'
+import ToolbarControl from './components/ToolbarControl.vue'
+import ToolbarOverflowMenu from './components/ToolbarOverflowMenu.vue'
+import { useToolbarOverflow } from './composables/useToolbarOverflow.js'
 
 const props = defineProps<{ context: ToolbarContext; items: ToolbarItem[]; readonly?: boolean }>()
 const emit = defineEmits<{ executed: []; find: [] }>()
-// Canonical ordering for the built-in groups. Any *other* group a consumer
-// declares is rendered too, appended after these in first-seen order — an item
-// whose group was missing from a fixed allow-list used to be dropped silently,
-// so moving (say) the heading item into a custom group made its button vanish.
-const GROUP_ORDER: ToolbarGroup[] = ['history', 'block', 'inline', 'extension', 'align', 'indent']
 const tick = ref(0)
+const selectedColors = ref<Record<string, string>>({ 'item:color': '#2563eb', 'item:highlight': '#fef08a' })
 const pasteMode = ref<PasteMode>(props.context.session.getPasteMode?.() ?? 'plain')
 let unsubscribePasteMode: () => void = () => undefined
 watch(() => props.context.session, (session) => {
@@ -25,7 +21,11 @@ watch(() => props.context.session, (session) => {
 onBeforeUnmount(() => unsubscribePasteMode())
 
 /** Cycle plain -> structured -> markdown -> plain. */
-const PASTE_MODE_ORDER: PasteMode[] = ['plain', 'structured', 'markdown']
+const NEXT_PASTE_MODE: Record<PasteMode, PasteMode> = {
+  plain: 'structured',
+  structured: 'markdown',
+  markdown: 'plain',
+}
 const PASTE_MODE_LABELS: Record<PasteMode, string> = {
   plain: '纯文本',
   structured: '富文本',
@@ -38,23 +38,94 @@ const PASTE_MODE_ICONS: Record<PasteMode, string> = {
 }
 function togglePasteMode() {
   if (props.readonly) return
-  const index = PASTE_MODE_ORDER.indexOf(pasteMode.value)
-  const next = PASTE_MODE_ORDER[(index + 1) % PASTE_MODE_ORDER.length]
+  const next = NEXT_PASTE_MODE[pasteMode.value]
   props.context.session.setPasteMode(next)
   pasteMode.value = next
+  refresh()
 }
-const grouped = computed(() => {
+const controls = computed(() => {
   void tick.value
-  // Preserve the canonical order, then append any custom groups in the order the
-  // consumer declared them so nothing is silently dropped.
-  const declared = props.items.map((item) => item.group)
-  const ordered = [...GROUP_ORDER.filter((group) => declared.includes(group)), ...declared.filter((group, index) => !GROUP_ORDER.includes(group) && declared.indexOf(group) === index)]
-  return ordered.map((group) => ({ group, items: props.items.filter((item) => item.group === group) })).filter((entry) => entry.items.length)
+  return createToolbarControls(props.items)
+})
+const toolbar = ref<HTMLElement | null>(null)
+type ToolbarOverflowMenuExpose = { close: (restoreFocus?: boolean) => void; slot: HTMLElement | null }
+const moreMenu = ref<ToolbarOverflowMenuExpose | null>(null)
+const controlKeys = computed(() => controls.value.map(({ key }) => key))
+const { overflowedKeys, ready, refresh } = useToolbarOverflow({
+  toolbar,
+  moreSlot: computed(() => moreMenu.value?.slot ?? null),
+  controlKeys,
+})
+const overflowedControls = computed(() => controls.value.filter(({ key }) => overflowedKeys.value.has(key)))
+type ToolbarFocus = { key: (typeof controls.value)[number]['key']; element: Element; overflow: boolean }
+let lastFocus: ToolbarFocus | undefined
+let removedFocus: { key: string; index: number } | undefined
+
+function rememberFocus(key: ToolbarFocus['key'], event: FocusEvent, overflow: boolean) {
+  // Vue events retain the control's stable key across both body and modal Teleports.
+  if (event.target) lastFocus = { key, element: event.target as Element, overflow }
+}
+
+function currentFocus() {
+  return lastFocus?.element === toolbar.value?.ownerDocument.activeElement ? lastFocus : undefined
+}
+
+watch(controlKeys, (keys, previousKeys) => {
+  const focused = currentFocus()
+  if (focused && !keys.includes(focused.key)) {
+    // Capture before Vue removes the focused node; measurement runs in a later frame.
+    removedFocus = { key: focused.key, index: previousKeys.indexOf(focused.key) }
+    moreMenu.value?.close()
+  }
+}, { flush: 'pre' })
+
+function restoreControlFocus(key: string, index: number, removed: boolean) {
+  const main = Array.from(toolbar.value?.querySelectorAll<HTMLElement>('.nexusdown-toolbar__track [data-nexusdown-toolbar-key]') ?? [])
+  const enabledControl = (element: HTMLElement | undefined) => element?.querySelector<HTMLElement>('button:not(:disabled), input:not(:disabled), [tabindex="0"]') ?? undefined
+  const matching = !removed && main.find((element) => element.dataset.nexusdownToolbarKey === key && element.dataset.overflowed !== 'true')
+  let target = enabledControl(matching || undefined)
+  if (!target && overflowedControls.value.length) target = moreMenu.value?.slot?.querySelector<HTMLElement>('button') ?? undefined
+  if (!target) {
+    target = main.map((element, position) => ({ element, position }))
+      .filter(({ element }) => element.dataset.overflowed !== 'true')
+      .sort((a, b) => Math.abs(a.position - index) - Math.abs(b.position - index))
+      .map(({ element }) => enabledControl(element)).find((element) => element !== undefined)
+  }
+  ;(target ?? toolbar.value)?.focus({ preventScroll: true })
+}
+
+watch(overflowedKeys, async (keys) => {
+  const focused = currentFocus()
+  const recovery = removedFocus ?? (focused?.overflow && !keys.has(focused.key)
+    ? { key: focused.key, index: controlKeys.value.indexOf(focused.key) } : undefined)
+  if (recovery) {
+    const removed = removedFocus !== undefined
+    removedFocus = undefined
+    moreMenu.value?.close()
+    await nextTick()
+    const root = toolbar.value
+    const active = root?.ownerDocument.activeElement
+    // Removal falls back to body. A new outside focus belongs to the host;
+    // only this toolbar's own recorded overlay focus can retain ownership.
+    if (removed && active && active !== root?.ownerDocument.body && !root?.contains(active) && !currentFocus()) return
+    restoreControlFocus(recovery.key, recovery.index, removed)
+  } else if (!keys.size) moreMenu.value?.close()
+})
+watch(() => props.context, refresh, { flush: 'post' })
+const controlGroups = computed(() => {
+  const groups: Array<{ key: string; group: string; controls: typeof controls.value }> = []
+  for (const control of controls.value) {
+    const last = groups.at(-1)
+    if (last?.group === control.group) last.controls.push(control)
+    else groups.push({ key: control.key, group: control.group, controls: [control] })
+  }
+  return groups
 })
 function execute(item: ToolbarItem) {
   if (props.readonly || item.isDisabled?.(props.context)) return
   item.execute(props.context)
   tick.value++
+  refresh()
   emit('executed')
 }
 const headingItem = computed(() => props.items.find((item) => item.id === 'heading'))
@@ -79,6 +150,7 @@ function executeHeading(level: number) {
   if (!item || props.readonly || item.isDisabled?.(props.context)) return
   item.execute({ ...props.context, headingLevel: level })
   tick.value++
+  refresh()
   emit('executed')
 }
 function executeLink(payload: { href: string; text: string }) {
@@ -86,6 +158,7 @@ function executeLink(payload: { href: string; text: string }) {
   if (!item || props.readonly || item.isDisabled?.(props.context)) return
   item.execute({ ...props.context, linkHref: payload.href, linkText: payload.text })
   tick.value++
+  refresh()
   emit('executed')
 }
 function executeImage(payload: { src: string; alt: string }) {
@@ -93,64 +166,80 @@ function executeImage(payload: { src: string; alt: string }) {
   if (!item || props.readonly || item.isDisabled?.(props.context)) return
   item.execute({ ...props.context, imageSrc: payload.src, imageAlt: payload.alt })
   tick.value++
+  refresh()
   emit('executed')
 }
 </script>
 
 <template>
-  <div class="nexusdown-toolbar" data-nexusdown="toolbar" role="toolbar" aria-label="编辑工具栏">
-    <template v-for="(entry, index) in grouped" :key="entry.group">
+  <div ref="toolbar" class="nexusdown-toolbar" data-nexusdown="toolbar" :data-overflow-ready="ready" role="toolbar" tabindex="-1" aria-label="编辑工具栏">
+    <div class="nexusdown-toolbar__track">
+    <template v-for="(entry, index) in controlGroups" :key="entry.key">
       <span v-if="index" class="nexusdown-toolbar__separator" aria-hidden="true" />
       <div class="nexusdown-toolbar__group">
-        <template v-for="item in entry.items" :key="item.id">
-          <button
-            v-if="item.id !== 'heading' && item.id !== 'link' && item.id !== 'color' && item.id !== 'highlight' && item.id !== 'image'"
-            class="nexusdown-toolbar__button"
-            :data-nexusdown-command="item.id"
-            :class="{ 'is-active': item.isActive?.(context) }"
-            :disabled="readonly || item.isDisabled?.(context)"
-            type="button"
-            :aria-label="item.label"
-            :title="item.label"
-            @click="execute(item)"
-          >
-            <component :is="'iconify-icon'" :icon="item.icon" aria-hidden="true" />
-          </button>
-          <ColorPicker v-if="item.id === 'color' || item.id === 'highlight'" :context="context" :item="item" :readonly="readonly" :kind="item.id" />
-          <ImagePicker v-if="item.id === 'image'" :disabled="item.isDisabled?.(context)" :readonly="readonly" :upload="context.insertImageFile" @apply="executeImage" />
-          <!-- The heading picker replaces the plain heading button, so it must
-               render in whichever group the heading item declares rather than
-               only in `block`: a consumer moving it to another group otherwise
-               lost the control entirely. -->
-          <HeadingPicker v-if="item.id === 'heading'" :active-level="activeHeadingLevel" :disabled="item.isDisabled?.(context)" :readonly="readonly" @select="executeHeading" />
-        </template>
-        <LinkPicker v-if="linkItem && entry.items.some((item) => item.id === 'link')" :selected-text="linkSelectedText" :href="linkHref" :get-selected-text="readSelectedText" :get-href="readLinkHref" :active="linkItem.isActive?.(context)" :disabled="linkItem.isDisabled?.(context)" :readonly="readonly" @apply="executeLink" />
-      </div>
-      <span v-if="entry.group === 'history'" class="nexusdown-toolbar__separator nexusdown-toolbar__separator--find" aria-hidden="true" />
-      <div v-if="entry.group === 'history'" class="nexusdown-toolbar__group">
-        <button
-          class="nexusdown-toolbar__button"
-          :disabled="readonly"
-          type="button"
-          aria-label="查找替换"
-          title="查找替换 (Ctrl+F)"
-          @click="emit('find')"
+        <div
+          v-for="control in entry.controls"
+          :key="control.key"
+          class="nexusdown-toolbar__control"
+          :data-nexusdown-toolbar-key="control.key"
+          :data-overflowed="overflowedKeys.has(control.key) || undefined"
+          :aria-hidden="overflowedKeys.has(control.key) || undefined"
+          @focusin="rememberFocus(control.key, $event, false)"
         >
-          <component :is="'iconify-icon'" icon="lucide:search" aria-hidden="true" />
-        </button>
-        <button
-          class="nexusdown-toolbar__button"
-          :class="{ 'is-active': pasteMode !== 'plain' }"
-          data-nexusdown-command="paste-mode"
-          :disabled="readonly"
-          type="button"
-          :aria-label="`粘贴模式：${PASTE_MODE_LABELS[pasteMode]}`"
-          :title="`粘贴模式：${PASTE_MODE_LABELS[pasteMode]}（点击切换到${PASTE_MODE_LABELS[PASTE_MODE_ORDER[(PASTE_MODE_ORDER.indexOf(pasteMode) + 1) % PASTE_MODE_ORDER.length]]}）`"
-          @click="togglePasteMode"
-        >
-          <component :is="'iconify-icon'" :icon="PASTE_MODE_ICONS[pasteMode]" aria-hidden="true" />
-        </button>
+          <ToolbarControl
+            :control="control"
+            :context="context"
+            display="compact"
+            :concealed="overflowedKeys.has(control.key)"
+            :paste-mode="pasteMode"
+            :readonly="readonly"
+            :active-heading-level="activeHeadingLevel"
+            :link-selected-text="linkSelectedText"
+            :link-href="linkHref"
+            :color-value="selectedColors[control.key]"
+            @update:color-value="selectedColors[control.key] = $event"
+            :insert-image-file="context.insertImageFile"
+            @execute="execute"
+            @find="emit('find')"
+            @toggle-paste-mode="togglePasteMode"
+            @select-heading="executeHeading"
+            @apply-link="executeLink"
+            @apply-image="executeImage"
+            @overlay-focus="rememberFocus(control.key, $event, false)"
+          />
+        </div>
       </div>
     </template>
+    </div>
+    <ToolbarOverflowMenu ref="moreMenu" :has-items="overflowedControls.length > 0">
+      <template #default="{ close }">
+        <template v-for="entry in controlGroups" :key="entry.key">
+          <div v-if="entry.controls.some((control) => overflowedKeys.has(control.key))" class="nexusdown-toolbar-overflow__items" role="group">
+            <div v-for="control in entry.controls.filter((control) => overflowedKeys.has(control.key))" :key="control.key" class="nexusdown-toolbar-control--overflow" :data-nexusdown-toolbar-key="control.key" @focusin="rememberFocus(control.key, $event, true)">
+              <ToolbarControl
+                :control="control"
+                :context="context"
+                display="overflow"
+                :paste-mode="pasteMode"
+                :readonly="readonly"
+                :active-heading-level="activeHeadingLevel"
+                :link-selected-text="linkSelectedText"
+                :link-href="linkHref"
+                :color-value="selectedColors[control.key]"
+                @update:color-value="selectedColors[control.key] = $event"
+                :insert-image-file="context.insertImageFile"
+                @execute="execute($event); close()"
+                @find="emit('find'); close()"
+                @toggle-paste-mode="togglePasteMode(); close()"
+                @select-heading="executeHeading"
+                @apply-link="executeLink"
+                @apply-image="executeImage"
+                @overlay-focus="rememberFocus(control.key, $event, true)"
+              />
+            </div>
+          </div>
+        </template>
+      </template>
+    </ToolbarOverflowMenu>
   </div>
 </template>

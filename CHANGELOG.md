@@ -134,8 +134,7 @@
 
 同时需要更正一个由此衍生的推测：该字段**并不能**解决对齐块内标记退化的问题。实测给 `highlight` 配置 `htmlReopen` 后，普通段落与对齐块的输出**完全不变**——读库源码可知它只在「标记跨越重叠边界后被重新打开」时生效（`openingMode = reopenWithHtmlOnNextOpen.has(type) ? 'html' : 'markdown'`），并非把某个标记整体切换为 HTML 的开关。真正解决问题的是上述「回退块自行输出 HTML 子节点」的做法。
 
-### 修复 — 界面细节
-
+### 修复 — 界面细节- **SSR／无 DOM 环境下无法初始化**：首个快照会调用 `editor.getHTML()`，而它经 ProseMirror 的 `DOMSerializer` 需要 `document` 来创建片段，因此在服务端渲染时构造编辑器直接抛 `Cannot read properties of undefined (reading 'createDocumentFragment')`，中断整个页面渲染。HTML 本身是只能依赖 DOM 的格式，因此现在的约定是：**构造可用，Markdown 与 JSON 可用，HTML 在有 DOM 之前为空串**（`serializeHtml()` 统一处理，含事务回调中的比较路径）。
 - **占位提示不显示**：`Placeholder` 扩展已配置文字，但样式表缺少对应规则，空白富文本区看不到任何提示。现补上 `is-empty` / `is-editor-empty` 的 `::before` 规则（默认接入即生效，无需宿主额外补样式）。
 - **原生模态对话框内菜单不可用**：链接／图片／标题菜单固定挂到 `body`，编辑器放在 `dialog.showModal()` 中时，菜单落在对话框 top layer 之外而被浏览器置为非交互，表现为被遮挡、输入框无法聚焦、按钮点击无效。现在检测到模态对话框祖先时改为挂载到该对话框内，普通页面与非模态对话框行为不变。
 - **弹窗脱离主题作用域**：`--nexus-*` 主题变量只声明在 `.nexusdown-editor[data-nexusdown-theme]` 上，而菜单被传送到 `body`，因此暗色编辑器会弹出亮色菜单，宿主在实例上覆盖的 `--nexus-*` 也完全不生效。菜单不能改为挂载到编辑器内部（编辑器设了 `overflow: hidden`，`position: fixed` 的菜单会被裁掉），因此改为在定位时把解析后的主题变量同步到菜单元素上。

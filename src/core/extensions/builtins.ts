@@ -481,7 +481,9 @@ export function createBuiltInExtensions(): AnyExtension[] {
         tokenize(src: string, _tokens: MarkdownToken[], helpers: MarkdownLexerConfiguration) {
           const match = /^(==)(\{([^}]*)\})?((?:\\.|(?!==)[\s\S])+)(==)/.exec(src)
           if (!match) return undefined
-          const content = match[4].replace(/\\(.)/g, '$1')
+          // Group 4 is required by the successful highlight match.
+          const rawContent = match[4]!
+          const content = rawContent.replace(/\\(.)/g, '$1')
           return {
             type: 'highlight',
             raw: match[0],
@@ -494,7 +496,7 @@ export function createBuiltInExtensions(): AnyExtension[] {
             // read those very characters as a nested highlight
             // (`<mark>x==y==z</mark>` came back as `x<mark>y</mark>z`), so
             // escaped content is taken literally instead.
-            tokens: /\\./.test(match[4]) ? [{ type: 'text', raw: content, text: content }] : helpers.inlineTokens(content),
+            tokens: /\\./.test(rawContent) ? [{ type: 'text', raw: content, text: content }] : helpers.inlineTokens(content),
           } as MarkdownToken
         },
       },
@@ -520,14 +522,16 @@ export function createBuiltInExtensions(): AnyExtension[] {
         tokenize(src: string, _tokens: MarkdownToken[], helpers: MarkdownLexerConfiguration) {
           const match = /^(\+\+)((?:\\.|(?!\+\+)[\s\S])+)(\+\+)/.exec(src)
           if (!match) return undefined
-          const content = match[2].replace(/\\(.)/g, '$1')
+          // Group 2 is required by the successful underline match.
+          const rawContent = match[2]!
+          const content = rawContent.replace(/\\(.)/g, '$1')
           return {
             type: 'underline',
             raw: match[0],
             text: content,
             // See the highlight comment: escaped content must stay literal or it
             // re-parses as a nested underline.
-            tokens: /\\./.test(match[2]) ? [{ type: 'text', raw: content, text: content }] : helpers.inlineTokens(content),
+            tokens: /\\./.test(rawContent) ? [{ type: 'text', raw: content, text: content }] : helpers.inlineTokens(content),
           } as MarkdownToken
         },
       },
@@ -548,7 +552,8 @@ export function createBuiltInExtensions(): AnyExtension[] {
         tokenize(src: string) {
           const match = /^(`+)([\s\S]*?[^`])\1(?!`)/.exec(src)
           if (!match) return undefined
-          let text = match[2].replace(/\n/g, ' ')
+          // A matched code span always includes its second capture.
+          let text = match[2]!.replace(/\n/g, ' ')
           if (text.length > 2 && text.startsWith(' ') && text.endsWith(' ') && text.trim().startsWith('`')) {
             text = text.slice(1, -1)
           } else if (text.length > 2 && text.startsWith(' ') && text.endsWith(' ') && text.trim().endsWith('`')) {

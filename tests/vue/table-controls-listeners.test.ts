@@ -12,7 +12,7 @@ describe('table controls listeners (issue #1 comments)', () => {
     const removeDocument = vi.spyOn(document, 'removeEventListener')
 
     const wrapper = mount(TableControls, {
-      props: { session: editor },
+      props: { session: editor, container: null },
       attachTo: document.body,
     })
     wrapper.unmount()
@@ -41,7 +41,7 @@ describe('table controls listeners (issue #1 comments)', () => {
   it('stays hidden without an active table', () => {
     const editor = createNexusdownEditor({ content: '<p>no table</p>', contentType: 'html' })
     const wrapper = mount(TableControls, {
-      props: { session: editor },
+      props: { session: editor, container: null },
       attachTo: document.body,
     })
     // The root element is always present; the controls inside it are not

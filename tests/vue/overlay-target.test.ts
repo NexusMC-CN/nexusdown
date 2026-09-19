@@ -1,5 +1,31 @@
 import { describe, expect, it } from 'vitest'
-import { resolveOverlayTarget, isBehindModalDialog, nexusdownThemeVariables } from '../../src/vue/overlay-target'
+import { resolveOverlayTarget, isBehindModalDialog, nexusdownThemeVariables, isNexusdownOverlayTarget } from '../../src/vue/overlay-target'
+
+describe('overlay chain membership', () => {
+  it('recognizes roots and their descendants, but not unrelated or non-element targets', () => {
+    const root = document.createElement('div')
+    root.dataset.nexusdownOverlayRoot = ''
+    const child = document.createElement('button')
+    root.append(child)
+    expect(isNexusdownOverlayTarget(root)).toBe(true)
+    expect(isNexusdownOverlayTarget(child)).toBe(true)
+    expect(isNexusdownOverlayTarget(document.body)).toBe(false)
+    expect(isNexusdownOverlayTarget(document.createTextNode('text'))).toBe(false)
+    expect(isNexusdownOverlayTarget(null)).toBe(false)
+  })
+
+  it('recognizes elements from another document realm', () => {
+    const frame = document.createElement('iframe')
+    document.body.append(frame)
+    try {
+      const root = frame.contentDocument!.createElement('div')
+      root.dataset.nexusdownOverlayRoot = ''
+      const child = frame.contentDocument!.createElement('button')
+      root.append(child)
+      expect(isNexusdownOverlayTarget(child)).toBe(true)
+    } finally { frame.remove() }
+  })
+})
 
 describe('overlay teleport target', () => {
   it('falls back to body outside any dialog', () => {
@@ -81,5 +107,24 @@ describe('overlay teleport target', () => {
     expect(nexusdownThemeVariables(host)).toBeNull()
     expect(nexusdownThemeVariables(null)).toBeNull()
     host.remove()
+  })
+
+  it('copies custom skin tokens and typography without leaking unrelated properties', () => {
+    const editor = document.createElement('section')
+    editor.className = 'nexusdown-editor'
+    editor.style.cssText = '--nexus-focus-ring: purple; --nexus-radius: 4px; --host-secret: red; font-family: monospace; font-size: 15px; line-height: 24px; color-scheme: dark; width: 900px'
+    document.body.append(editor)
+    const variables = nexusdownThemeVariables(editor)
+    expect(variables).toMatchObject({
+      '--nexus-focus-ring': 'purple',
+      '--nexus-radius': '4px',
+      'font-family': 'monospace',
+      'font-size': '15px',
+      'line-height': '24px',
+      'color-scheme': 'dark',
+    })
+    expect(variables).not.toHaveProperty('--host-secret')
+    expect(variables).not.toHaveProperty('width')
+    editor.remove()
   })
 })

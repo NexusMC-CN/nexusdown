@@ -15,7 +15,6 @@
  * `require`/`import` can load `.vue` files - that is by design, and `./core` is
  * the pre-compiled entry for plain Node use.
  */
-import type { DefineComponent } from 'vue'
 import NexusdownEditor from './NexusdownEditor.vue'
 import EditorToolbar from './EditorToolbar.vue'
 import HeadingPicker from './HeadingPicker.vue'
@@ -27,14 +26,10 @@ import TableControls from './components/TableControls.vue'
 import CodeBlockLanguage from './components/CodeBlockLanguage.vue'
 import FindReplacePanel from './components/FindReplacePanel.vue'
 import EditorStatusBar from './components/EditorStatusBar.vue'
-import type { NexusdownEditorProps } from './types.js'
-
-const Editor = NexusdownEditor as DefineComponent<NexusdownEditorProps>
-
-export default Editor
+export default NexusdownEditor
 
 export {
-  Editor as NexusdownEditor,
+  NexusdownEditor,
   EditorToolbar,
   HeadingPicker,
   LinkPicker,

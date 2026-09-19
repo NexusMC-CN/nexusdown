@@ -1,6 +1,20 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
+import { defineComponent, h, nextTick } from 'vue'
 import NexusdownEditor from '../../src/vue/NexusdownEditor.vue'
+import HeadingPicker from '../../src/vue/HeadingPicker.vue'
+import LinkPicker from '../../src/vue/LinkPicker.vue'
+import ImagePicker from '../../src/vue/components/ImagePicker.vue'
+
+const settle = async () => {
+  await new Promise((resolve) => setTimeout(resolve, 30))
+  await nextTick()
+}
+
+afterEach(() => {
+  vi.restoreAllMocks()
+  document.body.innerHTML = ''
+})
 
 /**
  * End-to-end check that a teleported popup carries the editor's theme: the
@@ -43,5 +57,118 @@ describe('popup theme inheritance (issue #1)', () => {
     const { wrapper, menu } = await openLinkMenu('light')
     expect(menu?.style.getPropertyValue('--nexus-bg')).toBe('rgb(255, 255, 255)')
     wrapper.unmount()
+  })
+})
+
+describe('live popup skin bridge', () => {
+  const pickers = [
+    { component: HeadingPicker, button: '标题', menu: 'heading-menu' },
+    { component: LinkPicker, button: '链接', menu: 'link-menu' },
+    { component: ImagePicker, button: '图片', menu: 'image-menu' },
+  ]
+
+  it.each(pickers)('refreshes $menu when its ancestor palette or root skin changes', async ({ component, button, menu }) => {
+    const host = document.createElement('div')
+    host.className = 'palette-one'
+    document.body.append(host)
+    const style = document.createElement('style')
+    style.textContent = `
+      .palette-one .nexusdown-editor { --nexus-accent: red; --nexus-focus-ring: pink; font-family: monospace; }
+      .palette-two .nexusdown-editor { --nexus-accent: blue; --nexus-focus-ring: cyan; font-family: serif; }
+      [data-theme="dark"] .nexusdown-editor { --nexus-accent: purple; }
+    `
+    document.head.append(style)
+    const wrapper = mount(defineComponent({
+      setup: () => () => h('section', { class: 'nexusdown-editor', 'data-nexusdown-skin': 'first' }, [h(component)]),
+    }), { attachTo: host })
+    try {
+      await wrapper.find(`button[aria-label="${button}"]`).trigger('click')
+      await settle()
+      const popup = document.querySelector<HTMLElement>(`[data-nexusdown="${menu}"]`)!
+      expect(popup.closest('.nexusdown-editor')).toBeNull()
+      expect(popup.getAttribute('data-nexusdown-skin')).toBe('first')
+      expect(popup.style.getPropertyValue('--nexus-focus-ring')).toBe('pink')
+      host.className = 'palette-two'
+      await settle()
+      expect(popup.style.getPropertyValue('--nexus-accent')).toBe('blue')
+      expect(popup.style.fontFamily).toBe('serif')
+      host.setAttribute('data-theme', 'dark')
+      await settle()
+      expect(popup.style.getPropertyValue('--nexus-accent')).toBe('purple')
+      wrapper.element.setAttribute('data-nexusdown-skin', 'second')
+      ;(wrapper.element as HTMLElement).style.setProperty('--nexus-focus-ring', 'orange')
+      await settle()
+      expect(popup.getAttribute('data-nexusdown-skin')).toBe('second')
+      expect(popup.style.getPropertyValue('--nexus-focus-ring')).toBe('orange')
+      wrapper.element.removeAttribute('data-nexusdown-skin')
+      ;(wrapper.element as HTMLElement).style.removeProperty('--nexus-focus-ring')
+      host.className = ''
+      await settle()
+      expect(popup.hasAttribute('data-nexusdown-skin')).toBe(false)
+      expect(popup.style.getPropertyValue('--nexus-focus-ring')).toBe('')
+    } finally {
+      wrapper.unmount()
+      style.remove()
+    }
+  })
+
+  it('forwards the consumer skin attribute from the editor to its popup', async () => {
+    const wrapper = mount(NexusdownEditor, {
+      props: { modelValue: '<p>hello</p>', contentType: 'html' },
+      attrs: { 'data-nexusdown-skin': 'custom' },
+      attachTo: document.body,
+    })
+    try {
+      await settle()
+      await wrapper.find('button[aria-label="链接"]').trigger('click')
+      await settle()
+      expect(document.querySelector('[data-nexusdown="link-menu"]')?.getAttribute('data-nexusdown-skin')).toBe('custom')
+    } finally {
+      wrapper.unmount()
+    }
+  })
+
+  it('isolates editors and stops observing on close or unmount without watching popup mutations', async () => {
+    // Keep the real observers: takeRecords exposes queued DOM notifications,
+    // so cleanup is verified even after an unmounted trigger ref becomes null.
+    const observing = vi.spyOn(MutationObserver.prototype, 'observe')
+    const wrapper = mount(defineComponent({
+      setup: () => () => h('div', [
+        h('section', { class: 'nexusdown-editor', style: '--nexus-accent: red', 'data-nexusdown-skin': 'one' }, [h(HeadingPicker)]),
+        h('section', { class: 'nexusdown-editor', style: '--nexus-accent: blue', 'data-nexusdown-skin': 'two' }, [h(HeadingPicker)]),
+      ]),
+    }), { attachTo: document.body })
+    const triggers = wrapper.findAll('button[aria-label="标题"]')
+    await triggers[0].trigger('click')
+    await triggers[1].trigger('click')
+    await settle()
+    const firstObserver = observing.mock.contexts[0] as MutationObserver
+    const [first, second] = document.querySelectorAll<HTMLElement>('[data-nexusdown="heading-menu"]')
+    const sections = wrapper.findAll('section')
+    const measure = vi.spyOn(triggers[0].element, 'getBoundingClientRect')
+    ;(sections[1].element as HTMLElement).style.setProperty('--nexus-accent', 'green')
+    await settle()
+    expect(second.style.getPropertyValue('--nexus-accent')).toBe('green')
+    expect(first.style.getPropertyValue('--nexus-accent')).toBe('red')
+    expect(measure).not.toHaveBeenCalled()
+    first.style.setProperty('--nexus-accent', 'orange')
+    await settle()
+    expect(measure).not.toHaveBeenCalled()
+    expect(first.style.getPropertyValue('--nexus-accent')).toBe('orange')
+    await triggers[0].trigger('click')
+    ;(sections[0].element as HTMLElement).style.setProperty('--nexus-accent', 'purple')
+    expect(firstObserver.takeRecords()).toEqual([])
+    await settle()
+    expect(measure).not.toHaveBeenCalled()
+    await triggers[0].trigger('click')
+    await settle()
+    expect(document.querySelector<HTMLElement>('[data-nexusdown-skin="one"][data-nexusdown="heading-menu"]')?.style.getPropertyValue('--nexus-accent')).toBe('purple')
+    measure.mockClear()
+    wrapper.unmount()
+    document.documentElement.setAttribute('data-theme', 'dark')
+    for (const observer of new Set(observing.mock.contexts as MutationObserver[])) expect(observer.takeRecords()).toEqual([])
+    await settle()
+    expect(measure).not.toHaveBeenCalled()
+    document.documentElement.removeAttribute('data-theme')
   })
 })

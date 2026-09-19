@@ -1,4 +1,4 @@
-import { mount } from '@vue/test-utils'
+import { DOMWrapper, mount } from '@vue/test-utils'
 import { describe, expect, it, vi } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
@@ -7,6 +7,88 @@ import { Extension } from '@tiptap/core'
 import NexusdownEditor from '../../src/vue/NexusdownEditor.vue'
 import { createDefaultToolbarItems } from '../../src/core/toolbar'
 import type { NexusdownEditorSession } from '../../src/core/session'
+import { nextTick } from 'vue'
+
+describe('measured editor toolbar overflow', () => {
+  it('keeps tail tools reachable, executes commands once, and returns focus after widening', async () => {
+    let width = 260
+    const callbacks: ResizeObserverCallback[] = []
+    const frames = new Map<number, FrameRequestCallback>()
+    let frameId = 0
+    vi.stubGlobal('ResizeObserver', class {
+      constructor(callback: ResizeObserverCallback) { callbacks.push(callback) }
+      observe() {}
+      disconnect() {}
+    })
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { frames.set(++frameId, callback); return frameId })
+    vi.stubGlobal('cancelAnimationFrame', (id: number) => frames.delete(id))
+    const rect = (left: number, right: number) => ({ x: left, y: 0, left, right, top: 0, bottom: 48, width: right - left, height: 48, toJSON: () => ({}) }) as DOMRect
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      if (this.dataset.nexusdown === 'toolbar') return rect(0, width)
+      if (this.classList.contains('nexusdown-toolbar-overflow__slot')) return rect(width - 56, width)
+      const key = this.dataset.nexusdownToolbarKey
+      const earlier = ['item:undo', 'item:redo', 'builtin:find', 'builtin:paste-mode', 'item:heading', 'item:blockquote', 'item:bullet-list', 'item:ordered-list', 'item:task-list', 'item:code-block', 'item:horizontal-rule', 'item:bold']
+      return rect(0, key ? (earlier.includes(key) ? 160 : 400) : 0)
+    })
+    async function flush() {
+      await nextTick()
+      const pending = [...frames.values()]
+      frames.clear()
+      pending.forEach((callback) => callback(0))
+      await nextTick()
+      await nextTick()
+    }
+    let executions = 0
+    const customId = 'custom[0]."menu'
+    const wrapper = mount(NexusdownEditor, {
+      attachTo: document.body,
+      props: { modelValue: 'Hello', height: '70vh', toolbarItems: [
+        ...createDefaultToolbarItems(),
+        { id: customId, group: 'custom', icon: 'lucide:star', label: '自定义斜体', execute: (context) => { executions++; return context.session.commands.toggleItalic() } },
+      ] },
+    })
+    try {
+      await flush()
+      const toolbar = wrapper.get('[data-nexusdown="toolbar"]')
+      const initialHeight = toolbar.element.getBoundingClientRect().height
+      const main = (key: string) => wrapper.findAll('[data-nexusdown-toolbar-key]').find((control) => (control.element as HTMLElement).dataset.nexusdownToolbarKey === key)!
+      expect(main('item:image').attributes('data-overflowed')).toBe('true')
+      expect(main('item:image').attributes('aria-hidden')).toBe('true')
+      expect(main('item:bold').attributes('aria-hidden')).toBeUndefined()
+      const trigger = wrapper.get('[data-nexusdown="toolbar-more-trigger"]')
+      expect(trigger.isVisible()).toBe(true)
+      await trigger.trigger('click')
+      await flush()
+      const menu = () => document.querySelector<HTMLElement>('[data-nexusdown="toolbar-overflow-menu"]')
+      expect(menu()?.closest('.nexusdown-editor')).toBeNull()
+      expect(menu()?.querySelector('button[aria-label="图片"]')).not.toBeNull()
+      const vm = wrapper.vm as unknown as { session: NexusdownEditorSession }
+      vm.session.getEditor().commands.selectAll()
+      await new DOMWrapper(menu()!).get('button[aria-label="自定义斜体"]').trigger('click')
+      expect(executions).toBe(1)
+      expect(vm.session.getHTML()).toContain('<em>Hello</em>')
+      expect(menu()).toBeNull()
+      await trigger.trigger('click')
+      await flush()
+      menu()!.querySelector<HTMLButtonElement>('button[aria-label="自定义斜体"]')!.focus()
+      width = 900
+      callbacks.forEach((callback) => callback([], {} as ResizeObserver))
+      await flush()
+      expect(menu()).toBeNull()
+      expect(main('item:image').attributes('data-overflowed')).toBeUndefined()
+      expect(main('item:image').attributes('aria-hidden')).toBeUndefined()
+      expect(trigger.isVisible()).toBe(false)
+      expect(document.activeElement).toBe(main(`item:${customId}`).get('button').element)
+      expect(toolbar.element.getBoundingClientRect().height).toBe(initialHeight)
+      expect((wrapper.element as HTMLElement).style.getPropertyValue('--nexusdown-height')).toBe('70vh')
+      expect(wrapper.find('.nexusdown-toolbar-overflow__slot').exists()).toBe(true)
+    } finally {
+      wrapper.unmount()
+      vi.restoreAllMocks()
+      vi.unstubAllGlobals()
+    }
+  })
+})
 
 describe('NexusdownEditor', () => {
   it('renders rich text before the Markdown editor by default (rich-left layout)', () => {
@@ -452,7 +534,7 @@ describe('NexusdownEditor', () => {
       expect(css).toMatch(/\.nexusdown-rich-content \.ProseMirror th,[^{]+\{[^}]*position:\s*relative/)
       expect(css).toMatch(/\.column-resize-handle\s*\{[^}]*position:\s*absolute/)
       expect(css).toMatch(/\.nexusdown-codeblock-language__trigger\s*\{[^}]*position:\s*absolute/)
-      expect(css).toMatch(/\.nexusdown-codeblock-language__menu\s*\{[^}]*position:\s*absolute/)
+      expect(css).toMatch(/\.nexusdown-codeblock-language__menu\s*\{[^}]*position:\s*fixed/)
     }
   })
 
@@ -495,6 +577,13 @@ describe('NexusdownEditor', () => {
       expect(css).toMatch(/width:\s*44px;\s*height:\s*44px/)
       expect(css).toMatch(/env\(safe-area-inset-bottom\)/)
       expect(css).toMatch(/@media \(hover: none\)/)
+    }
+  })
+
+  it('does not override the editor height at the phone breakpoint', () => {
+    for (const path of ['../../src/style.css', '../../public/style.css']) {
+      const css = readFileSync(new URL(path, import.meta.url), 'utf8')
+      expect(css.match(/@media \(max-width: 480px\) \{[\s\S]*?\.nexusdown-editor\s*\{[^}]*\}/)).toBeNull()
     }
   })
 
@@ -725,19 +814,145 @@ describe('NexusdownEditor', () => {
   })
 
   it('switches the active code block language from the floating menu', async () => {
-    const wrapper = mount(NexusdownEditor, { props: { modelValue: '```js\nconst value = 1\n```' } })
-    await new Promise((resolve) => setTimeout(resolve, 0))
-    const vm = wrapper.vm as unknown as { session: NexusdownEditorSession }
+    const rangeClientRects = Object.getOwnPropertyDescriptor(Range.prototype, 'getClientRects')
+    const rangeBoundingRect = Object.getOwnPropertyDescriptor(Range.prototype, 'getBoundingClientRect')
+    const emptyRect = {
+      x: 0, y: 0, left: 0, top: 0, right: 0, bottom: 0,
+      width: 0, height: 0, toJSON: () => ({}),
+    } as DOMRect
+    Object.defineProperty(Range.prototype, 'getClientRects', {
+      configurable: true,
+      value: () => [] as unknown as DOMRectList,
+    })
+    Object.defineProperty(Range.prototype, 'getBoundingClientRect', {
+      configurable: true,
+      value: () => emptyRect,
+    })
+    const wrapper = mount(NexusdownEditor, {
+      attachTo: document.body,
+      props: { modelValue: '```js\nconst value = 1\n```' },
+    })
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      const vm = wrapper.vm as unknown as { session: NexusdownEditorSession }
 
-    await wrapper.get('button[aria-label="代码块语言"]').trigger('click')
-    const options = wrapper.findAll('[data-nexusdown="codeblock-language-menu"] button')
-    await options.find((option) => option.text().includes('TypeScript'))?.trigger('click')
-    await new Promise((resolve) => setTimeout(resolve, 0))
-    expect(vm.session.getEditor().getAttributes('codeBlock').language).toBe('ts')
-    expect(vm.session.getMarkdown()).toContain('```ts')
-    expect(wrapper.get('.ProseMirror code').classes()).toContain('language-ts')
-    expect(wrapper.find('.ProseMirror .hljs-keyword').exists()).toBe(true)
-    wrapper.unmount()
+      await wrapper.get('button[aria-label="代码块语言"]').trigger('click')
+      const options = Array.from(document.body.querySelectorAll<HTMLButtonElement>('[data-nexusdown="codeblock-language-menu"] button'))
+      const typeScriptOption = options.find((option) => option.textContent?.includes('TypeScript'))
+      expect(typeScriptOption).toBeDefined()
+      await new DOMWrapper(typeScriptOption!).trigger('click')
+      await new Promise((resolve) => setTimeout(resolve, 30))
+      expect(vm.session.getEditor().getAttributes('codeBlock').language).toBe('ts')
+      expect(vm.session.getMarkdown()).toContain('```ts')
+      expect(wrapper.get('.ProseMirror code').classes()).toContain('language-ts')
+      expect(wrapper.find('.ProseMirror .hljs-keyword').exists()).toBe(true)
+    } finally {
+      wrapper.unmount()
+      if (rangeClientRects) Object.defineProperty(Range.prototype, 'getClientRects', rangeClientRects)
+      else delete (Range.prototype as Partial<Range>).getClientRects
+      if (rangeBoundingRect) Object.defineProperty(Range.prototype, 'getBoundingClientRect', rangeBoundingRect)
+      else delete (Range.prototype as Partial<Range>).getBoundingClientRect
+    }
+  })
+
+  it('teleports the code language menu above the editor when space below is constrained', async () => {
+    const originalInnerHeight = Object.getOwnPropertyDescriptor(window, 'innerHeight')
+    let wrapper: ReturnType<typeof mount> | undefined
+    try {
+      Object.defineProperty(window, 'innerHeight', { configurable: true, value: 260 })
+      wrapper = mount(NexusdownEditor, {
+        attachTo: document.body,
+        props: { modelValue: '```js\nconst value = 1\n```' },
+      })
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      const trigger = wrapper.get('button[aria-label="代码块语言"]')
+      vi.spyOn(trigger.element, 'getBoundingClientRect').mockReturnValue({
+        x: 400,
+        y: 220,
+        left: 400,
+        top: 220,
+        right: 548,
+        bottom: 246,
+        width: 148,
+        height: 26,
+        toJSON: () => ({}),
+      } as DOMRect)
+
+      await trigger.trigger('click')
+      await new Promise((resolve) => setTimeout(resolve, 0))
+
+      const menu = document.body.querySelector<HTMLElement>('[data-nexusdown="codeblock-language-menu"]')
+      expect(menu).not.toBeNull()
+      expect(menu?.closest('.nexusdown-editor')).toBeNull()
+      expect(Number.parseFloat(menu?.style.top ?? 'NaN')).toBeLessThan(220)
+    } finally {
+      wrapper?.unmount()
+      if (originalInnerHeight) Object.defineProperty(window, 'innerHeight', originalInnerHeight)
+    }
+  })
+
+  it('resolves a dialog that becomes modal after the editor mounts before opening the language menu', async () => {
+    const dialog = document.createElement('dialog')
+    let modal = false
+    const originalMatches = dialog.matches.bind(dialog)
+    dialog.matches = (selector: string) => selector === ':modal' ? modal : originalMatches(selector)
+    document.body.append(dialog)
+    const wrapper = mount(NexusdownEditor, {
+      attachTo: dialog,
+      props: { modelValue: '```js\nconst value = 1\n```' },
+    })
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      modal = true
+      await wrapper.get('button[aria-label="代码块语言"]').trigger('click')
+      await new Promise((resolve) => setTimeout(resolve, 0))
+
+      const menu = dialog.querySelector<HTMLElement>('[data-nexusdown="codeblock-language-menu"]')
+      expect(menu).not.toBeNull()
+      expect(menu?.parentElement).toBe(dialog)
+    } finally {
+      wrapper.unmount()
+      dialog.remove()
+    }
+  })
+
+  it('supports keyboard navigation in the teleported code language menu', async () => {
+    const wrapper = mount(NexusdownEditor, {
+      attachTo: document.body,
+      props: { modelValue: '```js\nconst value = 1\n```' },
+    })
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      const trigger = wrapper.get<HTMLButtonElement>('button[aria-label="代码块语言"]')
+      await trigger.trigger('click')
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      const items = Array.from(document.body.querySelectorAll<HTMLButtonElement>(
+        '[data-nexusdown="codeblock-language-menu"] [role="menuitemradio"]',
+      ))
+
+      expect(document.activeElement).toBe(items[1])
+      await new DOMWrapper(items[1]).trigger('keydown', { key: 'ArrowDown' })
+      expect(document.activeElement).toBe(items[2])
+      await new DOMWrapper(items[2]).trigger('keydown', { key: 'End' })
+      expect(document.activeElement).toBe(items.at(-1))
+      await new DOMWrapper(items.at(-1)!).trigger('keydown', { key: 'Home' })
+      expect(document.activeElement).toBe(items[0])
+      const menu = document.body.querySelector<HTMLElement>('[data-nexusdown="codeblock-language-menu"]')!
+      Object.defineProperty(menu, 'clientHeight', { configurable: true, value: 100 })
+      Object.defineProperty(items.at(-1)!, 'offsetTop', { configurable: true, value: 240 })
+      Object.defineProperty(items.at(-1)!, 'offsetHeight', { configurable: true, value: 20 })
+      menu.scrollTop = 0
+      await new DOMWrapper(items[0]).trigger('keydown', { key: 'End' })
+      expect(document.activeElement).toBe(items.at(-1))
+      expect(menu.scrollTop).toBe(160)
+      await new DOMWrapper(items.at(-1)!).trigger('keydown', { key: 'Escape' })
+      await new Promise((resolve) => setTimeout(resolve, 0))
+
+      expect(document.body.querySelector('[data-nexusdown="codeblock-language-menu"]')).toBeNull()
+      expect(document.activeElement).toBe(trigger.element)
+    } finally {
+      wrapper.unmount()
+    }
   })
 
   it('renders the status bar with character and line counts', async () => {

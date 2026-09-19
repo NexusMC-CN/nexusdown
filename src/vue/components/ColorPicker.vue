@@ -1,20 +1,27 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import type { ToolbarContext, ToolbarItem } from '../../core/toolbar.js'
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   context: ToolbarContext
   item: ToolbarItem
+  disabled?: boolean
   readonly?: boolean
   kind: 'color' | 'highlight'
-}>()
+  showLabel?: boolean
+  modelValue?: string
+}>(), {
+  showLabel: false,
+})
 
-const value = ref(props.kind === 'color' ? '#2563eb' : '#fef08a')
+const emit = defineEmits<{ 'update:modelValue': [value: string] }>()
+const fallbackValue = ref(props.kind === 'color' ? '#2563eb' : '#fef08a')
+const value = computed(() => props.modelValue ?? fallbackValue.value)
 const label = props.kind === 'color' ? '文字颜色' : '高亮'
 const contextKey = props.kind === 'color' ? 'color' : 'highlightColor'
 
-function apply(source: 'button' | 'input') {
-  if (props.readonly || props.item.isDisabled?.(props.context)) return
+function apply(source: 'button' | 'input', selectedValue = value.value) {
+  if (props.disabled || props.readonly || props.item.isDisabled?.(props.context)) return
   // Clearing goes through `item.execute` as well. Calling the command directly
   // bypassed the item's own callback, so a consumer whose `execute` validates or
   // records the action (or refuses it) still had the formatting removed.
@@ -22,7 +29,15 @@ function apply(source: 'button' | 'input') {
     props.item.execute({ ...props.context, [contextKey]: undefined })
     return
   }
-  props.item.execute({ ...props.context, [contextKey]: value.value })
+  props.item.execute({ ...props.context, [contextKey]: selectedValue })
+}
+
+function onInput(event: Event) {
+  if (props.disabled || props.readonly || props.item.isDisabled?.(props.context)) return
+  const selectedValue = (event.target as HTMLInputElement).value
+  fallbackValue.value = selectedValue
+  emit('update:modelValue', selectedValue)
+  apply('input', selectedValue)
 }
 </script>
 
@@ -31,7 +46,7 @@ function apply(source: 'button' | 'input') {
     <button
       class="nexusdown-toolbar__button"
       :class="{ 'is-active': item.isActive?.(context) }"
-      :disabled="readonly || item.isDisabled?.(context)"
+      :disabled="disabled || readonly || item.isDisabled?.(context)"
       type="button"
       :aria-label="label"
       :title="label"
@@ -39,14 +54,15 @@ function apply(source: 'button' | 'input') {
       @click="apply('button')"
     >
       <component :is="'iconify-icon'" :icon="item.icon" aria-hidden="true" />
+      <span v-if="showLabel">{{ label }}</span>
     </button>
     <input
-      v-model="value"
+      :value="value"
       class="nexusdown-color-picker__input"
       type="color"
       :aria-label="`${label}颜色`"
-      :disabled="readonly || item.isDisabled?.(context)"
-      @input="apply('input')"
+      :disabled="disabled || readonly || item.isDisabled?.(context)"
+      @input="onInput"
     />
   </div>
 </template>

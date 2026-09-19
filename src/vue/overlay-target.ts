@@ -13,9 +13,9 @@
 /**
  * The element an overlay should be teleported into.
  *
- * Returns the nearest open modal `<dialog>` ancestor, or `document.body` when
- * there is none. Safe to call during SSR: it returns `'body'` when no document
- * exists.
+ * Returns the nearest already-teleported overlay root inside an open modal,
+ * otherwise the modal `<dialog>` itself, or `document.body` when there is none.
+ * Safe to call during SSR: it returns `'body'` when no document exists.
  *
  * Note: an overlay teleported to `body` sits outside `.nexusdown-editor`, which
  * is where the `--nexus-*` theme variables are declared. Teleporting *into* the
@@ -30,7 +30,12 @@ export function resolveOverlayTarget(anchor: Element | null | undefined): string
   const dialog = anchor?.closest?.('dialog')
   // `:modal` matches only dialogs opened with `showModal()`; a non-modal dialog
   // does not create a top layer, so `body` remains correct and less surprising.
-  if (dialog instanceof HTMLDialogElement && dialog.matches(':modal')) return dialog
+  if (dialog instanceof HTMLDialogElement && dialog.matches(':modal')) {
+    // Keep nested pickers inside their already-teleported parent. Sending both
+    // Teleports to the same modal target leaves Vue with sibling anchor ranges
+    // to reconcile when the parent closes.
+    return anchor?.closest?.('[data-nexusdown-overlay-root]') ?? dialog
+  }
   return 'body'
 }
 
@@ -43,25 +48,17 @@ export function isBehindModalDialog(anchor: Element | null | undefined): boolean
   return typeof document !== 'undefined' && resolveOverlayTarget(anchor) !== 'body'
 }
 
-/**
- * The theme variables an overlay must re-declare to match its editor.
- *
- * `--nexus-*` is declared on `.nexusdown-editor[data-nexusdown-theme]`, so an
- * overlay teleported to `body` resolves them against `:root` instead: a dark
- * editor would open a light menu, and a host's per-instance overrides would be
- * ignored.
- */
-const THEME_VARIABLES = [
-  '--nexus-bg',
-  '--nexus-panel',
-  '--nexus-border',
-  '--nexus-text',
-  '--nexus-muted',
-  '--nexus-accent',
-] as const
+/** An overlay root or one of its descendants, including another document realm. */
+export function isNexusdownOverlayTarget(target: EventTarget | null): boolean {
+  const element = target as Element | null
+  const ElementClass = element?.ownerDocument?.defaultView?.Element
+  return Boolean(ElementClass && element instanceof ElementClass && element.closest('[data-nexusdown-overlay-root]'))
+}
 
 /**
- * Read the resolved `--nexus-*` values from `anchor`'s editor scope.
+ * Read all resolved `--nexus-*` values and inherited typography from the editor.
+ * Enumerating computed properties also carries tokens introduced by host skins
+ * without coupling Nexusdown to any particular skin or component library.
  *
  * Returns `null` when there is no editor ancestor, no document, or no computed
  * styles available, so callers can leave the overlay's styles untouched.
@@ -70,13 +67,21 @@ const THEME_VARIABLES = [
  */
 export function nexusdownThemeVariables(anchor: Element | null | undefined): Record<string, string> | null {
   if (typeof document === 'undefined' || typeof window === 'undefined') return null
-  const scope = anchor?.closest?.('.nexusdown-editor')
+  // A secondary picker can be rendered from an overflow menu that has already
+  // been teleported out of the editor. In that case the overflow root is the
+  // nearest theme bridge and carries the editor's mirrored variables.
+  const scope = anchor?.closest?.('.nexusdown-editor, [data-nexusdown-overlay-root]')
   if (!scope) return null
-  const view = document.defaultView
+  const view = scope.ownerDocument.defaultView
   if (!view?.getComputedStyle) return null
   const computed = view.getComputedStyle(scope)
   const variables: Record<string, string> = {}
-  for (const name of THEME_VARIABLES) {
+  const names = ['font-family', 'font-size', 'line-height', 'color-scheme']
+  for (let index = 0; index < computed.length; index++) {
+    const name = computed.item(index)
+    if (name.startsWith('--nexus-')) names.push(name)
+  }
+  for (const name of names) {
     const value = computed.getPropertyValue(name).trim()
     if (value) variables[name] = value
   }

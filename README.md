@@ -4,6 +4,14 @@
 
 ## Vue 用法
 
+### 可选 Annexus / Charcoal 皮肤
+
+同时使用 Annexus 时，在其 `AnnexusProvider` 内给编辑器添加 `data-nexusdown-skin="annexus"`，并在 `nexusdown/style.css` 与 Annexus 基础／主题样式之后导入 `@nexusmc/annexus/nexusdown.css`。把同一明暗模式绑定到 Provider 和编辑器的 `theme`，即可跟随站点配色；不添加皮肤属性的编辑器保持原样。
+
+浮层会同步所属编辑器的皮肤属性、全部 `--nexus-*` 变量和字体，并在打开期间监听编辑器及祖先的主题属性／内联样式变化。此接口独立于 Annexus，可供其他皮肤使用。Nuxt 接入建议使用客户端编辑器边界和等高 SSR 占位。完整示例见 Annexus 的 `docs/nexusdown.md`。
+
+### 基础导入
+
 ```ts
 import NexusdownEditor from 'nexusdown/vue'
 import 'nexusdown/style.css'
@@ -14,6 +22,8 @@ import 'nexusdown/style.css'
 该入口以未编译的 SFC 源码发布，需要由**宿主项目的构建工具**（Vite、webpack + vue-loader 等）连同宿主自己的 Vue 运行时一起编译，以保证只存在一份 Vue 实例。因此它不能直接被 Node 的 `require`/`import` 加载，也无法脱离打包器使用——这是有意为之，请不要在纯 Node 环境中 `import 'nexusdown/vue'`。核心逻辑（`nexusdown/core`）则是预编译产物，可在 Node 中直接使用。
 
 在应用中直接使用 `NexusdownEditor`、`v-model` 和 `contentType="markdown"`。组件提供共享工具栏、富文本面板和带语法高亮的 Markdown 面板。
+
+默认共享工具栏会测量编辑器容器宽度，将放不下的尾部工具收进「更多工具」，始终保持单行。`toolbarItems` 在各分组内的排列顺序也是显示优先级；自定义工具与分组会自动参与，无需针对设备单独配置。
 
 组件支持 `theme="light"`、`theme="dark"` 或默认的 `theme="system"`，并且可以把 Tiptap 扩展注入编辑会话：
 
@@ -52,7 +62,7 @@ import 'nexusdown/style.css'
 样式表内置了移动端适配，无需额外配置即可在手机和平板上使用：
 
 - **双栏在 `760px` 以下自动堆叠为上下两栏**，并在此时放宽桌面端的 `min-height`，避免小屏上内容被强行撑高。
-- **`480px` 以下编辑器高度自动收缩**（`height: auto` + `max-height`），横屏小视口也能完整显示。
+- **所有视口宽度都保留配置的编辑器高度**，包括 `480px` 以下的小屏；较长内容在编辑区内部滚动。
 - **输入框在触控设备上使用 16px 字号**：低于 16px 时 iOS Safari 会在聚焦时强制缩放页面，且不易还原，因此这是正确性要求而非样式偏好。Markdown 高亮层的 `<pre>` 与 `<textarea>` 字号始终一致，保证高亮不错位。
 - **`pointer: coarse` 设备上控件放大到 ≥44×44 CSS px**（WCAG 2.5.5 / Apple HIG 建议值），桌面端保持紧凑布局。
 - **下拉菜单与查找面板跟随 `visualViewport`**：软键盘弹出时 iOS 常常不触发 `window.resize`，因此链接/图片/标题菜单与查找面板监听 `visualViewport` 并重新定位，避免与触发器脱节或被键盘遮挡。

@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { computed, markRaw, nextTick, onMounted, onUnmounted, ref, shallowRef, watch } from 'vue'
-import type { AnyExtension } from '@tiptap/core'
+import type { AnyExtension, JSONContent } from '@tiptap/core'
 import {
   createDefaultToolbarItems,
   createNexusdownEditor,
   type ContentType,
+  type EditorCommand,
   type NexusdownEditorSession,
+  type PasteMode,
   type ToolbarContext,
   type ToolbarItem,
 } from '../core/index.js'
@@ -19,10 +21,7 @@ import { useNexusdownTheme, type NexusdownTheme } from './composables/useNexusdo
 import type { NexusdownEditorLayout } from './layout.js'
 
 type EditorDimension = number | string
-type MarkdownEditorHandle = {
-  getScrollElement: () => HTMLTextAreaElement | null
-  setScrollTop: (value: number) => void
-}
+type MarkdownEditorHandle = InstanceType<typeof MarkdownEditor>
 
 const props = withDefaults(defineProps<{
   modelValue?: string
@@ -56,10 +55,11 @@ const emit = defineEmits<{
  * Fall back to an empty document and report the failure once the session (and
  * therefore the emit channel) exists.
  */
-function parseInitialJson(value: string): { content: unknown; error: Error | null } {
+function parseInitialJson(value: string): { content: JSONContent | undefined; error: Error | null } {
   if (!value.trim()) return { content: undefined, error: null }
   try {
-    return { content: JSON.parse(value), error: null }
+    // The session validates the parsed document against its actual schema.
+    return { content: JSON.parse(value) as JSONContent, error: null }
   } catch (cause) {
     const error = new Error(`Invalid JSON content: ${(cause as Error).message}`)
     return { content: undefined, error }
@@ -69,7 +69,7 @@ function parseInitialJson(value: string): { content: unknown; error: Error | nul
 const initialJson = props.contentType === 'json' ? parseInitialJson(props.modelValue) : null
 const initialContent = initialJson ? initialJson.content : props.modelValue
 const session = shallowRef<NexusdownEditorSession>(markRaw(createNexusdownEditor({
-  content: initialContent,
+  content: initialContent ?? '',
   contentType: props.contentType,
   extensions: props.extensions,
   extensionResolver: props.extensionResolver,
@@ -121,7 +121,9 @@ const toolbarContext = computed<ToolbarContext>(() => {
     session: {
       ...current,
       commands: current.commands,
-      can: (command) => current.can(command),
+      // Custom toolbar IDs are allowed; the session returns false for any
+      // command outside its built-in capability switch.
+      can: (command) => current.can(command as EditorCommand),
       isActive: (name, attributes) => current.isActive(name, attributes),
       hasTextColor: (color) => current.hasTextColor(color),
       getSelectedText: () => markdownSelectionText || current.getSelectedText(),

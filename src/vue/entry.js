@@ -32,13 +32,10 @@ import TableControls from './components/TableControls.vue'
 import CodeBlockLanguage from './components/CodeBlockLanguage.vue'
 import FindReplacePanel from './components/FindReplacePanel.vue'
 import EditorStatusBar from './components/EditorStatusBar.vue'
-
-const Editor = NexusdownEditor
-
-export default Editor
+export default NexusdownEditor
 
 export {
-  Editor as NexusdownEditor,
+  NexusdownEditor,
   EditorToolbar,
   HeadingPicker,
   LinkPicker,

@@ -1,10 +1,13 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useNexusdownViewport } from './composables/useNexusdownViewport.js'
+import { useNexusdownOverlayTheme } from './composables/useNexusdownOverlayTheme.js'
 import { resolveOverlayTarget, nexusdownThemeVariables } from './overlay-target.js'
 
-const props = defineProps<{ activeLevel?: number; disabled?: boolean; readonly?: boolean }>()
-const emit = defineEmits<{ select: [level: number] }>()
+const props = withDefaults(defineProps<{ activeLevel?: number; disabled?: boolean; readonly?: boolean; showLabel?: boolean }>(), {
+  showLabel: false,
+})
+const emit = defineEmits<{ select: [level: number]; overlayFocus: [event: FocusEvent] }>()
 const open = ref(false)
 const trigger = ref<HTMLElement | null>(null)
 const menu = ref<HTMLElement | null>(null)
@@ -13,6 +16,7 @@ const menuStyle = ref<Record<string, string>>({})
 // Teleport into a modal dialog when the editor lives in one: a menu teleported
 // to `body` would fall outside the dialog's top layer and be inert.
 const overlayTarget = computed(() => resolveOverlayTarget(trigger.value))
+const { skin } = useNexusdownOverlayTheme(trigger, open, updatePosition)
 
 // Tracks visualViewport so the menu stays anchored through keyboard and
 // orientation changes.
@@ -43,6 +47,8 @@ function toggle() {
   open.value = !open.value
 }
 
+const isDisabled = computed(() => props.disabled || props.readonly)
+
 function choose(level: number) {
   emit('select', level)
   open.value = false
@@ -56,7 +62,10 @@ function onDocumentPointerDown(event: PointerEvent) {
 }
 
 function onKeydown(event: KeyboardEvent) {
-  if (event.key === 'Escape') open.value = false
+  if (event.key !== 'Escape') return
+  event.preventDefault()
+  open.value = false
+  trigger.value?.focus({ preventScroll: true })
 }
 
 // Position listeners (resize/orientationchange/scroll/visualViewport) are owned
@@ -73,6 +82,10 @@ watch(open, async (isOpen) => {
   document.addEventListener('keydown', onKeydown)
 })
 
+watch(isDisabled, (disabled) => {
+  if (disabled) open.value = false
+})
+
 onBeforeUnmount(() => {
   document.removeEventListener('pointerdown', onDocumentPointerDown)
   document.removeEventListener('keydown', onKeydown)
@@ -81,12 +94,13 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="nexusdown-heading-picker">
-    <button ref="trigger" class="nexusdown-toolbar__button nexusdown-heading-picker__trigger" :class="{ 'is-active': activeLevel !== undefined }" :disabled="disabled || readonly" type="button" aria-label="标题" title="标题级别" :aria-expanded="open" @click="toggle">
+    <button ref="trigger" class="nexusdown-toolbar__button nexusdown-heading-picker__trigger" :class="{ 'is-active': activeLevel !== undefined }" :disabled="isDisabled" type="button" aria-label="标题" title="标题级别" :aria-expanded="open" @click="toggle">
       <span aria-hidden="true">H{{ activeLevel ?? '' }}</span>
       <component :is="'iconify-icon'" icon="lucide:chevron-down" aria-hidden="true" />
+      <span v-if="showLabel">标题</span>
     </button>
     <Teleport :to="overlayTarget">
-      <div v-if="open" ref="menu" class="nexusdown-heading-picker__menu" data-nexusdown="heading-menu" role="menu" :style="menuStyle">
+      <div v-if="open" ref="menu" class="nexusdown-heading-picker__menu" data-nexusdown="heading-menu" data-nexusdown-overlay-root :data-nexusdown-skin="skin" role="menu" :style="menuStyle" @focusin="emit('overlayFocus', $event)">
         <button v-for="level in 6" :key="level" type="button" role="menuitem" :aria-label="`H${level}`" @click="choose(level)">H{{ level }}</button>
       </div>
     </Teleport>

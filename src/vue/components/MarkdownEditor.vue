@@ -46,13 +46,16 @@ function renderMarkdown(value: string) {
   while ((match = colorMarkup.exec(value))) {
     output += highlightSegment(value.slice(cursor, match.index))
     const source = match[0]
-    const isHtml = source.startsWith('<span')
+    const isHtml = match[2] !== undefined
     const openingEnd = isHtml ? source.indexOf('>') + 1 : source.indexOf(']') + 1
-    const closingStart = isHtml ? source.lastIndexOf('</span>') : source.lastIndexOf('[/color]')
+    // The regex match ends at the ASCII closing tag. Keep offsets in the
+    // original source: Unicode lowercasing can expand a character such as İ.
+    const closingStart = source.length - (isHtml ? '</span>'.length : '[/color]'.length)
     const opening = source.slice(0, openingEnd)
     const inner = source.slice(openingEnd, closingStart)
     const closing = source.slice(closingStart)
-    const color = isHtml ? match[2] : match[4]
+    // The regex requires one color capture in either its HTML or shortcode arm.
+    const color = (match[2] ?? match[4])!
     output += highlightSegment(opening)
     output += `<span data-nexusdown="markdown-color" style="color: ${sanitizeColor(color)}">${highlightSegment(inner)}</span>`
     output += highlightSegment(closing)
