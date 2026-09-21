@@ -3,6 +3,7 @@ import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useNexusdownViewport } from '../composables/useNexusdownViewport.js'
 import { useNexusdownOverlayTheme } from '../composables/useNexusdownOverlayTheme.js'
 import { resolveOverlayTarget, nexusdownThemeVariables } from '../overlay-target.js'
+import { useNexusdownTeleport } from '../composables/useNexusdownTeleport.js'
 import 'iconify-icon'
 
 const props = withDefaults(defineProps<{
@@ -28,6 +29,7 @@ const menuStyle = ref<Record<string, string>>({})
 // to `body` would fall outside the dialog's top layer and be inert.
 const overlayTarget = computed(() => resolveOverlayTarget(trigger.value))
 const { skin } = useNexusdownOverlayTheme(trigger, open, updatePosition)
+const { teleportReady } = useNexusdownTeleport()
 const fileInput = ref<HTMLInputElement | null>(null)
 const srcValue = ref('')
 const altValue = ref('')
@@ -182,7 +184,7 @@ onBeforeUnmount(() => {
       <component :is="'iconify-icon'" icon="lucide:image" aria-hidden="true" />
       <span v-if="showLabel">图片</span>
     </button>
-    <Teleport :to="overlayTarget">
+    <Teleport :to="overlayTarget" :disabled="!teleportReady">
       <div
         v-if="open"
         ref="menu"

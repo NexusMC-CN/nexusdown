@@ -4,6 +4,7 @@ import type { NexusdownEditorSession } from '../../core/session/index.js'
 import { useNexusdownOverlayTheme } from '../composables/useNexusdownOverlayTheme.js'
 import { useNexusdownViewport } from '../composables/useNexusdownViewport.js'
 import { nexusdownThemeVariables, resolveOverlayTarget } from '../overlay-target.js'
+import { useNexusdownTeleport } from '../composables/useNexusdownTeleport.js'
 import 'iconify-icon'
 
 const props = defineProps<{
@@ -49,6 +50,7 @@ const MENU_GAP = 6
 const overlayTarget = shallowRef<string | Element>('body')
 const { viewport } = useNexusdownViewport(scheduleRefresh)
 const { skin } = useNexusdownOverlayTheme(trigger, open, updateMenuPosition)
+const { teleportReady } = useNexusdownTeleport()
 
 function getContainer(): HTMLElement | null {
   return props.container ?? root.value?.parentElement ?? null
@@ -261,7 +263,7 @@ watch(() => props.readonly, scheduleRefresh)
       </button>
     </template>
   </div>
-  <Teleport :to="overlayTarget">
+  <Teleport :to="overlayTarget" :disabled="!teleportReady">
     <div
       v-if="open && visible && !readonly"
       ref="menu"

@@ -10,6 +10,7 @@ export default tseslint.config(
       'node_modules/**',
       'examples/**/dist/**',
       'examples/**/node_modules/**',
+      'examples/**/.astro/**',
       'public/**',
       'scripts/**',
     ],

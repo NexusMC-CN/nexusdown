@@ -3,6 +3,7 @@ import { nextTick, onBeforeUnmount, ref, shallowRef, watch } from 'vue'
 import { useNexusdownViewport } from '../composables/useNexusdownViewport.js'
 import { useNexusdownOverlayTheme } from '../composables/useNexusdownOverlayTheme.js'
 import { isNexusdownOverlayTarget, nexusdownThemeVariables, resolveOverlayTarget } from '../overlay-target.js'
+import { useNexusdownTeleport } from '../composables/useNexusdownTeleport.js'
 
 const props = defineProps<{ hasItems: boolean }>()
 const slot = ref<HTMLElement | null>(null)
@@ -13,6 +14,7 @@ const overlayTarget = shallowRef<string | Element>('body')
 const menuStyle = ref<Record<string, string>>({})
 const { viewport } = useNexusdownViewport(() => { if (open.value) updatePosition() })
 const { skin } = useNexusdownOverlayTheme(trigger, open, updatePosition)
+const { teleportReady } = useNexusdownTeleport()
 let listeningDocument: Document | undefined
 
 function updatePosition() {
@@ -133,7 +135,7 @@ defineExpose({ close, slot })
       <component :is="'iconify-icon'" icon="lucide:ellipsis" aria-hidden="true" />
     </button>
   </div>
-  <Teleport :to="overlayTarget">
+    <Teleport :to="overlayTarget" :disabled="!teleportReady">
     <div v-if="open && hasItems" ref="menu" class="nexusdown-toolbar-overflow__menu" data-nexusdown="toolbar-overflow-menu" data-nexusdown-overlay-root :data-nexusdown-skin="skin" role="dialog" aria-label="更多工具" :style="menuStyle" @keydown="onMenuKeydown">
       <slot :close="close" />
     </div>

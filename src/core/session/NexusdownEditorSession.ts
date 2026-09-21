@@ -361,12 +361,12 @@ export class NexusdownEditorSession {
       toggleBulletList: () => this.editor.chain().focus().toggleBulletList().run(),
       toggleOrderedList: () => this.editor.chain().focus().toggleOrderedList().run(),
       toggleTaskList: () => this.safeCommand((chain) => chain.toggleTaskList()),
-      toggleCodeBlock: () => this.editor.chain().focus().toggleCodeBlock().run(),
+      toggleCodeBlock: () => this.safeCommand((chain) => chain.toggleCodeBlock()),
       setHorizontalRule: () => this.editor.chain().focus().setHorizontalRule().run(),
       toggleBold: () => this.editor.chain().focus().toggleBold().run(),
       toggleItalic: () => this.editor.chain().focus().toggleItalic().run(),
       toggleStrike: () => this.editor.chain().focus().toggleStrike().run(),
-      toggleCode: () => this.editor.chain().focus().toggleCode().run(),
+      toggleCode: () => this.safeCommand((chain) => chain.toggleCode()),
       // Routed through `safeCommand`: these extensions are optional, and calling
       // the chained method on an editor that lacks them throws
       // `chain.toggleX is not a function`, which escaped the toolbar click

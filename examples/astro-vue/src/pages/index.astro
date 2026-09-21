@@ -1,0 +1,37 @@
+---
+import EditorDemo from '../components/EditorDemo.vue'
+import '../styles/demo.css'
+---
+
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width" />
+    <title>Nexusdown Astro + Vue</title>
+  </head>
+  <body>
+    <main class="page-shell">
+      <header class="page-header">
+        <p class="page-header__eyebrow">Nexusdown integration example</p>
+        <h1>Astro SSR with a hydrated Vue editor</h1>
+        <p>
+          The page is rendered by Astro. The editors become interactive only after
+          their selected Vue hydration strategy runs.
+        </p>
+      </header>
+
+      <EditorDemo
+        client:load
+        label="立即加载（client:load）"
+        initialValue="# Loaded immediately\n\nThis editor hydrates as soon as the page loads."
+      />
+
+      <EditorDemo
+        client:visible
+        label="进入视口后加载（client:visible）"
+        initialValue="# Loaded when visible\n\nThis editor hydrates when it enters the viewport."
+      />
+    </main>
+  </body>
+</html>

@@ -1,0 +1,16 @@
+{
+  "name": "nexusdown-astro-vue-demo",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro build",
+    "preview": "astro preview"
+  },
+  "dependencies": {
+    "@astrojs/vue": "^5.1.4",
+    "astro": "^5.13.5",
+    "nexusdown": "file:../..",
+    "vue": "^3.5.0"
+  }
+}

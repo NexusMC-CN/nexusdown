@@ -3,6 +3,7 @@ import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useNexusdownViewport } from './composables/useNexusdownViewport.js'
 import { useNexusdownOverlayTheme } from './composables/useNexusdownOverlayTheme.js'
 import { resolveOverlayTarget, nexusdownThemeVariables } from './overlay-target.js'
+import { useNexusdownTeleport } from './composables/useNexusdownTeleport.js'
 
 const props = withDefaults(defineProps<{
   selectedText?: string
@@ -29,6 +30,7 @@ const menuStyle = ref<Record<string, string>>({})
 // to `body` would fall outside the dialog's top layer and be inert.
 const overlayTarget = computed(() => resolveOverlayTarget(trigger.value))
 const { skin } = useNexusdownOverlayTheme(trigger, open, updatePosition)
+const { teleportReady } = useNexusdownTeleport()
 const textValue = ref('')
 const hrefValue = ref('')
 const isDisabled = computed(() => props.disabled || props.readonly)
@@ -159,7 +161,7 @@ onBeforeUnmount(() => {
       <component :is="'iconify-icon'" icon="lucide:link" aria-hidden="true" />
       <span v-if="showLabel">链接</span>
     </button>
-    <Teleport :to="overlayTarget">
+    <Teleport :to="overlayTarget" :disabled="!teleportReady">
       <div
         v-if="open"
         ref="menu"

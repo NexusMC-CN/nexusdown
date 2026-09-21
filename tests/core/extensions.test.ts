@@ -4,6 +4,11 @@ import { createNexusdownEditor } from '../../src/core/session'
 import { createNexusdownExtensions } from '../../src/core/extensions'
 
 describe('Nexusdown extension registry', () => {
+  it('does not register duplicate extension names by default', () => {
+    const names = createNexusdownExtensions().map((extension) => extension.name)
+    expect(names).toEqual([...new Set(names)])
+  })
+
   it('includes the built-in formatting and media extensions', () => {
     const extensions = createNexusdownExtensions()
     const names = extensions.map((extension) => extension.name)

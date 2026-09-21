@@ -3,6 +3,7 @@ import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useNexusdownViewport } from './composables/useNexusdownViewport.js'
 import { useNexusdownOverlayTheme } from './composables/useNexusdownOverlayTheme.js'
 import { resolveOverlayTarget, nexusdownThemeVariables } from './overlay-target.js'
+import { useNexusdownTeleport } from './composables/useNexusdownTeleport.js'
 
 const props = withDefaults(defineProps<{ activeLevel?: number; disabled?: boolean; readonly?: boolean; showLabel?: boolean }>(), {
   showLabel: false,
@@ -17,6 +18,7 @@ const menuStyle = ref<Record<string, string>>({})
 // to `body` would fall outside the dialog's top layer and be inert.
 const overlayTarget = computed(() => resolveOverlayTarget(trigger.value))
 const { skin } = useNexusdownOverlayTheme(trigger, open, updatePosition)
+const { teleportReady } = useNexusdownTeleport()
 
 // Tracks visualViewport so the menu stays anchored through keyboard and
 // orientation changes.
@@ -99,7 +101,7 @@ onBeforeUnmount(() => {
       <component :is="'iconify-icon'" icon="lucide:chevron-down" aria-hidden="true" />
       <span v-if="showLabel">标题</span>
     </button>
-    <Teleport :to="overlayTarget">
+    <Teleport :to="overlayTarget" :disabled="!teleportReady">
       <div v-if="open" ref="menu" class="nexusdown-heading-picker__menu" data-nexusdown="heading-menu" data-nexusdown-overlay-root :data-nexusdown-skin="skin" role="menu" :style="menuStyle" @focusin="emit('overlayFocus', $event)">
         <button v-for="level in 6" :key="level" type="button" role="menuitem" :aria-label="`H${level}`" @click="choose(level)">H{{ level }}</button>
       </div>

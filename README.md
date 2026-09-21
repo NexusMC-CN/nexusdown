@@ -39,6 +39,42 @@ import 'nexusdown/style.css'
 
 `imageUpload(file)` 返回最终图片 URL；未提供时，本地图片会以内嵌 base64 保存。`maxFileSize` 以字节为单位，默认不限制；图片文件也可以直接粘贴或拖入富文本编辑区。`pasteMode` 默认是 `plain`，只保留剪贴板纯文本；工具栏可切换到 `structured`，保留剪贴板中的富文本结构。底部字符和行数状态栏默认显示，传入 `:show-status-bar="false"` 可隐藏它。
 
+## Astro 用法
+
+Nexusdown 可以通过 Astro 官方的 Vue 集成使用。`nexusdown/vue` 是宿主构建工具编译的 Vue SFC，因此 Astro 项目需要安装 `@astrojs/vue`，并为编辑器选择一个客户端 hydration 指令：
+
+```bash
+npx astro add vue
+npm install nexusdown vue
+```
+
+在 Astro 页面中导入组件和样式，并使用 `client:load` 让编辑器在页面加载时 hydration：
+
+```astro
+---
+import NexusdownEditor from 'nexusdown/vue'
+import 'nexusdown/style.css'
+---
+
+<NexusdownEditor
+  client:load
+  modelValue="# Hello from Astro"
+  contentType="markdown"
+/>
+```
+
+编辑器依赖浏览器端的 Tiptap EditorView 和交互事件，不能在 Astro 服务端阶段直接操作。需要延迟加载时可以使用 `client:visible`，编辑器进入视口后再 hydration：
+
+```astro
+<NexusdownEditor
+  client:visible
+  modelValue="# Loaded when visible"
+  contentType="markdown"
+/>
+```
+
+需要双向绑定时，把 `NexusdownEditor` 放在 Vue `.vue` 组件中，在组件内使用 `ref` 和 `v-model`，然后由 Astro 页面以 `client:load` 或 `client:visible` 挂载该 Vue 组件。完整示例位于 `examples/astro-vue`，可运行 `npm run build:astro-example` 验证 Astro SSR 和 hydration bundle 构建。
+
 面板顺序默认是「左侧富文本、右侧 Markdown」（`layout="rich-left"`）。需要「左侧 Markdown、右侧富文本」时传入 `layout="markdown-left"`：
 
 ```vue

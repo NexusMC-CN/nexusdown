@@ -450,7 +450,7 @@ function escapeMarkContent(text: string): string {
 
 /** The extensions included in every Nexusdown editor by default. */
 export function createBuiltInExtensions(): AnyExtension[] {
-  const starterKit = StarterKit.configure({ link: false, underline: false, codeBlock: false })
+  const starterKit = StarterKit.configure({ link: false, underline: false, code: false, codeBlock: false })
   return [
     // StarterKit's `paragraph` and `heading` carry the `textAlign` attribute
     // (contributed by TextAlign below). Because the Markdown manager resolves

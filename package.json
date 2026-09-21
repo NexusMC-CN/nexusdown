@@ -35,6 +35,7 @@
     "sync:style": "node -e \"require('fs').copyFileSync('src/style.css','public/style.css')\"",
     "gen:vue-entry": "node scripts/generate-vue-entry.mjs",
     "build": "npm run sync:style && npm run gen:vue-entry && tsup",
+    "build:astro-example": "npm --prefix examples/astro-vue run build",
     "verify": "npm run typecheck && npm run lint && npm test && npm run build",
     "pack:check": "npm run build && npm pack --dry-run"
   },
