@@ -4,12 +4,6 @@
 
 ## Vue 用法
 
-### 可选 Annexus / Charcoal 皮肤
-
-同时使用 Annexus 时，在其 `AnnexusProvider` 内给编辑器添加 `data-nexusdown-skin="annexus"`，并在 `nexusdown/style.css` 与 Annexus 基础／主题样式之后导入 `@nexusmc/annexus/nexusdown.css`。把同一明暗模式绑定到 Provider 和编辑器的 `theme`，即可跟随站点配色；不添加皮肤属性的编辑器保持原样。
-
-浮层会同步所属编辑器的皮肤属性、全部 `--nexus-*` 变量和字体，并在打开期间监听编辑器及祖先的主题属性／内联样式变化。此接口独立于 Annexus，可供其他皮肤使用。Nuxt 接入建议使用客户端编辑器边界和等高 SSR 占位。完整示例见 Annexus 的 `docs/nexusdown.md`。
-
 ### 基础导入
 
 ```ts
