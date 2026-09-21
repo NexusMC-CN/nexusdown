@@ -43,4 +43,27 @@ describe('pane scroll sync (issue #1 comments)', () => {
     expect((rich.element as HTMLElement).scrollTop).toBe(0)
     wrapper.unmount()
   })
+
+  it('copies textarea vertical and horizontal scroll to the highlight pre', async () => {
+    const wrapper = mountSplit()
+    const textareaWrapper = wrapper.find('textarea')
+    const textarea = textareaWrapper.element as HTMLTextAreaElement
+    const highlight = wrapper.find('[data-nexusdown="markdown-highlight"]').element as HTMLElement
+    Object.defineProperties(textarea, {
+      clientHeight: { configurable: true, value: 100 },
+      scrollHeight: { configurable: true, value: 1000 },
+    })
+    Object.defineProperties(highlight, {
+      clientHeight: { configurable: true, value: 200 },
+      scrollHeight: { configurable: true, value: 2000 },
+    })
+
+    textarea.scrollTop = 450
+    textarea.scrollLeft = 35
+    await textareaWrapper.trigger('scroll')
+
+    expect(highlight.scrollTop).toBe(450)
+    expect(highlight.scrollLeft).toBe(35)
+    wrapper.unmount()
+  })
 })

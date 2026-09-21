@@ -26,16 +26,6 @@ const NEXT_PASTE_MODE: Record<PasteMode, PasteMode> = {
   structured: 'markdown',
   markdown: 'plain',
 }
-const PASTE_MODE_LABELS: Record<PasteMode, string> = {
-  plain: '纯文本',
-  structured: '富文本',
-  markdown: 'Markdown',
-}
-const PASTE_MODE_ICONS: Record<PasteMode, string> = {
-  plain: 'lucide:clipboard-type',
-  structured: 'lucide:clipboard-paste',
-  markdown: 'lucide:clipboard-list',
-}
 function togglePasteMode() {
   if (props.readonly) return
   const next = NEXT_PASTE_MODE[pasteMode.value]
@@ -143,8 +133,6 @@ const linkHref = computed(() => {
   void tick.value
   return props.context.session.getLinkHref()
 })
-const readSelectedText = () => props.context.session.getSelectedText()
-const readLinkHref = () => props.context.session.getLinkHref()
 function executeHeading(level: number) {
   const item = headingItem.value
   if (!item || props.readonly || item.isDisabled?.(props.context)) return

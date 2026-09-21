@@ -68,10 +68,8 @@ function renderMarkdown(value: string) {
 
 function syncScroll() {
   if (!textarea.value || !highlight.value) return
-  const pre = highlight.value.parentElement
-  if (!pre) return
-  pre.scrollTop = textarea.value.scrollTop
-  pre.scrollLeft = textarea.value.scrollLeft
+  highlight.value.scrollTop = textarea.value.scrollTop
+  highlight.value.scrollLeft = textarea.value.scrollLeft
 }
 
 function getScrollElement() {

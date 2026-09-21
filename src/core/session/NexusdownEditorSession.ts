@@ -470,8 +470,9 @@ export class NexusdownEditorSession {
         // Markdown is unchanged. HTML/JSON can still differ (e.g. a mark change
         // with no Markdown representation), so fall back to the full comparison.
         const html = this.serializeHtml()
-        if (html === this.snapshot.html) return
-        this.notifySubscribers({ markdown, html, json: this.editor.getJSON(), source })
+        const json = this.editor.getJSON()
+        if (html === this.snapshot.html && JSON.stringify(json) === JSON.stringify(this.snapshot.json)) return
+        this.notifySubscribers({ markdown, html, json, source })
         return
       }
 

@@ -59,4 +59,33 @@ describe('rejected draft does not linger (issue #1 comments)', () => {
     expect(value).toBe('## heading\n')
     expect(errors).toBe(0)
   })
+
+  it('publishes one committed update for one accepted markdown edit', async () => {
+    const wrapper = mount(NexusdownEditor, {
+      props: { modelValue: 'ok\n', contentType: 'markdown' },
+      attachTo: document.body,
+    })
+    const textarea = wrapper.find('textarea')
+    ;(textarea.element as HTMLTextAreaElement).value = '## heading\n'
+    await textarea.trigger('input')
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.emitted('update:modelValue')?.map(([value]) => value)).toEqual(['## heading'])
+    wrapper.unmount()
+  })
+
+  it('does not publish a committed update for a rejected markdown draft', async () => {
+    const wrapper = mount(NexusdownEditor, {
+      props: { modelValue: 'ok\n', contentType: 'markdown' },
+      attachTo: document.body,
+    })
+    const textarea = wrapper.find('textarea')
+    ;(textarea.element as HTMLTextAreaElement).value = 'bad\u0000content'
+    await textarea.trigger('input')
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.emitted('update:modelValue') ?? []).toHaveLength(0)
+    expect(wrapper.emitted('parse-error')).toHaveLength(1)
+    wrapper.unmount()
+  })
 })

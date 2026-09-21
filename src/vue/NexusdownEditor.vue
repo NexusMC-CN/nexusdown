@@ -108,19 +108,86 @@ const findReplaceOpen = ref(false)
  */
 const markdownSelection = ref<{ from: number; to: number; text: string } | null>(null)
 
+function markdownSelectionRange(session: NexusdownEditorSession) {
+  const selection = markdownSelection.value
+  if (!selection || !selection.text) return undefined
+  const markdown = session.getMarkdown()
+  const candidates: number[] = []
+  let candidate = markdown.indexOf(selection.text)
+  while (candidate >= 0) {
+    candidates.push(candidate)
+    candidate = markdown.indexOf(selection.text, candidate + 1)
+  }
+  const start = candidates.reduce((closest, current) =>
+    Math.abs(current - selection.from) < Math.abs(closest - selection.from) ? current : closest,
+  candidates[0] ?? -1)
+  if (start < 0) return undefined
+  const end = start + selection.text.length
+  let textOffset = 0
+  let from: number | undefined
+  let to: number | undefined
+  session.getEditor().state.doc.descendants((node, position) => {
+    if (!node.isText) return true
+    const length = node.text?.length ?? 0
+    if (from === undefined && start >= textOffset && start <= textOffset + length) {
+      from = position + start - textOffset
+    }
+    if (to === undefined && end >= textOffset && end <= textOffset + length) {
+      to = position + end - textOffset
+    }
+    textOffset += length
+    return from === undefined || to === undefined
+  })
+  return from !== undefined && to !== undefined ? { from, to } : undefined
+}
+
+function withMarkdownSelection<T>(session: NexusdownEditorSession, action: () => T): T {
+  const range = markdownSelectionRange(session)
+  if (!range) return action()
+  const previous = session.getEditor().state.selection
+  session.getEditor().commands.setTextSelection(range)
+  try {
+    return action()
+  } finally {
+    session.getEditor().commands.setTextSelection({ from: previous.from, to: previous.to })
+  }
+}
+
 const items = computed(() => props.toolbarItems ?? createDefaultToolbarItems())
 const toolbarContext = computed<ToolbarContext>(() => {
   void revision.value
   const current = session.value
   if (!current) throw new Error('Editor session is not ready')
   const markdownSelectionText = markdownSelection.value?.text ?? ''
+  const commands = {
+    ...current.commands,
+    setHeading: (level?: number) => withMarkdownSelection(current, () => current.commands.setHeading(level)),
+    toggleBlockquote: () => withMarkdownSelection(current, () => current.commands.toggleBlockquote()),
+    toggleBulletList: () => withMarkdownSelection(current, () => current.commands.toggleBulletList()),
+    toggleOrderedList: () => withMarkdownSelection(current, () => current.commands.toggleOrderedList()),
+    toggleTaskList: () => withMarkdownSelection(current, () => current.commands.toggleTaskList()),
+    toggleCodeBlock: () => withMarkdownSelection(current, () => current.commands.toggleCodeBlock()),
+    toggleBold: () => withMarkdownSelection(current, () => current.commands.toggleBold()),
+    toggleItalic: () => withMarkdownSelection(current, () => current.commands.toggleItalic()),
+    toggleStrike: () => withMarkdownSelection(current, () => current.commands.toggleStrike()),
+    toggleCode: () => withMarkdownSelection(current, () => current.commands.toggleCode()),
+    toggleUnderline: () => withMarkdownSelection(current, () => current.commands.toggleUnderline()),
+    toggleSuperscript: () => withMarkdownSelection(current, () => current.commands.toggleSuperscript()),
+    toggleSubscript: () => withMarkdownSelection(current, () => current.commands.toggleSubscript()),
+    setColor: (color?: string) => withMarkdownSelection(current, () => current.commands.setColor(color)),
+    setHighlight: (color?: string) => withMarkdownSelection(current, () => current.commands.setHighlight(color)),
+    setLink: (href?: string, text?: string) => withMarkdownSelection(current, () => current.commands.setLink(href, text)),
+    setTextAlign: (alignment?: 'left' | 'center' | 'right' | 'justify') => withMarkdownSelection(current, () => current.commands.setTextAlign(alignment)),
+    indent: () => withMarkdownSelection(current, () => current.commands.indent()),
+    outdent: () => withMarkdownSelection(current, () => current.commands.outdent()),
+  }
   return {
     // Proxy the session so `getSelectedText()` reports the Markdown selection
     // while one is active, and falls through to the rich-text selection
     // otherwise. All other members are bound to the real session.
     session: {
       ...current,
-      commands: current.commands,
+      commands,
       // Custom toolbar IDs are allowed; the session returns false for any
       // command outside its built-in capability switch.
       can: (command) => current.can(command as EditorCommand),
@@ -273,7 +340,6 @@ watch(() => props.pasteMode, (pasteMode) => session.value.setPasteMode(pasteMode
 
 function onMarkdownInput(value: string) {
   markdownValue.value = value
-  if (props.contentType === 'markdown') emit('update:modelValue', value)
   if (markdownComposing.value) return
   try {
     session.value?.setMarkdown(value)

@@ -59,8 +59,7 @@ describe('MarkdownEditor', () => {
     await wrapper.get('[data-nexusdown="markdown"]').trigger('input')
     expect(wrapper.emitted('update:modelValue')?.at(-1)).toEqual(['updated'])
 
-    const pre = wrapper.get('[data-nexusdown="markdown-highlight"]')
-      .element.parentElement as HTMLElement
+    const pre = wrapper.get('[data-nexusdown="markdown-highlight"]').element as HTMLElement
     textarea.scrollTop = 42
     textarea.scrollLeft = 7
     await wrapper.get('[data-nexusdown="markdown"]').trigger('scroll')

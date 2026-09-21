@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import NexusdownEditor from '../../src/vue/NexusdownEditor.vue'
 import MarkdownEditor from '../../src/vue/components/MarkdownEditor.vue'
@@ -73,6 +73,68 @@ describe('markdown-side selection', () => {
     await selectInTextarea(wrapper, 6, 6)
     context = (wrapper.vm as unknown as { toolbarContext: { session: { getSelectedText: () => string } } }).toolbarContext
     expect(context.session.getSelectedText()).toBe('')
+    wrapper.unmount()
+  })
+
+  it('applies bold to the markdown selection instead of the rich selection', async () => {
+    Object.defineProperty(HTMLElement.prototype, 'getClientRects', { configurable: true, value: () => [] })
+    Object.defineProperty(HTMLElement.prototype, 'getBoundingClientRect', { configurable: true, value: () => new DOMRect() })
+    Object.defineProperty(Node.prototype, 'getClientRects', { configurable: true, value: () => [] })
+    const wrapper = mount(NexusdownEditor, {
+      props: { modelValue: 'alpha beta gamma', contentType: 'markdown' },
+      attachTo: document.body,
+    })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    await selectInTextarea(wrapper, 0, 5)
+    await wrapper.get('button[aria-label="粗体"]').trigger('click')
+    await wrapper.vm.$nextTick()
+
+    expect((wrapper.find('textarea').element as HTMLTextAreaElement).value).toContain('**alpha**')
+    expect((wrapper.find('textarea').element as HTMLTextAreaElement).value).not.toContain('**beta**')
+    wrapper.unmount()
+    vi.restoreAllMocks()
+  })
+
+  it('applies a link to the markdown selection instead of the rich selection', async () => {
+    Object.defineProperty(HTMLElement.prototype, 'getClientRects', { configurable: true, value: () => [] })
+    Object.defineProperty(HTMLElement.prototype, 'getBoundingClientRect', { configurable: true, value: () => new DOMRect() })
+    const wrapper = mount(NexusdownEditor, {
+      props: { modelValue: 'alpha beta gamma', contentType: 'markdown' },
+      attachTo: document.body,
+    })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    await selectInTextarea(wrapper, 6, 10)
+    await wrapper.get('button[aria-label="链接"]').trigger('click')
+    const menu = document.body.querySelector('[data-nexusdown="link-menu"]') as HTMLElement
+    const href = menu.querySelector('input[aria-label="链接地址"]') as HTMLInputElement
+    href.value = 'https://example.com'
+    href.dispatchEvent(new Event('input', { bubbles: true }))
+    await wrapper.vm.$nextTick()
+    ;(menu.querySelector('button[aria-label="应用链接"]') as HTMLButtonElement).click()
+    await wrapper.vm.$nextTick()
+
+    const value = (wrapper.find('textarea').element as HTMLTextAreaElement).value
+    expect(value).toContain('[beta](https://example.com)')
+    expect(value).not.toContain('[alpha]')
+    wrapper.unmount()
+  })
+
+  it('maps a repeated markdown selection to its source occurrence', async () => {
+    Object.defineProperty(HTMLElement.prototype, 'getClientRects', { configurable: true, value: () => [] })
+    Object.defineProperty(HTMLElement.prototype, 'getBoundingClientRect', { configurable: true, value: () => new DOMRect() })
+    const wrapper = mount(NexusdownEditor, {
+      props: { modelValue: 'alpha alpha', contentType: 'markdown' },
+      attachTo: document.body,
+    })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    await selectInTextarea(wrapper, 6, 11)
+    await wrapper.get('button[aria-label="粗体"]').trigger('click')
+    await wrapper.vm.$nextTick()
+
+    expect((wrapper.find('textarea').element as HTMLTextAreaElement).value).toBe('alpha **alpha**')
     wrapper.unmount()
   })
 })
