@@ -6,5 +6,8 @@ dist/
 .worktrees/
 .superpowers/
 examples/**/.astro/
+examples/**/.nuxt/
+examples/**/.output/
 docs/superpowers/
 package-lock.json
+!examples/nuxt-ssr/package-lock.json

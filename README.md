@@ -75,6 +75,26 @@ import 'nexusdown/style.css'
 
 需要双向绑定时，把 `NexusdownEditor` 放在 Vue `.vue` 组件中，在组件内使用 `ref` 和 `v-model`，然后由 Astro 页面以 `client:load` 或 `client:visible` 挂载该 Vue 组件。完整示例位于 `examples/astro-vue`，可运行 `npm run build:astro-example` 验证 Astro SSR 和 hydration bundle 构建。
 
+## Nuxt SSR 用法
+
+Nuxt 可以直接编译 `nexusdown/vue` 的 Vue SFC，并支持服务端渲染。Nuxt 页面中直接导入组件和样式即可，不需要用 `ClientOnly` 包裹：
+
+```vue
+<script setup lang="ts">
+import { ref } from 'vue'
+import NexusdownEditor from 'nexusdown/vue'
+import 'nexusdown/style.css'
+
+const value = ref('# Hello from Nuxt SSR')
+</script>
+
+<template>
+  <NexusdownEditor v-model="value" content-type="markdown" />
+</template>
+```
+
+编辑器的 Tiptap 实例和浏览器事件会在客户端挂载阶段完成初始化，服务端阶段保留可渲染的编辑器结构。完整示例位于 `examples/nuxt-ssr`，可运行 `npm run build:nuxt-example` 验证 Nuxt SSR 生产构建。CI 会在 Node 20、22、24 上构建该示例并检查 `.output/server/index.mjs`；该检查验证 SSR 构建链，不包含浏览器交互 E2E。
+
 面板顺序默认是「左侧富文本、右侧 Markdown」（`layout="rich-left"`）。需要「左侧 Markdown、右侧富文本」时传入 `layout="markdown-left"`：
 
 ```vue

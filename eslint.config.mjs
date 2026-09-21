@@ -11,6 +11,8 @@ export default tseslint.config(
       'examples/**/dist/**',
       'examples/**/node_modules/**',
       'examples/**/.astro/**',
+      'examples/**/.nuxt/**',
+      'examples/**/.output/**',
       'public/**',
       'scripts/**',
     ],

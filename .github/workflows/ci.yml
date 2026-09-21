@@ -84,6 +84,34 @@ jobs:
       - name: Consumer smoke test
         run: npm run test:consumer
 
+  nuxt-ssr:
+    name: Nuxt SSR (node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['20', '22', '24']
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+          cache-dependency-path: examples/nuxt-ssr/package-lock.json
+
+      - name: Install Nuxt example dependencies
+        working-directory: examples/nuxt-ssr
+        run: npm ci
+
+      - name: Build Nuxt SSR example
+        working-directory: examples/nuxt-ssr
+        run: npm run build
+
+      - name: Check Nuxt SSR output
+        working-directory: examples/nuxt-ssr
+        run: test -f .output/server/index.mjs
+
   commitlint:
     name: commit messages
     runs-on: ubuntu-latest
