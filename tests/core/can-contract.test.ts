@@ -7,9 +7,7 @@ describe('can() contract (issue #1 comments)', () => {
     const commands = [
       'undo', 'redo', 'heading', 'blockquote', 'bullet-list', 'ordered-list',
       'task-list', 'code-block', 'horizontal-rule', 'bold', 'italic', 'strike',
-      'code', 'underline', 'superscript', 'subscript', 'color', 'highlight',
-      'link', 'table', 'image', 'align-left', 'align-center', 'align-right',
-      'align-justify', 'indent', 'outdent',
+      'code', 'link', 'table', 'image', 'indent', 'outdent',
     ] as const
     for (const command of commands) {
       expect(editor.can(command), `can(${command})`).toBeTypeOf('boolean')

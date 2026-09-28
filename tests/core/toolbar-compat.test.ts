@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { createNexusdownEditor } from '../../src/core/session'
 import { createDefaultToolbarItems } from '../../src/core/toolbar'
-import type { ToolbarContext, ToolbarItem } from '../../src/core/toolbar'
+import type { ToolbarItem } from '../../src/core/toolbar'
 
 /** Build a ToolbarItem with an id outside the built-in set, checking the type allows it. */
 const customItem: ToolbarItem = {
@@ -21,60 +21,36 @@ describe('toolbar and extension compatibility (issue #1 comments)', () => {
     expect(customItem.group).toBe('custom-group')
   })
 
-  it('does not report text colour as active when only a font is set', () => {
-    // Regression: `textStyle` is shared with `fontFamily`, so
-    // `isActive('textStyle')` was true for text with no colour. The colour
-    // button then showed as active and its click ran the clear branch, so a
-    // colour could never be applied.
+  it('does not offer the formats that can only serialise as HTML', () => {
+    // Colour, underline, superscript, subscript and alignment were removed:
+    // Markdown has no syntax for them, so the only serialisations were a BBCode
+    // shortcode or raw HTML. The toolbar must not render an entry point for a
+    // format the editor cannot write.
     //
-    // `FontFamily` is not part of the default set, so a `textStyle` mark is
-    // applied directly to reproduce what injecting that extension produces.
+    // Highlight is deliberately NOT in this list. It was removed alongside them,
+    // then brought back on the plain-text `==text==` syntax (the Obsidian /
+    // Typora / markdown-it-mark convention), which keeps the dialect free of
+    // HTML — see the purity tests.
+    const ids = new Set(createDefaultToolbarItems().map((item) => item.id))
+    for (const removed of ['color', 'underline', 'superscript', 'subscript']) {
+      expect(ids.has(removed), `toolbar must not offer ${removed}`).toBe(false)
+    }
+    expect(ids.has('highlight'), 'toolbar must offer highlight').toBe(true)
+
     const editor = createNexusdownEditor({ content: '<p>hello</p>', contentType: 'html' })
-    const instance = editor.getEditor()
-    instance.chain().selectAll().setMark('textStyle', { fontFamily: 'Georgia' }).run()
-
-    expect(editor.isActive('textStyle')).toBe(true)
-    // The mark exists but carries no colour — the distinction the toolbar needs.
-    expect(editor.hasTextColor()).toBe(false)
-
-    const items = createDefaultToolbarItems()
-    const color = items.find((item) => item.id === 'color')!
-    const context = {
-      session: {
-        isActive: (name: string, attributes?: Record<string, unknown>) =>
-          editor.isActive(name, attributes),
-        hasTextColor: (value?: string) => editor.hasTextColor(value),
-      },
-    } as unknown as ToolbarContext
-    expect(color.isActive?.(context)).toBe(false)
-    editor.destroy()
-  })
-
-  it('reports text colour as active once a colour is applied', () => {
-    const editor = createNexusdownEditor({ content: '<p>hello</p>', contentType: 'html' })
-    const instance = editor.getEditor()
-    instance.chain().selectAll().setColor('#ff0000').run()
-
-    expect(editor.hasTextColor()).toBe(true)
-    expect(editor.hasTextColor('#ff0000')).toBe(true)
-    expect(editor.hasTextColor('#00ff00')).toBe(false)
-    editor.destroy()
-  })
-
-  it('reports no colour when the selection has no textStyle mark at all', () => {
-    const editor = createNexusdownEditor({ content: '<p>hello</p>', contentType: 'html' })
-    expect(editor.hasTextColor()).toBe(false)
-    expect(editor.hasTextColor('#ff0000')).toBe(false)
+    // The session no longer exposes the colour command at all.
+    expect('setColor' in editor.commands).toBe(false)
+    expect('hasTextColor' in editor).toBe(false)
     editor.destroy()
   })
 
   it('keeps the toolbar usable when optional extensions are removed', async () => {
     // Regression: `can()` and the commands called chain methods contributed by
-    // optional extensions. Removing the table, task list, image, colour or
-    // highlight extensions made those methods absent, so probing or clicking the
-    // corresponding toolbar button threw
-    // `TypeError: chain.toggleTaskList is not a function` and broke the render.
-    const removed = ['tableKit', 'table', 'image', 'highlight', 'color', 'taskList', 'taskItem']
+    // optional extensions. Removing the table, task list or image extensions
+    // made those methods absent, so probing or clicking the corresponding
+    // toolbar button threw `TypeError: chain.toggleTaskList is not a function`
+    // and broke the render.
+    const removed = ['tableKit', 'table', 'image', 'taskList', 'taskItem']
     const editor = createNexusdownEditor({
       content: '<p>hello</p>',
       contentType: 'html',
@@ -91,16 +67,12 @@ describe('toolbar and extension compatibility (issue #1 comments)', () => {
     expect(editor.can('task-list')).toBe(false)
     expect(editor.can('table')).toBe(false)
     expect(editor.can('image')).toBe(false)
-    expect(editor.can('color')).toBe(false)
-    expect(editor.can('highlight')).toBe(false)
 
     // Invoking them must report failure rather than throwing.
     expect(() => editor.commands.toggleTaskList()).not.toThrow()
     expect(editor.commands.toggleTaskList()).toBe(false)
     expect(editor.commands.insertTable()).toBe(false)
     expect(editor.commands.insertImage('https://example.com/a.png')).toBe(false)
-    expect(editor.commands.setColor('#ff0000')).toBe(false)
-    expect(editor.commands.setHighlight('#ffff00')).toBe(false)
 
     // Commands that are still present keep working.
     expect(editor.commands.toggleBold()).toBe(true)

@@ -14,15 +14,20 @@ describe('Nexusdown extension registry', () => {
     const names = extensions.map((extension) => extension.name)
 
     expect(names).toEqual(expect.arrayContaining([
+      'typography',
+      'placeholder',
+      'characterCount',
+      'image',
+    ]))
+    // Colour, highlight, underline, superscript and subscript were removed: none
+    // has a lossless standard-Markdown representation, so they could only
+    // serialise as BBCode shortcodes or raw HTML.
+    expect(names).not.toEqual(expect.arrayContaining([
       'color',
       'highlight',
       'underline',
       'superscript',
       'subscript',
-      'typography',
-      'placeholder',
-      'characterCount',
-      'image',
     ]))
     const session = createNexusdownEditor({ content: '', contentType: 'markdown' })
     expect(session.getEditor().extensionManager.extensions.find((extension) => extension.name === 'table')?.options.resizable).toBe(true)

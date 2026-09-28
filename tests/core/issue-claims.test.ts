@@ -79,28 +79,32 @@ describe('issue #1 claims confirmed working', () => {
     editor.destroy()
   })
 
-  it('escapes a literal ==text== so it does not become a highlight', () => {
+  it('keeps a literal ==text== as literal text', () => {
+    // `==` is the highlight delimiter, so prose that merely *looks* like it has
+    // to be escaped on the way out — otherwise text the user typed in the rich
+    // text view silently turns into a highlight the next time the document is
+    // opened. This is the same class of problem as a paragraph starting with
+    // `#`: the writer has to protect it.
     const editor = createNexusdownEditor({ content: '<p>a ==b== c</p>', contentType: 'html' })
     const markdown = editor.getMarkdown()
+    expect(markdown).toContain('\\=\\=b\\=\\=')
     const reloaded = createNexusdownEditor({ content: markdown, contentType: 'markdown' })
+    expect(reloaded.getHTML()).toContain('==b==')
     expect(reloaded.getHTML()).not.toContain('<mark>')
     reloaded.destroy()
     editor.destroy()
   })
 
-  it('keeps a highlight whose content contains a single equals sign', () => {
-    const editor = createNexusdownEditor({ content: '<p><mark>a=b</mark></p>', contentType: 'html' })
+  it('still writes a real highlight as ==text==, unescaped', () => {
+    // The counterpart to the test above: escaping must only touch *literal*
+    // prose. A genuine highlight mark has to keep the bare `==` delimiters.
+    const editor = createNexusdownEditor({ content: '<p>a <mark>b</mark> c</p>', contentType: 'html' })
     const markdown = editor.getMarkdown()
+    expect(markdown).toContain('==b==')
+    expect(markdown).not.toContain('\\=\\=b\\=\\=')
     const reloaded = createNexusdownEditor({ content: markdown, contentType: 'markdown' })
-    expect(reloaded.getHTML()).toContain('<mark>')
+    expect(reloaded.getHTML()).toContain('<mark>b</mark>')
     reloaded.destroy()
-    editor.destroy()
-  })
-
-  it('reports no text colour when only other textStyle attributes are set', () => {
-    const editor = createNexusdownEditor({ content: '<p>x</p>', contentType: 'html' })
-    expect(editor.hasTextColor()).toBe(false)
-    expect(editor.hasTextColor('#ff0000')).toBe(false)
     editor.destroy()
   })
 })

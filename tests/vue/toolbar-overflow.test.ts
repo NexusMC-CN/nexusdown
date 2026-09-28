@@ -389,7 +389,7 @@ describe('createToolbarControls', () => {
       itemControl('indent', { group: 'indent' }).item,
       itemControl('bold', { group: 'inline' }).item,
       itemControl('blockquote', { group: 'block' }).item,
-      itemControl('align-left', { group: 'align' }).item,
+      itemControl('badge', { group: 'custom-group' }).item,
       itemControl('table', { group: 'extension' }).item,
       itemControl('undo', { group: 'history' }).item,
     ]
@@ -401,8 +401,8 @@ describe('createToolbarControls', () => {
       { key: 'item:blockquote', group: 'block' },
       { key: 'item:bold', group: 'inline' },
       { key: 'item:table', group: 'extension' },
-      { key: 'item:align-left', group: 'align' },
       { key: 'item:indent', group: 'indent' },
+      { key: 'item:badge', group: 'custom-group' },
     ])
   })
 
@@ -443,21 +443,15 @@ function createContext(): ToolbarContext {
         toggleItalic: command,
         toggleStrike: command,
         toggleCode: command,
-        toggleUnderline: command,
-        toggleSuperscript: command,
-        toggleSubscript: command,
-        setColor: command,
-        setHighlight: command,
+        toggleHighlight: command,
         setLink: command,
         insertTable: command,
         insertImage: command,
-        setTextAlign: command,
         indent: command,
         outdent: command,
       },
       can: () => true,
       isActive: () => false,
-      hasTextColor: () => false,
       getSelectedText: () => '已选文本',
       getLinkHref: () => 'https://old.example',
       getPasteMode: () => 'plain',
@@ -506,9 +500,9 @@ describe('ToolbarControl', () => {
   })
 
   it('shows overflow labels for compound controls and preserves active, disabled, and readonly states', () => {
-    for (const id of ['heading', 'link', 'image', 'color', 'highlight']) {
+    for (const id of ['heading', 'link', 'image']) {
       const wrapper = mountControl(itemControl(id, { label: `${id}标签` }), { display: 'overflow' })
-      const expectedLabel = id === 'color' ? '文字颜色' : id === 'highlight' ? '高亮' : id === 'heading' ? '标题' : id === 'link' ? '链接' : '图片'
+      const expectedLabel = id === 'heading' ? '标题' : id === 'link' ? '链接' : '图片'
       expect(wrapper.get('button').text()).toContain(expectedLabel)
       wrapper.unmount()
     }
@@ -671,49 +665,6 @@ describe('EditorToolbar durable overflow behavior', () => {
     expect(layout.observed.size).toBe(0)
   })
 
-  for (const [id, label, contextKey, defaultColor] of [
-    ['color', '文字颜色', 'color', '#2563eb'], ['highlight', '高亮', 'highlightColor', '#fef08a'],
-  ] as const) {
-    it(`shares durable ${id} selection across compact and overflow copies`, async () => {
-      const applied: unknown[] = []
-      const item = itemControl(id, { execute: (context) => { applied.push(context[contextKey]); return true } }).item
-      const layout = installEditorToolbarGeometry(240, { [`item:${id}`]: 400 })
-      const wrapper = mount(EditorToolbar, { props: { context: createContext(), items: [item] }, attachTo: document.body })
-      try {
-        await layout.flush()
-        const more = wrapper.get('[data-nexusdown="toolbar-more-trigger"]')
-        const mainInput = wrapper.get<HTMLInputElement>('input[type="color"]')
-        expect(mainInput.element.value).toBe(defaultColor)
-        await more.trigger('click'); await layout.flush()
-        let menu = new DOMWrapper(document.querySelector('[data-nexusdown="toolbar-overflow-menu"]')!)
-        await menu.get('input[type="color"]').setValue('#123456')
-        expect(applied).toEqual(['#123456'])
-        expect.soft(mainInput.element.value).toBe('#123456')
-        expect(wrapper.emitted('executed')).toBeUndefined()
-        await more.trigger('click'); await layout.flush()
-        await more.trigger('click'); await layout.flush()
-        menu = new DOMWrapper(document.querySelector('[data-nexusdown="toolbar-overflow-menu"]')!)
-        expect.soft(menu.get<HTMLInputElement>('input[type="color"]').element.value).toBe('#123456')
-        await menu.get(`button[aria-label="${label}"]`).trigger('click')
-        expect(applied).toEqual(['#123456', '#123456'])
-
-        await more.trigger('click'); await layout.flush()
-        layout.geometry.width = 500
-        layout.notify(wrapper.element); await layout.flush()
-        expect(mainInput.attributes('disabled')).toBeUndefined()
-        await mainInput.setValue('#abcdef')
-        expect(applied.at(-1)).toBe('#abcdef')
-        layout.geometry.width = 240
-        layout.notify(wrapper.element); await layout.flush()
-        await more.trigger('click'); await layout.flush()
-        menu = new DOMWrapper(document.querySelector('[data-nexusdown="toolbar-overflow-menu"]')!)
-        expect(menu.get<HTMLInputElement>('input[type="color"]').element.value).toBe('#abcdef')
-        await menu.get(`button[aria-label="${label}"]`).trigger('click')
-        expect(applied).toEqual(['#123456', '#123456', '#abcdef', '#abcdef'])
-      } finally { wrapper.unmount() }
-    })
-  }
-
   for (const modal of [false, true]) {
     for (const [id, label, field] of [['link', '链接', '链接地址'], ['image', '图片', '图片地址']] as const) {
       it(`recovers ${id} child focus after widening with other overflow items in ${modal ? 'modal' : 'body'}`, async () => {
@@ -850,8 +801,8 @@ describe('EditorToolbar control layout', () => {
     const groups = children.filter((child) => child.classList.contains('nexusdown-toolbar__group'))
     const separators = children.filter((child) => child.classList.contains('nexusdown-toolbar__separator'))
 
-    expect(groups).toHaveLength(7)
-    expect(separators).toHaveLength(6)
+    expect(groups).toHaveLength(6)
+    expect(separators).toHaveLength(5)
     expect(groups[0].querySelectorAll(':scope > .nexusdown-toolbar__control')).toHaveLength(2)
     expect(groups[1].querySelectorAll(':scope > .nexusdown-toolbar__control')).toHaveLength(2)
     expect([...groups[0].querySelectorAll<HTMLElement>(':scope > .nexusdown-toolbar__control')].map((control) => control.dataset.nexusdownToolbarKey)).toEqual(['item:undo', 'item:redo'])
@@ -872,7 +823,7 @@ describe('EditorToolbar control layout', () => {
     await wrapper.setProps({ items: [...items] })
 
     const groups = wrapper.findAll('.nexusdown-toolbar__track > .nexusdown-toolbar__group')
-    expect(groups).toHaveLength(8)
+    expect(groups).toHaveLength(7)
     expect(groups[1].findAll('[data-nexusdown-toolbar-key]')).toHaveLength(2)
     expect(groups.at(-1)!.get('[data-nexusdown-toolbar-key]').attributes('data-nexusdown-toolbar-key')).toBe('item:utility-badge')
     expect(wrapper.findAll('[data-nexusdown-toolbar-key="item:utility-badge"]')).toHaveLength(1)

@@ -21,7 +21,6 @@ function mountWith(items: ToolbarItem[]) {
           commands: session.commands,
           can: (command: ToolbarCommand) => session.can(command as EditorCommand),
           isActive: (n: string, a?: Record<string, unknown>) => session.isActive(n, a),
-          hasTextColor: (c?: string) => session.hasTextColor(c),
           getSelectedText: () => session.getSelectedText(),
           getLinkHref: () => session.getLinkHref(),
           getPasteMode: () => session.getPasteMode(),
