@@ -22,3 +22,4 @@ export {
 } from './core/index.js';
 export { createDefaultToolbarItems } from './core/toolbar.js'
 export type { ToolbarCommand, ToolbarContext, ToolbarGroup, ToolbarItem, ToolbarSession } from './core/toolbar.js'
+export { renderMarkdown, type RenderMarkdownOptions } from './render/index.js'
