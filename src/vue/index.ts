@@ -6,7 +6,6 @@ export const vueSfcEntrypoints = {
   toolbar: './EditorToolbar.vue',
   linkPicker: './LinkPicker.vue',
   markdownEditor: './components/MarkdownEditor.vue',
-  colorPicker: './components/ColorPicker.vue',
   imagePicker: './components/ImagePicker.vue',
   tableControls: './components/TableControls.vue',
   codeBlockLanguage: './components/CodeBlockLanguage.vue',

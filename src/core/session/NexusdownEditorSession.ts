@@ -16,8 +16,6 @@ export type SessionSource = 'rich-text' | 'markdown' | 'history'
  *   literally.
  */
 export type PasteMode = 'plain' | 'structured' | 'markdown'
-/** Horizontal alignment of a block. */
-export type TextAlignment = 'left' | 'center' | 'right' | 'justify'
 
 export interface NexusdownEditorOptions {
   content: string | JSONContent
@@ -193,18 +191,10 @@ export type EditorCommand =
   | 'italic'
   | 'strike'
   | 'code'
-  | 'underline'
-  | 'superscript'
-  | 'subscript'
-  | 'color'
   | 'highlight'
   | 'link'
   | 'table'
   | 'image'
-  | 'align-left'
-  | 'align-center'
-  | 'align-right'
-  | 'align-justify'
   | 'indent'
   | 'outdent'
 
@@ -222,11 +212,7 @@ export interface NexusdownEditorCommands {
   toggleItalic: () => boolean
   toggleStrike: () => boolean
   toggleCode: () => boolean
-  toggleUnderline: () => boolean
-  toggleSuperscript: () => boolean
-  toggleSubscript: () => boolean
-  setColor: (color?: string) => boolean
-  setHighlight: (color?: string) => boolean
+  toggleHighlight: () => boolean
   setLink: (href?: string, text?: string) => boolean
   insertTable: (rows?: number, cols?: number) => boolean
   addTableRow: () => boolean
@@ -240,18 +226,13 @@ export interface NexusdownEditorCommands {
   insertImage: (src: string, alt?: string, title?: string) => boolean
   /** Parse Markdown and insert it at the current selection as rich content. */
   insertMarkdown: (markdown: string) => boolean
-  /** Align the selected block(s). Omit `alignment` to clear back to default. */
-  setTextAlign: (alignment?: TextAlignment) => boolean
-  /** Increase list/paragraph nesting by one level. */
+  /** Sink the current list item one level deeper. */
   indent: () => boolean
-  /** Decrease list/paragraph nesting by one level. */
+  /** Lift the current list item one level up. */
   outdent: () => boolean
 }
 
 type HeadingLevel = 1 | 2 | 3 | 4 | 5 | 6
-
-/** Maximum nesting level reachable with the `indent` command outside lists. */
-const MAX_INDENT = 8
 
 function normalizeHeadingLevel(level: number): HeadingLevel {
   return Math.min(6, Math.max(1, Math.trunc(level))) as HeadingLevel
@@ -367,19 +348,11 @@ export class NexusdownEditorSession {
       toggleItalic: () => this.editor.chain().focus().toggleItalic().run(),
       toggleStrike: () => this.editor.chain().focus().toggleStrike().run(),
       toggleCode: () => this.safeCommand((chain) => chain.toggleCode()),
-      // Routed through `safeCommand`: these extensions are optional, and calling
-      // the chained method on an editor that lacks them throws
-      // `chain.toggleX is not a function`, which escaped the toolbar click
-      // handler. An unavailable command should report that it did nothing.
-      toggleUnderline: () => this.safeCommand((chain) => chain.toggleUnderline()),
-      toggleSuperscript: () => this.safeCommand((chain) => chain.toggleSuperscript()),
-      toggleSubscript: () => this.safeCommand((chain) => chain.toggleSubscript()),
-      setColor: (color) => this.safeCommand((chain) => color
-        ? chain.setColor(color)
-        : chain.unsetColor()),
-      setHighlight: (color) => this.safeCommand((chain) => color
-        ? chain.setHighlight({ color })
-        : chain.unsetHighlight()),
+      // `safeCommand`, not a bare chain: highlight is an optional extension —
+      // `createNexusdownExtensions({ resolve })` lets a consumer drop it, and
+      // `toggleHighlight` does not exist on the chain once it is gone. Same
+      // reason as `toggleCode` above.
+      toggleHighlight: () => this.safeCommand((chain) => chain.toggleHighlight()),
       setLink: (href, text) => {
         // The Link extension is optional, so `unsetLink`/`setLink` may not exist
         // on the chain; report "did nothing" instead of escaping the click handler.
@@ -393,9 +366,9 @@ export class NexusdownEditorSession {
           // user with duplicated text.
           const range = this.currentLinkRange()
           // A replacement text node carries only the marks given to it, so
-          // building it with the link alone silently dropped bold/colour/italic
-          // from the selection. Collect the marks already present and add the
-          // link on top of them.
+          // building it with the link alone silently dropped bold/italic from
+          // the selection. Collect the marks already present and add the link on
+          // top of them.
           const marks = this.selectionMarksFor('link', { href })
           if (range) {
             return this.editor.chain().focus()
@@ -447,11 +420,6 @@ export class NexusdownEditorSession {
         const parsed = this.parseMarkdown(markdown)
         if (!parsed) return false
         return this.editor.chain().focus().insertContent(parsed).run()
-      },
-      setTextAlign: (alignment) => {
-        const chain = this.editor.chain().focus()
-        if (!alignment || alignment === 'left') return chain.unsetTextAlign().run()
-        return chain.setTextAlign(alignment).run()
       },
       indent: () => this.sinkBlock(),
       outdent: () => this.liftBlock(),
@@ -703,23 +671,15 @@ export class NexusdownEditorSession {
       case 'italic': return chain.toggleItalic().run()
       case 'strike': return chain.toggleStrike().run()
       case 'code': return chain.toggleCode().run()
-      case 'underline': return chain.toggleUnderline().run()
-      case 'superscript': return chain.toggleSuperscript().run()
-      case 'subscript': return chain.toggleSubscript().run()
-      case 'color': return chain.setColor('#2563eb').run()
-      case 'highlight': return chain.setHighlight({ color: '#fef08a' }).run()
+      case 'highlight': return chain.toggleHighlight().run()
       case 'link': return chain.setLink({ href: 'https://example.com' }).run()
       case 'table': return chain.insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()
       case 'image': return chain.setImage({ src: 'https://example.com/image.png' }).run()
-      case 'align-left': return chain.setTextAlign('left').run()
-      case 'align-center': return chain.setTextAlign('center').run()
-      case 'align-right': return chain.setTextAlign('right').run()
-      case 'align-justify': return chain.setTextAlign('justify').run()
-      // Indent/outdent legality depends on the block, not on a ProseMirror
-      // command, so they are probed by dry-running the same logic the commands
-      // use rather than through `chain`.
-      case 'indent': return !this.destroyed && this.currentIndent() < MAX_INDENT
-      case 'outdent': return !this.destroyed && this.currentIndent() > 0
+      // Indent/outdent are list-nesting operations, not plain ProseMirror
+      // commands on `chain`, so they are probed the same way the commands
+      // themselves decide.
+      case 'indent': return this.canChangeListNesting('sink')
+      case 'outdent': return this.canChangeListNesting('lift')
     }
     // An unrecognised command name reaches here from untyped JavaScript or a
     // template ref. Returning `undefined` from a `boolean`-declared method made
@@ -730,11 +690,11 @@ export class NexusdownEditorSession {
   /**
    * Run a chained command, reporting `false` when its extension is absent.
    *
-   * Commands belonging to optional extensions (task list, table, image, colour,
-   * highlight) do not exist on the chain when a consumer removes those
-   * extensions. Calling one threw `TypeError: chain.x is not a function`, which
-   * escaped from the toolbar's click handler; an unavailable command should
-   * simply report that it did nothing.
+   * Commands belonging to optional extensions (task list, table, image) do not
+   * exist on the chain when a consumer removes those extensions. Calling one
+   * threw `TypeError: chain.x is not a function`, which escaped from the
+   * toolbar's click handler; an unavailable command should simply report that it
+   * did nothing.
    */
   private safeCommand(build: (chain: ReturnType<Editor['chain']>) => { run: () => boolean }): boolean {
     if (this.destroyed) return false
@@ -782,21 +742,6 @@ export class NexusdownEditorSession {
 
   isActive(name: string, attributes?: Record<string, unknown>): boolean {
     return !this.destroyed && this.editor.isActive(name, attributes)
-  }
-
-  /**
-   * Whether the current selection carries a text colour.
-   *
-   * `textStyle` is shared by several attributes — setting only a font through
-   * `FontFamily` also produces a `textStyle` mark — so `isActive('textStyle')`
-   * reports true for text that has no colour at all.
-   */
-  hasTextColor(color?: string): boolean {
-    if (this.destroyed) return false
-    const mark = this.editor.getAttributes('textStyle') as { color?: unknown }
-    const current = typeof mark.color === 'string' ? mark.color : undefined
-    if (!current) return false
-    return color ? current === color : true
   }
 
   focus(): void {
@@ -1181,43 +1126,51 @@ export class NexusdownEditorSession {
   }
 
   /**
-   * Indent the current block.
+   * Sink the current list item one level deeper.
    *
-   * Inside a list this sinks the item one level (Tiptap's own command). Outside
-   * a list there is no standard indent command, so the block's `indent`
-   * attribute is raised instead (capped at {@link MAX_INDENT}) and rendered back
-   * through Markdown as an inline style by the paragraph/heading extensions.
+   * Indentation is a list-nesting operation and nothing else: outside a list
+   * there is no standard Markdown indent, and the old fallback (a `margin-left`
+   * inline style) emitted raw HTML. A block that cannot be nested reports that
+   * it did nothing rather than degrading to HTML.
    */
   private sinkBlock(): boolean {
     if (this.destroyed) return false
     // `can().sinkListItem(name)` resolves the node type eagerly and throws when
     // the extension is absent, so an unavailable list type must be skipped
     // rather than probed.
-    if (this.hasNodeType('listItem') && this.editor.can().sinkListItem('listItem')) {
-      return this.editor.chain().focus().sinkListItem('listItem').run()
+    for (const name of ['listItem', 'taskItem']) {
+      if (this.hasNodeType(name) && this.editor.can().sinkListItem(name)) {
+        return this.editor.chain().focus().sinkListItem(name).run()
+      }
     }
-    if (this.hasNodeType('taskItem') && this.editor.can().sinkListItem('taskItem')) {
-      return this.editor.chain().focus().sinkListItem('taskItem').run()
-    }
-    const current = this.currentIndent()
-    if (current >= MAX_INDENT) return false
-    return this.editor.chain().focus().updateAttributes(this.currentBlockName(), { indent: current + 1 }).run()
+    return false
   }
 
-  /** Outdent the current block, mirroring {@link sinkBlock}. */
+  /** Lift the current list item one level up, mirroring {@link sinkBlock}. */
   private liftBlock(): boolean {
     if (this.destroyed) return false
-    if (this.hasNodeType('listItem') && this.editor.can().liftListItem('listItem')) {
-      return this.editor.chain().focus().liftListItem('listItem').run()
+    for (const name of ['listItem', 'taskItem']) {
+      if (this.hasNodeType(name) && this.editor.can().liftListItem(name)) {
+        return this.editor.chain().focus().liftListItem(name).run()
+      }
     }
-    if (this.hasNodeType('taskItem') && this.editor.can().liftListItem('taskItem')) {
-      return this.editor.chain().focus().liftListItem('taskItem').run()
+    return false
+  }
+
+  /**
+   * Whether the selection sits in a list item that can still be nested or
+   * lifted, i.e. whether `indent` / `outdent` would do anything.
+   */
+  private canChangeListNesting(direction: 'sink' | 'lift'): boolean {
+    if (this.destroyed) return false
+    for (const name of ['listItem', 'taskItem']) {
+      if (!this.hasNodeType(name)) continue
+      const can = direction === 'sink'
+        ? this.editor.can().sinkListItem(name)
+        : this.editor.can().liftListItem(name)
+      if (can) return true
     }
-    const current = this.currentIndent()
-    if (current <= 0) return false
-    const chain = this.editor.chain().focus()
-    if (current === 1) return chain.updateAttributes(this.currentBlockName(), { indent: null }).run()
-    return chain.updateAttributes(this.currentBlockName(), { indent: current - 1 }).run()
+    return false
   }
 
   /** Whether a node type is registered in the current schema. */
@@ -1228,29 +1181,6 @@ export class NexusdownEditorSession {
   /** Whether a mark type is registered in the current schema. */
   private hasMarkType(name: string): boolean {
     return typeof this.editor.schema.marks[name] !== 'undefined'
-  }
-
-  /** Current indentation level of the selected block (0 when unset). */
-  private currentIndent(): number {
-    const { $from } = this.editor.state.selection
-    for (let depth = $from.depth; depth > 0; depth -= 1) {
-      const node = $from.node(depth)
-      if (node.type.name === 'paragraph' || node.type.name === 'heading') {
-        const value = node.attrs?.indent
-        return typeof value === 'number' && value > 0 ? value : 0
-      }
-    }
-    return 0
-  }
-
-  /** Name of the block node containing the selection. */
-  private currentBlockName(): string {
-    const { $from } = this.editor.state.selection
-    for (let depth = $from.depth; depth > 0; depth -= 1) {
-      const name = $from.node(depth).type.name
-      if (name === 'heading') return 'heading'
-    }
-    return 'paragraph'
   }
 
   /**

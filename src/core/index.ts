@@ -25,7 +25,6 @@ export {
   type NexusdownEditorOptions,
   type NexusdownEditorSnapshot,
   type PasteMode,
-  type TextAlignment,
   type SessionErrorSubscriber,
   type SessionSource,
   type SessionSubscriber,

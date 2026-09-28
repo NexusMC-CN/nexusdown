@@ -2,7 +2,7 @@ import type { PasteMode } from './session/NexusdownEditorSession.js'
 
 export type { PasteMode }
 
-export type ToolbarGroup = 'history' | 'block' | 'inline' | 'extension' | 'align' | 'indent' | (string & {})
+export type ToolbarGroup = 'history' | 'block' | 'inline' | 'extension' | 'indent' | (string & {})
 
 /**
  * Identifier for a toolbar item.
@@ -27,18 +27,10 @@ export type ToolbarCommand =
   | 'italic'
   | 'strike'
   | 'code'
-  | 'underline'
-  | 'superscript'
-  | 'subscript'
-  | 'color'
   | 'highlight'
   | 'link'
   | 'table'
   | 'image'
-  | 'align-left'
-  | 'align-center'
-  | 'align-right'
-  | 'align-justify'
   | 'indent'
   | 'outdent'
   // Accept any other identifier so custom extension buttons type-check while the
@@ -60,28 +52,15 @@ export interface ToolbarSession {
     toggleItalic: () => boolean
     toggleStrike: () => boolean
     toggleCode: () => boolean
-    toggleUnderline: () => boolean
-    toggleSuperscript: () => boolean
-    toggleSubscript: () => boolean
-    setColor: (color?: string) => boolean
-    setHighlight: (color?: string) => boolean
+    toggleHighlight: () => boolean
     setLink: (href?: string, text?: string) => boolean
     insertTable: (rows?: number, cols?: number) => boolean
     insertImage: (src: string, alt?: string, title?: string) => boolean
-    setTextAlign: (alignment?: 'left' | 'center' | 'right' | 'justify') => boolean
     indent: () => boolean
     outdent: () => boolean
   }
   can: (command: ToolbarCommand) => boolean
   isActive: (name: string, attributes?: Record<string, unknown>) => boolean
-  /**
-   * Whether the selection carries a text colour.
-   *
-   * With no argument, reports whether *any* colour is set. `textStyle` is shared
-   * with attributes such as `fontFamily`, so `isActive('textStyle')` cannot
-   * answer this.
-   */
-  hasTextColor: (color?: string) => boolean
   getSelectedText: () => string
   getLinkHref: () => string
   getPasteMode: () => PasteMode
@@ -94,8 +73,6 @@ export interface ToolbarContext {
   headingLevel?: number
   linkHref?: string
   linkText?: string
-  color?: string
-  highlightColor?: string
   imageSrc?: string
   imageAlt?: string
   imageTitle?: string
@@ -140,25 +117,10 @@ export function createDefaultToolbarItems(): ToolbarItem[] {
     item({ id: 'italic', group: 'inline', icon: 'lucide:italic', label: '斜体', execute: ({ session }) => session.commands.toggleItalic(), isActive: ({ session }) => session.isActive('italic'), disabledCommand: 'italic' }),
     item({ id: 'strike', group: 'inline', icon: 'lucide:strikethrough', label: '删除线', execute: ({ session }) => session.commands.toggleStrike(), isActive: ({ session }) => session.isActive('strike'), disabledCommand: 'strike' }),
     item({ id: 'code', group: 'inline', icon: 'lucide:code', label: '行内代码', execute: ({ session }) => session.commands.toggleCode(), isActive: ({ session }) => session.isActive('code'), disabledCommand: 'code' }),
-    item({ id: 'underline', group: 'inline', icon: 'lucide:underline', label: '下划线', execute: ({ session }) => session.commands.toggleUnderline(), isActive: ({ session }) => session.isActive('underline'), disabledCommand: 'underline' }),
-    item({ id: 'superscript', group: 'inline', icon: 'lucide:superscript', label: '上标', execute: ({ session }) => session.commands.toggleSuperscript(), isActive: ({ session }) => session.isActive('superscript'), disabledCommand: 'superscript' }),
-    item({ id: 'subscript', group: 'inline', icon: 'lucide:subscript', label: '下标', execute: ({ session }) => session.commands.toggleSubscript(), isActive: ({ session }) => session.isActive('subscript'), disabledCommand: 'subscript' }),
-    // `textStyle` is shared with other attributes (notably `fontFamily`), so
-    // `isActive('textStyle')` is true for text that merely has a font set. That
-    // made the colour button report "already coloured", and clicking it ran the
-    // clear branch in a loop instead of applying a colour.
-    // `undefined` colour means "clear": the picker routes its clear action
-    // through `execute` so custom callbacks still run, and the default command
-    // treats a missing colour as a reset rather than falling back to a default.
-    item({ id: 'color', group: 'extension', icon: 'lucide:palette', label: '文字颜色', execute: ({ session, color }) => session.commands.setColor(color), isActive: ({ session, color }) => session.hasTextColor(color) }),
-    item({ id: 'highlight', group: 'extension', icon: 'lucide:highlighter', label: '高亮', execute: ({ session, highlightColor }) => session.commands.setHighlight(highlightColor), isActive: ({ session, highlightColor }) => highlightColor ? session.isActive('highlight', { color: highlightColor }) : session.isActive('highlight') }),
+    item({ id: 'highlight', group: 'inline', icon: 'lucide:highlighter', label: '高亮', execute: ({ session }) => session.commands.toggleHighlight(), isActive: ({ session }) => session.isActive('highlight'), disabledCommand: 'highlight' }),
     item({ id: 'link', group: 'extension', icon: 'lucide:link', label: '链接', execute: ({ session, linkHref, linkText }) => session.commands.setLink(linkHref, linkText), isActive: ({ session }) => session.isActive('link'), disabledCommand: 'link' }),
     item({ id: 'table', group: 'extension', icon: 'lucide:table-2', label: '表格', execute: ({ session }) => session.commands.insertTable(), isActive: ({ session }) => session.isActive('table'), disabledCommand: 'table' }),
     item({ id: 'image', group: 'extension', icon: 'lucide:image', label: '图片', execute: ({ session, imageSrc, imageAlt, imageTitle }) => session.commands.insertImage(imageSrc ?? '', imageAlt, imageTitle), disabledCommand: 'image' }),
-    item({ id: 'align-left', group: 'align', icon: 'lucide:align-left', label: '左对齐', execute: ({ session }) => session.commands.setTextAlign('left'), isActive: ({ session }) => session.isActive('textAlign', { textAlign: 'left' }) }),
-    item({ id: 'align-center', group: 'align', icon: 'lucide:align-center', label: '居中对齐', execute: ({ session }) => session.commands.setTextAlign('center'), isActive: ({ session }) => session.isActive('textAlign', { textAlign: 'center' }) }),
-    item({ id: 'align-right', group: 'align', icon: 'lucide:align-right', label: '右对齐', execute: ({ session }) => session.commands.setTextAlign('right'), isActive: ({ session }) => session.isActive('textAlign', { textAlign: 'right' }) }),
-    item({ id: 'align-justify', group: 'align', icon: 'lucide:align-justify', label: '两端对齐', execute: ({ session }) => session.commands.setTextAlign('justify'), isActive: ({ session }) => session.isActive('textAlign', { textAlign: 'justify' }) }),
     item({ id: 'outdent', group: 'indent', icon: 'lucide:outdent', label: '减少缩进', execute: ({ session }) => session.commands.outdent(), disabledCommand: 'outdent' }),
     item({ id: 'indent', group: 'indent', icon: 'lucide:indent', label: '增加缩进', execute: ({ session }) => session.commands.indent(), disabledCommand: 'indent' }),
   ]

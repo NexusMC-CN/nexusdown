@@ -31,38 +31,8 @@ function highlightSegment(value: string) {
   return value ? hljs.highlight(value, { language: 'markdown' }).value : ''
 }
 
-function sanitizeColor(value: string) {
-  const color = value.trim()
-  if (/^(?:#[\da-f]{3,8}|(?:rgb|hsl)a?\([^)]*\)|[a-z]+)$/i.test(color)) return color
-  return 'currentColor'
-}
-
 function renderMarkdown(value: string) {
-  const colorMarkup = /<span\s+style\s*=\s*(["'])\s*color\s*:\s*([^"']+)\1\s*>[\s\S]*?<\/span>|\[color\s+color\s*=\s*("|')([^"']+)\3\][\s\S]*?\[\/color\]/gi
-  let cursor = 0
-  let output = ''
-  let match: RegExpExecArray | null
-
-  while ((match = colorMarkup.exec(value))) {
-    output += highlightSegment(value.slice(cursor, match.index))
-    const source = match[0]
-    const isHtml = match[2] !== undefined
-    const openingEnd = isHtml ? source.indexOf('>') + 1 : source.indexOf(']') + 1
-    // The regex match ends at the ASCII closing tag. Keep offsets in the
-    // original source: Unicode lowercasing can expand a character such as İ.
-    const closingStart = source.length - (isHtml ? '</span>'.length : '[/color]'.length)
-    const opening = source.slice(0, openingEnd)
-    const inner = source.slice(openingEnd, closingStart)
-    const closing = source.slice(closingStart)
-    // The regex requires one color capture in either its HTML or shortcode arm.
-    const color = (match[2] ?? match[4])!
-    output += highlightSegment(opening)
-    output += `<span data-nexusdown="markdown-color" style="color: ${sanitizeColor(color)}">${highlightSegment(inner)}</span>`
-    output += highlightSegment(closing)
-    cursor = match.index + source.length
-  }
-
-  highlightedMarkdown.value = output + highlightSegment(value.slice(cursor))
+  highlightedMarkdown.value = highlightSegment(value)
   void nextTick(syncScroll)
 }
 

@@ -25,7 +25,6 @@ import NexusdownEditor from './NexusdownEditor.vue'
 import EditorToolbar from './EditorToolbar.vue'
 import HeadingPicker from './HeadingPicker.vue'
 import LinkPicker from './LinkPicker.vue'
-import ColorPicker from './components/ColorPicker.vue'
 import ImagePicker from './components/ImagePicker.vue'
 import MarkdownEditor from './components/MarkdownEditor.vue'
 import TableControls from './components/TableControls.vue'
@@ -39,7 +38,6 @@ export {
   EditorToolbar,
   HeadingPicker,
   LinkPicker,
-  ColorPicker,
   ImagePicker,
   MarkdownEditor,
   TableControls,

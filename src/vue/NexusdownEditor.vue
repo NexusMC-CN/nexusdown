@@ -171,13 +171,11 @@ const toolbarContext = computed<ToolbarContext>(() => {
     toggleItalic: () => withMarkdownSelection(current, () => current.commands.toggleItalic()),
     toggleStrike: () => withMarkdownSelection(current, () => current.commands.toggleStrike()),
     toggleCode: () => withMarkdownSelection(current, () => current.commands.toggleCode()),
-    toggleUnderline: () => withMarkdownSelection(current, () => current.commands.toggleUnderline()),
-    toggleSuperscript: () => withMarkdownSelection(current, () => current.commands.toggleSuperscript()),
-    toggleSubscript: () => withMarkdownSelection(current, () => current.commands.toggleSubscript()),
-    setColor: (color?: string) => withMarkdownSelection(current, () => current.commands.setColor(color)),
-    setHighlight: (color?: string) => withMarkdownSelection(current, () => current.commands.setHighlight(color)),
+    // Every other inline format is wrapped here so that clicking it while the
+    // Markdown panel has a selection applies to *that* selection. Without this
+    // line highlight silently falls through to the rich-text selection.
+    toggleHighlight: () => withMarkdownSelection(current, () => current.commands.toggleHighlight()),
     setLink: (href?: string, text?: string) => withMarkdownSelection(current, () => current.commands.setLink(href, text)),
-    setTextAlign: (alignment?: 'left' | 'center' | 'right' | 'justify') => withMarkdownSelection(current, () => current.commands.setTextAlign(alignment)),
     indent: () => withMarkdownSelection(current, () => current.commands.indent()),
     outdent: () => withMarkdownSelection(current, () => current.commands.outdent()),
   }
@@ -192,7 +190,6 @@ const toolbarContext = computed<ToolbarContext>(() => {
       // command outside its built-in capability switch.
       can: (command) => current.can(command as EditorCommand),
       isActive: (name, attributes) => current.isActive(name, attributes),
-      hasTextColor: (color) => current.hasTextColor(color),
       getSelectedText: () => markdownSelectionText || current.getSelectedText(),
       getLinkHref: () => current.getLinkHref(),
       getPasteMode: () => current.getPasteMode(),
