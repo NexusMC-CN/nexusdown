@@ -5,7 +5,6 @@ import type { PasteMode, ToolbarContext, ToolbarItem } from '../../core/toolbar.
 import type { ToolbarControl } from '../toolbar-controls.js'
 import HeadingPicker from '../HeadingPicker.vue'
 import LinkPicker from '../LinkPicker.vue'
-import ColorPicker from './ColorPicker.vue'
 import ImagePicker from './ImagePicker.vue'
 
 const props = defineProps<{
@@ -16,7 +15,6 @@ const props = defineProps<{
   activeHeadingLevel?: number
   linkSelectedText?: string
   linkHref?: string
-  colorValue?: string
   readonly?: boolean
   insertImageFile?: (file: File) => Promise<boolean>
   concealed?: boolean
@@ -29,7 +27,6 @@ const emit = defineEmits<{
   selectHeading: [level: number]
   applyLink: [payload: { href: string; text: string }]
   applyImage: [payload: { src: string; alt: string }]
-  'update:colorValue': [value: string]
   overlayFocus: [event: FocusEvent]
 }>()
 
@@ -50,7 +47,7 @@ const NEXT_PASTE_MODE: Record<PasteMode, PasteMode> = {
 }
 
 const item = computed(() => props.control.kind === 'item' ? props.control.item : undefined)
-const isCompound = computed(() => ['heading', 'link', 'color', 'highlight', 'image'].includes(item.value?.id ?? ''))
+const isCompound = computed(() => ['heading', 'link', 'image'].includes(item.value?.id ?? ''))
 const isItemDisabled = computed(() => Boolean(
   props.readonly
   || item.value?.isDisabled?.(props.context)
@@ -88,17 +85,6 @@ function execute() {
     :show-label="display === 'overflow'"
     @apply="emit('applyLink', $event)"
     @overlay-focus="emit('overlayFocus', $event)"
-  />
-  <ColorPicker
-    v-else-if="item?.id === 'color' || item?.id === 'highlight'"
-    :context="context"
-    :item="item"
-    :disabled="isItemDisabled"
-    :readonly="readonly"
-    :kind="item.id === 'color' ? 'color' : 'highlight'"
-    :show-label="display === 'overflow'"
-    :model-value="colorValue"
-    @update:model-value="emit('update:colorValue', $event)"
   />
   <ImagePicker
     v-else-if="item?.id === 'image'"

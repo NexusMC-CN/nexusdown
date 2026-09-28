@@ -10,7 +10,6 @@ import { useToolbarOverflow } from './composables/useToolbarOverflow.js'
 const props = defineProps<{ context: ToolbarContext; items: ToolbarItem[]; readonly?: boolean }>()
 const emit = defineEmits<{ executed: []; find: [] }>()
 const tick = ref(0)
-const selectedColors = ref<Record<string, string>>({ 'item:color': '#2563eb', 'item:highlight': '#fef08a' })
 const pasteMode = ref<PasteMode>(props.context.session.getPasteMode?.() ?? 'plain')
 let unsubscribePasteMode: () => void = () => undefined
 watch(() => props.context.session, (session) => {
@@ -184,8 +183,6 @@ function executeImage(payload: { src: string; alt: string }) {
             :active-heading-level="activeHeadingLevel"
             :link-selected-text="linkSelectedText"
             :link-href="linkHref"
-            :color-value="selectedColors[control.key]"
-            @update:color-value="selectedColors[control.key] = $event"
             :insert-image-file="context.insertImageFile"
             @execute="execute"
             @find="emit('find')"
@@ -213,8 +210,6 @@ function executeImage(payload: { src: string; alt: string }) {
                 :active-heading-level="activeHeadingLevel"
                 :link-selected-text="linkSelectedText"
                 :link-href="linkHref"
-                :color-value="selectedColors[control.key]"
-                @update:color-value="selectedColors[control.key] = $event"
                 :insert-image-file="context.insertImageFile"
                 @execute="execute($event); close()"
                 @find="emit('find'); close()"

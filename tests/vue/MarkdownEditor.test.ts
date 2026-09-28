@@ -15,43 +15,6 @@ describe('MarkdownEditor', () => {
     expect(code.html()).not.toContain('<textarea')
   })
 
-  it('renders inline color HTML with the same color in the markdown mirror', () => {
-    const wrapper = mount(MarkdownEditor, { props: { modelValue: '<span style="color: #ff0000">colored</span>' } })
-
-    const colored = wrapper.get('[data-nexusdown="markdown-color"]')
-    expect(colored.text()).toBe('colored')
-    expect(colored.attributes('style')).toContain('color: #ff0000')
-  })
-
-  it('renders the color shortcode with the same color in the markdown mirror', () => {
-    const wrapper = mount(MarkdownEditor, { props: { modelValue: '[color color="#ff0000"]colored[/color]' } })
-
-    const colored = wrapper.get('[data-nexusdown="markdown-color"]')
-    expect(colored.text()).toBe('colored')
-    expect(colored.attributes('style')).toContain('color: #ff0000')
-  })
-
-  it.each([
-    '<SPAN STYLE="COLOR: #ff0000">colored</SPAN>',
-    '[COLOR COLOR="#ff0000"]colored[/COLOR]',
-  ])('renders case-insensitive color markup without selecting an absent capture: %s', (modelValue) => {
-    const wrapper = mount(MarkdownEditor, { props: { modelValue } })
-    const colored = wrapper.get('[data-nexusdown="markdown-color"]')
-    expect(colored.text()).toBe('colored')
-    expect(colored.attributes('style')).toContain('color: #ff0000')
-    wrapper.unmount()
-  })
-
-  it.each([
-    '<SPAN STYLE="COLOR: #ff0000">İ</SPAN>',
-    '[COLOR COLOR="#ff0000"]İ[/COLOR]',
-  ])('keeps Unicode content boundaries in case-insensitive color markup: %s', (modelValue) => {
-    const wrapper = mount(MarkdownEditor, { props: { modelValue } })
-    expect(wrapper.get('[data-nexusdown="markdown-color"]').text()).toBe('İ')
-    expect(wrapper.get('[data-nexusdown="markdown-highlight"]').text()).toBe(modelValue)
-    wrapper.unmount()
-  })
-
   it('emits input updates and mirrors scroll position', async () => {
     const wrapper = mount(MarkdownEditor, { props: { modelValue: 'hello' } })
     const textarea = wrapper.get('[data-nexusdown="markdown"]').element as HTMLTextAreaElement

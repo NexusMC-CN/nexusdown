@@ -9,8 +9,7 @@ import { createDefaultToolbarItems } from '../../src/core/toolbar'
  * toolbar render path.
  */
 const REMOVAL_SETS: Array<[string, string[]]> = [
-  ['table/tasklist/image/color/highlight', ['table', 'tableKit', 'taskList', 'taskItem', 'image', 'color', 'highlight']],
-  ['underline/superscript/subscript', ['underline', 'superscript', 'subscript']],
+  ['table/tasklist/image', ['table', 'tableKit', 'taskList', 'taskItem', 'image']],
   ['nothing at all', ['paragraph', 'heading', 'text', 'doc', 'bold', 'italic', 'strike', 'code', 'link', 'history', 'dropcursor', 'gapcursor']],
 ]
 
@@ -20,7 +19,6 @@ function contextFor(session: ReturnType<typeof createNexusdownEditor>) {
       commands: session.commands,
       can: (c: never) => session.can(c),
       isActive: (n: string, a?: Record<string, unknown>) => session.isActive(n, a),
-      hasTextColor: (c?: string) => session.hasTextColor(c),
       getSelectedText: () => session.getSelectedText(),
       getLinkHref: () => session.getLinkHref(),
       getPasteMode: () => session.getPasteMode(),
@@ -57,7 +55,7 @@ describe('toolbar resilience when optional extensions are removed', () => {
       contentType: 'html',
       extensionResolver: (ext) => ext.filter((e) => !['table', 'tableKit', 'taskList', 'taskItem'].includes(e.name ?? '')),
     })
-    for (const command of ['table', 'task-list', 'image', 'highlight', 'color', 'heading'] as const) {
+    for (const command of ['table', 'task-list', 'image', 'heading'] as const) {
       expect(() => session.can(command)).not.toThrow()
       expect(typeof session.can(command)).toBe('boolean')
     }

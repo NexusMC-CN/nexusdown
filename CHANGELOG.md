@@ -9,6 +9,25 @@
 
 ## [Unreleased]
 
+### 破坏性变更 — 2026-09-28：抛弃 BBCode，只产标准 Markdown
+
+产品决策：编辑器产出的 Markdown 必须是**纯的**——不含 BBCode 短代码、不含 HTML 标签。为此移除一切没有标准 Markdown 语法的格式，并补齐此前缺失的「Markdown → HTML」能力。
+
+**移除**
+
+- **文字颜色、高亮、对齐、下划线、上标、下标**：这些格式在标准 Markdown / GFM 中没有对应语法，此前只能靠 BBCode 短代码（如 `[color color="#2563eb"]…[/color]`）或内联 HTML（如 `<span style="color: ...">`）持久化，与「只产标准 Markdown」的目标直接冲突。现连同 `ColorPicker.vue` 组件、对应工具栏条目（`color` / `highlight` / `underline` / `superscript` / `subscript` / `align-*`）以及 `setColor` / `setHighlight` / `setTextAlign` / `toggleUnderline` / `toggleSuperscript` / `toggleSubscript` 命令一并删除；依赖 `@tiptap/extension-color`、`-highlight`、`-text-align`、`-text-style`、`-underline`、`-superscript`、`-subscript` 也被移除。传入上述 id 的自定义 `toolbarItems` 会被静默忽略，`align` 工具栏分组不再存在。
+- 删除只服务于上述功能的样式：`.nexusdown-color-picker*` 与 Markdown 面板的 `[data-nexusdown="markdown-color"]`（`src/style.css`、`public/style.css` 同步）。
+
+**新增**
+
+- **`nexusdown/render`**：新增 `renderMarkdown(markdown, options?) → string`，基于 `@tiptap/markdown` + `@tiptap/static-renderer`，无 DOM、同步、SSR 安全。它与编辑器**共用同一套 Tiptap 扩展**，因此不会出现「编辑器写得出、渲染端读不懂」的解析器分叉——消费方不再需要额外引入 markdown-it 之类的 Markdown 库。**注意：不做 HTML 消毒，只对可信输入安全。** `package.json` 新增 `./render` 导出，`files` 增加 `src/render`。
+
+**变更**
+
+- **表格改为 GFM 管道表**：合并单元格（`colspan` / `rowspan`）无法用 Markdown 表达，导出时会被摊平成空白填充单元格——这是为保持输出纯净而做的取舍（HTML `<table>` 能保留合并，但那就不是 Markdown 了）。单元格内容中的 `|` 会被转义，保证往返不错列。
+- **硬换行不再使用 `<br>`**，改用 Markdown 自身的行尾双空格语法。
+- `package.json` 的 `./style.css` 导出由 `./dist/style.css` 改为指向 `./src/style.css`（`files` 同步加入 `src/style.css`），与 `sync:style` 的「`src/style.css` 为唯一真源」保持一致。
+
 ### 新增
 
 - **Markdown 感知粘贴**：粘贴模式新增 `'markdown'`，把剪贴板中的 Markdown 源码解析为富文本（标题、列表、表格、行内标记等），而不是作为字面文本插入。工具栏按钮改为在 `plain` → `structured` → `markdown` 之间循环切换。

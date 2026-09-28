@@ -18,21 +18,15 @@ function context(overrides: Partial<ToolbarContext['session']> = {}): ToolbarCon
         toggleItalic: vi.fn(() => true),
         toggleStrike: vi.fn(() => true),
         toggleCode: vi.fn(() => true),
-        toggleUnderline: vi.fn(() => true),
-        toggleSuperscript: vi.fn(() => true),
-        toggleSubscript: vi.fn(() => true),
-        setColor: vi.fn(() => true),
-        setHighlight: vi.fn(() => true),
+        toggleHighlight: vi.fn(() => true),
         setLink: vi.fn(() => true),
         insertTable: vi.fn(() => true),
         insertImage: vi.fn(() => true),
-        setTextAlign: vi.fn(() => true),
         indent: vi.fn(() => true),
         outdent: vi.fn(() => true),
       },
       can: vi.fn(() => true),
       isActive: vi.fn(() => false),
-      hasTextColor: vi.fn(() => false),
       getSelectedText: vi.fn(() => ''),
       getLinkHref: vi.fn(() => ''),
       getPasteMode: vi.fn(() => 'plain' as const),
@@ -48,22 +42,34 @@ describe('default toolbar', () => {
     expect(items.map((item) => item.id)).toEqual([
       'undo', 'redo', 'heading', 'blockquote', 'bullet-list', 'ordered-list',
       'task-list', 'code-block', 'horizontal-rule', 'bold', 'italic',
-      'strike', 'code', 'underline', 'superscript', 'subscript', 'color', 'highlight', 'link', 'table', 'image',
-      'align-left', 'align-center', 'align-right', 'align-justify', 'outdent', 'indent',
+      'strike', 'code', 'highlight', 'link', 'table', 'image', 'outdent', 'indent',
     ])
     expect(items.find((item) => item.id === 'bold')).toMatchObject({
       group: 'inline',
       icon: 'lucide:bold',
       label: '粗体',
     })
-    expect(items.find((item) => item.id === 'align-center')).toMatchObject({
-      group: 'align',
-      icon: 'lucide:align-center',
-    })
     expect(items.find((item) => item.id === 'indent')).toMatchObject({
       group: 'indent',
       icon: 'lucide:indent',
     })
+  })
+
+  it('does not offer the formats that have no Markdown syntax', () => {
+    // Colour, underline, superscript, subscript and text alignment were removed:
+    // each could only serialise as a BBCode shortcode or raw HTML, which the
+    // dialect contract forbids.
+    //
+    // Highlight is deliberately NOT in this list any more — it came back on the
+    // plain-text `==text==` syntax, so it *does* have Markdown syntax.
+    const ids = new Set(createDefaultToolbarItems().map((item) => item.id))
+    for (const removed of [
+      'color', 'underline', 'superscript', 'subscript',
+      'align-left', 'align-center', 'align-right', 'align-justify',
+    ]) {
+      expect(ids.has(removed), `toolbar must not offer ${removed}`).toBe(false)
+    }
+    expect(ids.has('highlight'), 'toolbar must offer highlight').toBe(true)
   })
 
   it('exposes state and invokes the session command contract', () => {
@@ -102,20 +108,14 @@ describe('default toolbar', () => {
     expect(ctx.session.commands.setLink).toHaveBeenCalledWith('https://example.com', 'Docs')
   })
 
-  it('exposes built-in inline formatting commands for marks and colors', () => {
+  it('exposes the built-in inline formatting commands for marks', () => {
     const ctx = context()
     const items = createDefaultToolbarItems()
-    items.find((item) => item.id === 'underline')!.execute(ctx)
-    items.find((item) => item.id === 'superscript')!.execute(ctx)
-    items.find((item) => item.id === 'subscript')!.execute(ctx)
-    items.find((item) => item.id === 'color')!.execute({ ...ctx, color: '#ff0000' })
-    items.find((item) => item.id === 'highlight')!.execute({ ...ctx, highlightColor: '#ffff00' })
+    items.find((item) => item.id === 'strike')!.execute(ctx)
+    items.find((item) => item.id === 'code')!.execute(ctx)
 
-    expect(ctx.session.commands.toggleUnderline).toHaveBeenCalledOnce()
-    expect(ctx.session.commands.toggleSuperscript).toHaveBeenCalledOnce()
-    expect(ctx.session.commands.toggleSubscript).toHaveBeenCalledOnce()
-    expect(ctx.session.commands.setColor).toHaveBeenCalledWith('#ff0000')
-    expect(ctx.session.commands.setHighlight).toHaveBeenCalledWith('#ffff00')
+    expect(ctx.session.commands.toggleStrike).toHaveBeenCalledOnce()
+    expect(ctx.session.commands.toggleCode).toHaveBeenCalledOnce()
   })
 
   it('exposes table and image insertion commands', () => {
@@ -132,27 +132,12 @@ describe('default toolbar', () => {
     expect(ctx.session.commands.insertImage).toHaveBeenCalledWith('https://example.com/image.png', 'Example', undefined)
   })
 
-  it('exposes alignment commands', () => {
-    const ctx = context()
-    const items = createDefaultToolbarItems()
-
-    items.find((item) => item.id === 'align-left')!.execute(ctx)
-    items.find((item) => item.id === 'align-center')!.execute(ctx)
-    items.find((item) => item.id === 'align-right')!.execute(ctx)
-    items.find((item) => item.id === 'align-justify')!.execute(ctx)
-
-    expect(ctx.session.commands.setTextAlign).toHaveBeenCalledWith('left')
-    expect(ctx.session.commands.setTextAlign).toHaveBeenCalledWith('center')
-    expect(ctx.session.commands.setTextAlign).toHaveBeenCalledWith('right')
-    expect(ctx.session.commands.setTextAlign).toHaveBeenCalledWith('justify')
-  })
-
-  it('reports the active alignment via the textAlign attribute', () => {
-    const ctx = context({ isActive: vi.fn((_name: string, attrs?: Record<string, unknown>) => attrs?.textAlign === 'center') })
-    const item = createDefaultToolbarItems().find((entry) => entry.id === 'align-center')!
+  it('reports the active strike mark via isActive', () => {
+    const ctx = context({ isActive: vi.fn((name: string) => name === 'strike') })
+    const item = createDefaultToolbarItems().find((entry) => entry.id === 'strike')!
 
     expect(item.isActive!(ctx)).toBe(true)
-    expect(ctx.session.isActive).toHaveBeenCalledWith('textAlign', { textAlign: 'center' })
+    expect(ctx.session.isActive).toHaveBeenCalledWith('strike')
   })
 
   it('exposes indent and outdent commands', () => {

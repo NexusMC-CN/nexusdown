@@ -4,8 +4,10 @@
   "type": "module",
   "files": [
     "dist",
+    "src/style.css",
     "src/vue",
-    "src/core"
+    "src/core",
+    "src/render"
   ],
   "exports": {
     ".": {
@@ -18,13 +20,18 @@
       "import": "./dist/core/index.js",
       "require": "./dist/core/index.cjs"
     },
+    "./render": {
+      "types": "./dist/render/index.d.ts",
+      "import": "./dist/render/index.js",
+      "require": "./dist/render/index.cjs"
+    },
     "./vue": {
       "types": "./src/vue/entry.ts",
       "import": "./src/vue/entry.js",
       "default": "./src/vue/entry.js"
     },
     "./vue/*": "./src/vue/*",
-    "./style.css": "./dist/style.css"
+    "./style.css": "./src/style.css"
   },
   "scripts": {
     "test": "vitest run",
@@ -35,9 +42,11 @@
     "sync:style": "node -e \"require('fs').copyFileSync('src/style.css','public/style.css')\"",
     "gen:vue-entry": "node scripts/generate-vue-entry.mjs",
     "build": "npm run sync:style && npm run gen:vue-entry && tsup",
+    "prepare": "npm run build",
+    "check:exports": "node scripts/check-exports.mjs",
     "build:astro-example": "npm --prefix examples/astro-vue run build",
     "build:nuxt-example": "npm --prefix examples/nuxt-ssr run build",
-    "verify": "npm run typecheck && npm run lint && npm test && npm run build",
+    "verify": "npm run typecheck && npm run lint && npm test && npm run build && npm run check:exports",
     "pack:check": "npm run build && npm pack --dry-run"
   },
   "peerDependencies": {
@@ -47,25 +56,22 @@
     "@tiptap/core": "^3.31.3",
     "@tiptap/extension-character-count": "^3.31.3",
     "@tiptap/extension-code-block-lowlight": "^3.31.3",
-    "@tiptap/extension-color": "^3.31.3",
+    "@tiptap/extension-code": "^3.31.3",
     "@tiptap/extension-highlight": "^3.31.3",
     "@tiptap/extension-image": "^3.31.3",
     "@tiptap/extension-link": "^3.31.3",
     "@tiptap/extension-placeholder": "^3.31.3",
-    "@tiptap/extension-subscript": "^3.31.3",
-    "@tiptap/extension-superscript": "^3.31.3",
     "@tiptap/extension-table": "^3.31.3",
     "@tiptap/extension-table-cell": "^3.31.3",
     "@tiptap/extension-table-header": "^3.31.3",
     "@tiptap/extension-table-row": "^3.31.3",
     "@tiptap/extension-task-item": "^3.31.3",
     "@tiptap/extension-task-list": "^3.31.3",
-    "@tiptap/extension-text-align": "^3.31.3",
-    "@tiptap/extension-text-style": "^3.31.3",
     "@tiptap/extension-typography": "^3.31.3",
-    "@tiptap/extension-underline": "^3.31.3",
     "@tiptap/markdown": "^3.31.3",
+    "@tiptap/pm": "^3.31.3",
     "@tiptap/starter-kit": "^3.31.3",
+    "@tiptap/static-renderer": "^3.31.3",
     "@tiptap/vue-3": "^3.31.3",
     "highlight.js": "^11.12.0",
     "iconify-icon": "^3.0.2",

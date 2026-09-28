@@ -74,36 +74,22 @@ describe('NexusdownEditorSession', () => {
     expect(session.commands.undo()).toBe(false)
   })
 
-  it('supports built-in mark, color, and highlight commands', () => {
-    const session = createNexusdownEditor({ content: '<p>Hello</p>', contentType: 'html' })
-    session.getEditor().commands.selectAll()
+  it('supports the built-in mark commands', () => {
+    const operations: Array<[string, (session: ReturnType<typeof createNexusdownEditor>) => boolean, string]> = [
+      ['strike', (session) => session.commands.toggleStrike(), '<s>'],
+      ['code', (session) => session.commands.toggleCode(), '<code>'],
+    ]
 
-    expect(session.commands.toggleUnderline()).toBe(true)
-    expect(session.commands.toggleSuperscript()).toBe(true)
-    expect(session.commands.setColor('#ff0000')).toBe(true)
-    expect(session.commands.setHighlight('#ffff00')).toBe(true)
-    expect(session.isActive('textStyle')).toBe(true)
-    expect(session.isActive('highlight')).toBe(true)
+    for (const [name, apply, htmlTag] of operations) {
+      const session = createNexusdownEditor({ content: '<p>Hello</p>', contentType: 'html' })
+      session.getEditor().commands.selectAll()
 
-    expect(session.getHTML()).toContain('<u>')
-    expect(session.getHTML()).toContain('color: rgb(255, 0, 0)')
-    expect(session.getHTML()).toContain('background-color: rgb(255, 255, 0)')
-    expect(session.getMarkdown()).toContain('Hello')
-    session.destroy()
-  })
-
-  it('keeps color and highlight commands available on an empty paragraph', () => {
-    const session = createNexusdownEditor({ content: '<p></p>', contentType: 'html' })
-
-    expect(session.can('color')).toBe(true)
-    expect(session.can('highlight')).toBe(true)
-    expect(session.commands.setColor('#2563eb')).toBe(true)
-    expect(session.commands.setHighlight('#fef08a')).toBe(true)
-    session.getEditor().commands.insertContent('Styled')
-
-    expect(session.getHTML()).toContain('color: rgb(37, 99, 235)')
-    expect(session.getHTML()).toContain('background-color: rgb(254, 240, 138)')
-    session.destroy()
+      expect(apply(session), name).toBe(true)
+      expect(session.isActive(name), name).toBe(true)
+      expect(session.getHTML(), name).toContain(htmlTag)
+      expect(session.getMarkdown(), name).toContain('Hello')
+      session.destroy()
+    }
   })
 
   it('inserts editable tables and images with Markdown output', () => {
@@ -142,27 +128,25 @@ describe('NexusdownEditorSession', () => {
     session.destroy()
   })
 
-  it('preserves text color with a shortcode Markdown syntax', () => {
-    const session = createNexusdownEditor({ content: '<p>Hello</p>', contentType: 'html' })
-    session.getEditor().commands.selectAll()
+  it('keeps Markdown free of BBCode and raw HTML for every built-in mark', () => {
+    const operations: Array<[string, (session: ReturnType<typeof createNexusdownEditor>) => void]> = [
+      ['strike', (session) => { session.commands.toggleStrike() }],
+      ['code', (session) => { session.commands.toggleCode() }],
+    ]
 
-    expect(session.commands.setColor('#ff0000')).toBe(true)
-    expect(session.getMarkdown()).toContain('[color color="#ff0000"]Hello[/color]')
+    for (const [label, apply] of operations) {
+      const session = createNexusdownEditor({ content: '<p>Hello</p>', contentType: 'html' })
+      session.getEditor().commands.selectAll()
+      apply(session)
+      const markdown = session.getMarkdown()
 
-    const parsed = createNexusdownEditor({ content: session.getMarkdown(), contentType: 'markdown' })
-    expect(parsed.getHTML()).toContain('color: rgb(255, 0, 0)')
-    parsed.destroy()
-    session.destroy()
-  })
-
-  it('accepts legacy inline HTML when a color value cannot use the shortcode syntax', () => {
-    const session = createNexusdownEditor({
-      content: '<span style="color: var(--brand-color)">Hello</span>',
-      contentType: 'html',
-    })
-
-    expect(session.getMarkdown()).toContain('<span style="color: var(--brand-color)">Hello</span>')
-    session.destroy()
+      // No HTML fallback and no BBCode shortcode: the two escape hatches the
+      // removed features used.
+      expect(markdown, label).not.toMatch(/<\/?[a-zA-Z][^>]*>/)
+      expect(markdown, label).not.toMatch(/(?<!\\)\[\/[a-zA-Z]/)
+      expect(markdown, label).toContain('Hello')
+      session.destroy()
+    }
   })
 
   it('inserts a linked label when the link command receives text', () => {

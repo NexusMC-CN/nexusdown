@@ -21,29 +21,37 @@ function spanOf(html: string, text: string): { colspan: string | null; rowspan: 
 }
 
 /**
- * The CHANGELOG listed merged cells as an unfixable limitation because Markdown
- * has no such syntax. The schema does carry `colspan` / `rowspan`, and HTML
- * preserves them, so a merged table is now exported as HTML instead of being
- * flattened into blank padding cells.
+ * Markdown has no syntax for a merged cell.
+ *
+ * The product decision is that a table is *always* written as a GFM pipe table,
+ * so a `colspan` / `rowspan` is flattened into blank padding cells and the merge
+ * itself is lost on export. That is the deliberate trade for keeping the output
+ * pure: an HTML `<table>` would preserve the merge but would not be Markdown at
+ * all — it would force every consumer to enable raw HTML, the very thing the
+ * dialect contract forbids.
  */
-describe('merged table cells survive a Markdown round trip', () => {
-  it('preserves colspan', () => {
+describe('merged table cells flatten to a GFM pipe table', () => {
+  it('writes a colspan table as a pipe table and drops the merge', () => {
     const r = roundTrip('<table><tbody><tr><td colspan="2">wide</td></tr><tr><td>x</td><td>y</td></tr></tbody></table>')
-    console.log('MD:', JSON.stringify(r.markdown))
-    expect(r.markdown).toContain('<table>')
-    expect(spanOf(r.html, 'wide').colspan).toBe('2')
+    expect(r.markdown).toContain('|')
+    expect(r.markdown).not.toContain('<table>')
+    expect(r.html).toContain('wide')
+    expect(spanOf(r.html, 'wide').colspan).toBe('1')
   })
 
-  it('preserves rowspan', () => {
+  it('writes a rowspan table as a pipe table and drops the merge', () => {
     const r = roundTrip('<table><tbody><tr><td rowspan="2">tall</td><td>a</td></tr><tr><td>b</td></tr></tbody></table>')
-    expect(spanOf(r.html, 'tall').rowspan).toBe('2')
+    expect(r.markdown).not.toContain('<table>')
+    expect(r.html).toContain('tall')
+    expect(spanOf(r.html, 'tall').rowspan).toBe('1')
   })
 
-  it('preserves a table with both spans', () => {
+  it('writes a table with both spans as a pipe table and drops the merge', () => {
     const r = roundTrip('<table><tbody><tr><td colspan="2" rowspan="2">big</td><td>a</td></tr><tr><td>b</td></tr></tbody></table>')
-    const span = spanOf(r.html, 'big')
-    expect(span.colspan).toBe('2')
-    expect(span.rowspan).toBe('2')
+    expect(r.markdown).not.toContain('<table>')
+    expect(r.html).toContain('big')
+    expect(spanOf(r.html, 'big').colspan).toBe('1')
+    expect(spanOf(r.html, 'big').rowspan).toBe('1')
   })
 
   it('keeps cell text intact', () => {
@@ -56,6 +64,7 @@ describe('merged table cells survive a Markdown round trip', () => {
   it('keeps header cells as th', () => {
     const r = roundTrip('<table><tbody><tr><th colspan="2">head</th></tr><tr><td>a</td><td>b</td></tr></tbody></table>')
     expect(r.html).toContain('<th')
+    expect(r.markdown).toContain('| head |')
   })
 
   it('still uses Markdown for an unmerged table', () => {
@@ -68,9 +77,10 @@ describe('merged table cells survive a Markdown round trip', () => {
     expect(r.html).toMatch(/<td[^>]*>\s*<p>b<\/p>/)
   })
 
-  it('keeps inline marks inside a merged cell', () => {
+  it('keeps inline marks inside a formerly merged cell', () => {
     const r = roundTrip('<table><tbody><tr><td colspan="2"><strong>b</strong> and <code>c</code></td></tr><tr><td>x</td><td>y</td></tr></tbody></table>')
     expect(r.html).toContain('<strong>')
     expect(r.html).toContain('<code>')
+    expect(r.markdown).toContain('**b** and `c`')
   })
 })

@@ -17,8 +17,6 @@
 .nexusdown-toolbar-control--overflow { min-width: 0; }
 .nexusdown-toolbar-control--overflow .nexusdown-toolbar__button { box-sizing: border-box; width: 100%; min-width: 0; height: auto; min-height: 36px; justify-content: flex-start; gap: 8px; padding: 8px; text-align: left; font: inherit; font-size: 13px; overflow-wrap: anywhere; }
 .nexusdown-toolbar-control--overflow .nexusdown-toolbar__button iconify-icon { flex: 0 0 auto; }
-.nexusdown-toolbar-control--overflow .nexusdown-color-picker { display: flex; width: 100%; }
-.nexusdown-toolbar-control--overflow .nexusdown-color-picker__input { flex: 0 0 auto; }
 .nexusdown-toolbar-overflow__menu .nexusdown-toolbar__button:hover { background: var(--nexus-panel); }
 .nexusdown-toolbar-overflow__menu .nexusdown-toolbar__button.is-active { color: var(--nexus-accent); background: var(--nexus-panel); }
 .nexusdown-toolbar-overflow__menu :focus-visible, .nexusdown-toolbar-overflow__slot :focus-visible { outline: 2px solid var(--nexus-accent); outline-offset: -2px; }
@@ -28,7 +26,6 @@
 .nexusdown-toolbar__button:hover { color: var(--nexus-text); background: #eef2f7; }
 .nexusdown-toolbar__button.is-active { color: var(--nexus-accent); background: #dbeafe; }
 .nexusdown-toolbar__button:disabled { opacity: .4; cursor: not-allowed; }
-.nexusdown-color-picker { display: inline-flex; align-items: center; gap: 1px; }.nexusdown-color-picker__input { width: 9px; height: 9px; padding: 0; border: 0; border-radius: 2px; background: transparent; cursor: pointer; }.nexusdown-color-picker__input:disabled { opacity: .4; cursor: not-allowed; }
 .nexusdown-heading-picker { position: relative; }.nexusdown-heading-picker__trigger { gap: 2px; width: auto; min-width: 38px; padding: 0 6px; }.nexusdown-heading-picker__menu { position: fixed; z-index: 1000; display: grid; gap: 2px; min-width: 74px; padding: 5px; border: 1px solid var(--nexus-border); border-radius: 6px; background: var(--nexus-bg); box-shadow: 0 8px 20px rgb(15 23 42 / 12%); }.nexusdown-heading-picker__menu button { border: 0; border-radius: 4px; padding: 5px 8px; color: var(--nexus-text); background: transparent; text-align: left; cursor: pointer; }.nexusdown-heading-picker__menu button:hover { background: var(--nexus-panel); }
 .nexusdown-link-picker { position: relative; }.nexusdown-link-picker__menu { position: fixed; z-index: 1000; box-sizing: border-box; display: grid; gap: 10px; width: min(286px, calc(100vw - 16px)); padding: 14px; border: 1px solid var(--nexus-border); border-radius: 6px; background: var(--nexus-bg); box-shadow: 0 8px 24px rgb(15 23 42 / 16%); }.nexusdown-link-picker__field { display: grid; gap: 4px; color: var(--nexus-muted); font-size: 12px; }.nexusdown-link-picker__field input { box-sizing: border-box; width: 100%; min-height: 32px; padding: 6px 8px; border: 1px solid var(--nexus-border); border-radius: 4px; color: var(--nexus-text); background: var(--nexus-bg); font: inherit; font-size: 13px; outline: none; }.nexusdown-link-picker__field input:focus { border-color: var(--nexus-accent); box-shadow: 0 0 0 2px rgb(37 99 235 / 12%); }.nexusdown-link-picker__actions { display: flex; align-items: center; gap: 6px; }.nexusdown-link-picker__actions button { min-height: 30px; padding: 5px 10px; border: 1px solid var(--nexus-border); border-radius: 4px; color: var(--nexus-text); background: var(--nexus-bg); cursor: pointer; font: inherit; font-size: 12px; }.nexusdown-link-picker__actions button:hover:not(:disabled) { background: var(--nexus-panel); }.nexusdown-link-picker__actions button:last-child { border-color: var(--nexus-accent); color: #fff; background: var(--nexus-accent); }.nexusdown-link-picker__actions button:last-child:hover:not(:disabled) { border-color: var(--nexus-accent); color: #fff; background: var(--nexus-accent); }.nexusdown-link-picker__actions button:disabled { opacity: .45; cursor: not-allowed; }.nexusdown-link-picker__spacer { flex: 1; }
 iconify-icon { display: inline-block; width: 1em; height: 1em; }
@@ -54,9 +51,6 @@ iconify-icon { display: inline-block; width: 1em; height: 1em; }
 .nexusdown-markdown-editor > textarea { position: relative; z-index: 1; resize: none; color: transparent; caret-color: var(--nexus-text); background: transparent; -webkit-text-fill-color: transparent; }
 .nexusdown-markdown-editor > textarea::selection { background: rgb(37 99 235 / 20%); }
 .nexusdown-markdown-editor .hljs-section { color: #0550ae; font-weight: 600; }.nexusdown-markdown-editor .hljs-strong { color: #8250df; font-weight: 700; }.nexusdown-markdown-editor .hljs-emphasis { color: #953800; font-style: italic; }.nexusdown-markdown-editor .hljs-code, .nexusdown-markdown-editor .hljs-quote { color: #0a3069; }
-/* The inline `style="color: ..."` emitted for coloured text must win over the
- * surrounding .hljs-* token colours, so keep this rule last in the cascade. */
-.nexusdown-markdown-editor [data-nexusdown="markdown-color"] { color: inherit; }
 .nexusdown-markdown-editor .hljs-bullet, .nexusdown-markdown-editor .hljs-meta { color: #116329; }.nexusdown-markdown-editor .hljs-link { color: #0969da; text-decoration: underline; }.nexusdown-markdown-editor .hljs-string, .nexusdown-markdown-editor .hljs-symbol { color: #953800; }
 .nexusdown-editor[data-nexusdown-theme='dark'] .nexusdown-markdown-editor .hljs-bullet, .nexusdown-editor[data-nexusdown-theme='dark'] .nexusdown-markdown-editor .hljs-meta { color: #7ee787; }.nexusdown-editor[data-nexusdown-theme='dark'] .nexusdown-markdown-editor .hljs-link { color: #58a6ff; }.nexusdown-editor[data-nexusdown-theme='dark'] .nexusdown-markdown-editor .hljs-string, .nexusdown-editor[data-nexusdown-theme='dark'] .nexusdown-markdown-editor .hljs-symbol { color: #ffa657; }
 .nexusdown-editor[data-nexusdown-theme='dark'] .nexusdown-markdown-editor .hljs-section { color: #79c0ff; }.nexusdown-editor[data-nexusdown-theme='dark'] .nexusdown-markdown-editor .hljs-strong { color: #d2a8ff; }.nexusdown-editor[data-nexusdown-theme='dark'] .nexusdown-markdown-editor .hljs-emphasis { color: #ffa657; }.nexusdown-editor[data-nexusdown-theme='dark'] .nexusdown-markdown-editor .hljs-code, .nexusdown-editor[data-nexusdown-theme='dark'] .nexusdown-markdown-editor .hljs-quote { color: #a5d6ff; }
@@ -141,11 +135,9 @@ iconify-icon { display: inline-block; width: 1em; height: 1em; }
 @media (pointer: coarse) {
   .nexusdown-toolbar-overflow__slot { width: 68px; min-width: 68px; }
   .nexusdown-toolbar-control--overflow .nexusdown-toolbar__button { min-width: 44px; min-height: 44px; }
-  .nexusdown-toolbar-control--overflow .nexusdown-color-picker__input { width: 44px; height: 44px; }
   .nexusdown-toolbar { min-height: 56px; padding: 8px 12px; }
   .nexusdown-toolbar__button { width: 44px; height: 44px; }
   .nexusdown-heading-picker__trigger { min-width: 52px; padding: 0 10px; }
-  .nexusdown-color-picker__input { width: 22px; height: 22px; }
   .nexusdown-heading-picker__menu button { min-height: 44px; padding: 10px 12px; }
   .nexusdown-table-controls__button { width: 40px; height: 40px; }
   .nexusdown-table-controls__group { gap: 8px; }

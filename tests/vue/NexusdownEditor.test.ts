@@ -273,57 +273,6 @@ describe('NexusdownEditor', () => {
     wrapper.unmount()
   })
 
-  it('applies the built-in text color action from the shared toolbar', async () => {
-    const wrapper = mount(NexusdownEditor, { props: { modelValue: 'Colored' } })
-    await new Promise((resolve) => setTimeout(resolve, 0))
-    const vm = wrapper.vm as unknown as { session: NexusdownEditorSession }
-    vm.session.getEditor().commands.selectAll()
-    await wrapper.get('button[aria-label="文字颜色"]').trigger('click')
-    expect(wrapper.get('.ProseMirror [style*="color"]').text()).toBe('Colored')
-    wrapper.unmount()
-  })
-
-  it('shows rich text color in the editable Markdown pane', async () => {
-    const wrapper = mount(NexusdownEditor, { props: { modelValue: 'Colored' } })
-    await new Promise((resolve) => setTimeout(resolve, 0))
-    const vm = wrapper.vm as unknown as { session: NexusdownEditorSession }
-    vm.session.getEditor().commands.selectAll()
-    await wrapper.get('button[aria-label="文字颜色"]').trigger('click')
-    await new Promise((resolve) => setTimeout(resolve, 0))
-
-    expect((wrapper.get('[data-nexusdown="markdown"]').element as HTMLTextAreaElement).value).toContain('[color color="#2563eb"]Colored[/color]')
-    expect(wrapper.get('[data-nexusdown="markdown-color"]').text()).toBe('Colored')
-    expect(wrapper.get('[data-nexusdown="markdown-color"]').attributes('style')).toContain('color: #2563eb')
-    wrapper.unmount()
-  })
-
-  it('keeps color and highlight available on an empty line and toggles active marks off', async () => {
-    const empty = mount(NexusdownEditor, { props: { modelValue: '<p></p>', contentType: 'html' } })
-    await new Promise((resolve) => setTimeout(resolve, 0))
-    expect(empty.get('button[aria-label="文字颜色"]').attributes('disabled')).toBeUndefined()
-    expect(empty.get('button[aria-label="高亮"]').attributes('disabled')).toBeUndefined()
-    await empty.get('button[aria-label="文字颜色"]').trigger('click')
-    ;(empty.vm as unknown as { session: NexusdownEditorSession }).session.getEditor().commands.insertContent('Empty line')
-    expect(empty.get('.ProseMirror [style*="color"]').text()).toBe('Empty line')
-    empty.unmount()
-
-    const wrapper = mount(NexusdownEditor, { props: { modelValue: 'Colored' } })
-    await new Promise((resolve) => setTimeout(resolve, 0))
-    const vm = wrapper.vm as unknown as { session: NexusdownEditorSession }
-    vm.session.getEditor().commands.selectAll()
-    await wrapper.get('button[aria-label="文字颜色"]').trigger('click')
-    expect(wrapper.find('.ProseMirror [style*="color"]').exists()).toBe(true)
-    await wrapper.get('button[aria-label="文字颜色"]').trigger('click')
-    expect(wrapper.find('.ProseMirror [style*="color"]').exists()).toBe(false)
-
-    vm.session.getEditor().commands.selectAll()
-    await wrapper.get('button[aria-label="高亮"]').trigger('click')
-    expect(wrapper.find('.ProseMirror mark').exists()).toBe(true)
-    await wrapper.get('button[aria-label="高亮"]').trigger('click')
-    expect(wrapper.find('.ProseMirror mark').exists()).toBe(false)
-    wrapper.unmount()
-  })
-
   it('inserts a table from the shared toolbar', async () => {
     const wrapper = mount(NexusdownEditor, { props: { modelValue: 'Before' } })
     await new Promise((resolve) => setTimeout(resolve, 0))
@@ -1001,13 +950,13 @@ describe('NexusdownEditor', () => {
 
   it('renders every toolbar group declared by the default items', async () => {
     // Regression: EditorToolbar kept a hardcoded group list, so items in a new
-    // group (align, indent) were silently dropped from the rendered toolbar.
+    // group (extension, indent) were silently dropped from the rendered toolbar.
     const wrapper = mount(NexusdownEditor, { props: { modelValue: '# Title' } })
     await new Promise((resolve) => setTimeout(resolve, 0))
 
     const items = createDefaultToolbarItems()
     // These render through dedicated child components rather than a plain button.
-    const dedicated = new Set(['heading', 'link', 'color', 'highlight', 'image'])
+    const dedicated = new Set(['heading', 'link', 'image'])
     const rendered = new Set(
       wrapper
         .findAll('.nexusdown-toolbar__group')

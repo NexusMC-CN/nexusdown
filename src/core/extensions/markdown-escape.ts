@@ -70,6 +70,88 @@ export function escapeTableCell(text: string): string {
 }
 
 /**
+ * Stands in for the backslash of an escape while `@tiptap/markdown` runs its
+ * own inline escaping pass.
+ *
+ * The manager escapes backslashes in text nodes (`escapeMarkdownSyntax`), so a
+ * `\` written into the source JSON before rendering comes back doubled. A
+ * character outside that escape set (`\ ` * _ [ ] ~`) survives the pass
+ * untouched and is swapped for the real backslash on the finished string. The
+ * sentinel itself must avoid every character in that set — an underscore here
+ * comes back as `\_` and is then never matched.
+ */
+export const EQUALS_ESCAPE_SENTINEL = '\u0000NEXUSDOWN-EQUALS\u0000'
+
+/** Escape every `=` of a run of two or more, leaving a lone `=` alone. */
+function escapeEqualsRuns(text: string): string {
+  return text.replace(/={2,}/g, (run) => run.replace(/=/g, `${EQUALS_ESCAPE_SENTINEL}=`))
+}
+
+/** Mark type name, accepting both JSON (`'highlight'`) and ProseMirror (`{ name }`) marks. */
+function markName(mark: { type?: unknown }): string {
+  return typeof mark.type === 'string' ? mark.type : ((mark.type as { name?: string } | undefined)?.name ?? '')
+}
+
+/** Node type name, accepting both JSON (`'text'`) and ProseMirror (`{ name }`) nodes. */
+function nodeName(node: { type?: unknown }): string {
+  return typeof node.type === 'string' ? node.type : ((node.type as { name?: string } | undefined)?.name ?? '')
+}
+
+/**
+ * Escape the literal `==` in ordinary prose that would otherwise be re-read as
+ * a highlight.
+ *
+ * `@tiptap/markdown` escapes `\ ` * _ [ ] ~` in text nodes but not `=`, so a
+ * paragraph whose literal text is `a ==b== c` is written verbatim and comes
+ * back as `<p>a <mark>b</mark> c</p>` — the user's text silently changes meaning
+ * on reload. The escape is applied to the child *nodes* rather than to the
+ * rendered string, because by the time the string exists it also contains the
+ * `==` delimiters the highlight renderer emitted for genuine marks, and those
+ * must be left alone.
+ *
+ * This runs from the `paragraph` / `heading` renderers, which are the only
+ * places `@tiptap/markdown` offers a hook that sees a block's real inline
+ * content. Text nodes carrying `highlight` or `code` are skipped:
+ *
+ *   - a highlight's text sits *between* the `==` its own renderer emits, so
+ *     escaping it would corrupt the span rather than protect it;
+ *   - a code span's text never reaches the manager's inline escaper, so a
+ *     sentinel written there would never be swapped back for a backslash.
+ *
+ * Fenced code is unaffected for a different reason: its content is rendered by
+ * the code-block handler, which does not call this.
+ *
+ * Every `=` of a run of two or more is escaped, not just the pairs: escaping
+ * only the pairs of an odd run (`===` -> `\=\==`) leaves two `=` adjacent and
+ * the tokenizer matches them again. A lone `=` is left alone — `a = b` holds no
+ * delimiter, and escaping it would litter ordinary prose with backslashes.
+ *
+ * Returns copies throughout; the live document is never mutated.
+ */
+export function escapeLiteralHighlightDelimiters(nodes: unknown): unknown {
+  if (!Array.isArray(nodes)) return nodes
+  return nodes.map((child) => {
+    if (!child || typeof child !== 'object') return child
+    const current = child as {
+      type?: unknown
+      text?: string
+      marks?: ReadonlyArray<{ type?: unknown }>
+      content?: unknown
+    }
+    if (nodeName(current) === 'text' && typeof current.text === 'string') {
+      const marks = new Set((current.marks ?? []).map(markName))
+      if (marks.has('highlight') || marks.has('code')) return child
+      if (!current.text.includes('==')) return child
+      return { ...current, text: escapeEqualsRuns(current.text) }
+    }
+    if (Array.isArray(current.content)) {
+      return { ...current, content: escapeLiteralHighlightDelimiters(current.content) }
+    }
+    return child
+  })
+}
+
+/**
  * Render a fenced code block with a fence longer than any run inside it.
  *
  * A line of three backticks inside the code would otherwise close the block

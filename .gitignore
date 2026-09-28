@@ -11,3 +11,13 @@ examples/**/.output/
 docs/superpowers/
 package-lock.json
 !examples/nuxt-ssr/package-lock.json
+
+# tsup writes a bundled copy of its config next to it and normally deletes it
+# again; if that cleanup is blocked (Windows AV / safe-delete shims) the file is
+# left behind, so keep it out of the tree.
+tsup.config.bundled_*.mjs
+
+# The project's CI runs `npm ci` and commits no lockfile (see package-lock.json
+# above), so a pnpm lockfile is a local artefact of the same install.
+pnpm-lock.yaml
+pnpm-workspace.yaml
