@@ -1,12 +1,11 @@
 // @vitest-environment node
-import { Mark, type MarkdownLexerConfiguration, type MarkdownToken } from '@tiptap/core'
 import { describe, expect, it } from 'vitest'
-import { renderMarkdown } from '../../src/render/index.js'
+import { renderMarkdown, type MarkdownItPlugin } from '../../src/render/index.js'
 
 /**
- * `renderMarkdown` is the display side of Nexusdown: it parses Markdown with the
- * same Tiptap extensions the editor uses and renders the result to HTML without
- * touching a DOM, so it is safe to call during SSR.
+ * `renderMarkdown` is the display side of Nexusdown: it parses Markdown with its
+ * own `markdown-it` instance and renders the result to HTML without touching a
+ * DOM, so it is safe to call during SSR.
  *
  * The environment is deliberately **node**, not jsdom: the whole point of the
  * module is that it works without `document`, and running it under jsdom would
@@ -35,14 +34,42 @@ describe('renderMarkdown', () => {
   })
 
   it('renders a highlight written as ==text==, the syntax the editor emits', () => {
-    // The closed loop this module exists for: `==text==` is what the editor
-    // writes, and the renderer understands it here through the *same* Highlight
-    // extension — no second parser, no HTML, no per-consumer wiring. If this
-    // fails while the editor side passes, the extension is not actually shared.
+    // `==text==` is what the editor writes and what the renderer must read back:
+    // the highlight is Nexusdown's own dialect, not GFM, so nothing in a stock
+    // Markdown preset understands it.
     const html = renderMarkdown('==高亮==')
 
     expect(html).toContain('<mark')
     expect(html).toMatch(/<mark[^>]*>高亮<\/mark>/)
+  })
+
+  it('keeps an inner = inside a highlight and leaves ==== literal', () => {
+    // The editor's highlight tokenizer is lazy and non-empty: it closes at the
+    // *first* `==` and refuses an empty span. `[^=]+` (the stock Tiptap rule)
+    // would drop `==a=b==` on the floor, and `====` must stay text rather than
+    // becoming an empty mark.
+    expect(renderMarkdown('==a=b==')).toBe('<p><mark>a=b</mark></p>')
+    expect(renderMarkdown('====')).toBe('<p>====</p>')
+    expect(renderMarkdown('==a==b==c==')).toBe('<p><mark>a</mark>b<mark>c</mark></p>')
+    // A code span still wins over the highlight.
+    expect(renderMarkdown('`==x==`')).toBe('<p><code>==x==</code></p>')
+  })
+
+  it('escapes raw HTML instead of passing it through', () => {
+    // `html: false`. This is the XSS line: the output is inserted with `v-html`,
+    // so a tag in the input must never become a tag in the output.
+    expect(renderMarkdown('<script>alert(1)</script>')).toBe('<p>&lt;script&gt;alert(1)&lt;/script&gt;</p>')
+    expect(renderMarkdown('<img src=x onerror=alert(1)>')).toBe('<p>&lt;img src=x onerror=alert(1)&gt;</p>')
+  })
+
+  it('refuses to turn a dangerous scheme into a link', () => {
+    // markdown-it's own `validateLink` gate. The link degrades to its literal
+    // source text — no anchor, and certainly no `javascript:` href.
+    for (const markdown of ['[x](javascript:alert(1))', '[x](vbscript:msgbox(1))', '[x](data:text/html,<b>)']) {
+      const html = renderMarkdown(markdown)
+      expect(html).not.toContain('<a')
+      expect(html).toContain('[x]')
+    }
   })
 
   it('renders links with their destination and title', () => {
@@ -71,6 +98,36 @@ describe('renderMarkdown', () => {
     expect(html).toContain('data-type="taskItem"')
     expect(html).toContain('type="checkbox"')
     expect(html).toContain('data-checked="true"')
+  })
+
+  it('wraps a task item in the editor\u2019s label + div, nested lists included', () => {
+    // `src/style.css` makes `li[data-checked]` a flex row of `label` + `div`.
+    // A nested list has to end up *inside* that `div`; as a third child of the
+    // `li` it would be laid out beside the text instead of under it.
+    expect(renderMarkdown('- [ ] todo')).toBe(
+      '<ul data-type="taskList"><li data-checked="false" data-type="taskItem">' +
+        '<label><input type="checkbox"/><span/></label><div><p>todo</p></div></li></ul>',
+    )
+    expect(renderMarkdown('- [x] a\n  - [ ] b')).toBe(
+      '<ul data-type="taskList"><li data-checked="true" data-type="taskItem">' +
+        '<label><input type="checkbox" checked="checked"/><span/></label>' +
+        '<div><p>a</p><ul data-type="taskList"><li data-checked="false" data-type="taskItem">' +
+        '<label><input type="checkbox"/><span/></label><div><p>b</p></div></li></ul></div></li></ul>',
+    )
+    // GFM puts task items in *bullet* lists only, and so does the editor.
+    expect(renderMarkdown('1. [ ] a')).toBe('<ol><li><p>[ ] a</p></li></ol>')
+  })
+
+  it('autolinks what the editor autolinks, and nothing more', () => {
+    // A `www.` URL is a link. A bare `word.tld` is not, because plenty of real
+    // TLDs are file extensions — `README.md` must stay a filename.
+    expect(renderMarkdown('see www.example.com now')).toContain('href="http://www.example.com"')
+    expect(renderMarkdown('https://example.com')).toContain('href="https://example.com"')
+    expect(renderMarkdown('mail a@b.com')).toContain('href="mailto:a@b.com"')
+
+    expect(renderMarkdown('see example.com now')).toBe('<p>see example.com now</p>')
+    expect(renderMarkdown('see README.md here')).toBe('<p>see README.md here</p>')
+    expect(renderMarkdown('run start.sh')).toBe('<p>run start.sh</p>')
   })
 
   it('renders blockquotes', () => {
@@ -131,36 +188,32 @@ describe('renderMarkdown', () => {
     expect(html).toContain('<table')
   })
 
-  it('applies a custom extensions array', () => {
-    // A consumer syntax registered for the editor is understood here without any
-    // further wiring — the same extension set drives both.
-    const Badge = Mark.create({
-      name: 'badge',
-      parseHTML: () => [{ tag: 'span[data-badge]' }],
-      renderHTML: () => ['span', { 'data-badge': '' }, 0],
-      markdownTokenName: 'badge',
-      markdownTokenizer: {
-        name: 'badge',
-        level: 'inline' as const,
-        start: (src: string) => src.indexOf('!!'),
-        tokenize(src: string, _tokens: MarkdownToken[], helpers: MarkdownLexerConfiguration) {
-          const match = /^!!([^!]+)!!/.exec(src)
-          if (!match) return undefined
-          return { type: 'badge', raw: match[0], text: match[1], tokens: helpers.inlineTokens(match[1]) } as MarkdownToken
-        },
-      },
-      parseMarkdown: (token, helpers) => helpers.applyMark('badge', helpers.parseInline(token.tokens || [])),
-      renderMarkdown: (node, helpers) => `!!${helpers.renderChildren(node)}!!`,
-    })
-    const extensions = [Badge]
+  it('applies a custom plugins array', () => {
+    // A consumer syntax has to be described twice — once for the editor, once
+    // as a markdown-it plugin for this side. A plugin passed here can add rules
+    // or replace any of the Nexusdown defaults.
+    const badge: MarkdownItPlugin = (md) => {
+      md.inline.ruler.before('emphasis', 'badge', (state, silent) => {
+        const match = /^!!([^!]+)!!/.exec(state.src.slice(state.pos))
+        if (!match) return false
+        if (!silent) {
+          state.push('badge_open', 'span', 1).attrSet('data-badge', '')
+          state.push('text', '', 0).content = match[1]
+          state.push('badge_close', 'span', -1)
+        }
+        state.pos += match[0].length
+        return true
+      })
+    }
+    const plugins = [badge]
 
-    expect(renderMarkdown('!!custom!!', { extensions })).toBe('<p><span data-badge="">custom</span></p>')
-    // Reusing the same array reference must keep working (the pipeline is cached
-    // per array, and rebuilding it would grow the shared tokenizer registry).
-    expect(renderMarkdown('!!again!!', { extensions })).toBe('<p><span data-badge="">again</span></p>')
+    expect(renderMarkdown('!!custom!!', { plugins })).toBe('<p><span data-badge="">custom</span></p>')
+    // Reusing the same array reference must keep working (the parser is cached
+    // per array, so this exercises the cache rather than a rebuild).
+    expect(renderMarkdown('!!again!!', { plugins })).toBe('<p><span data-badge="">again</span></p>')
   })
 
-  it('treats an empty extensions array as the default set', () => {
-    expect(renderMarkdown('**bold**', { extensions: [] })).toBe('<p><strong>bold</strong></p>')
+  it('treats an empty plugins array as the default set', () => {
+    expect(renderMarkdown('**bold**', { plugins: [] })).toBe('<p><strong>bold</strong></p>')
   })
 })

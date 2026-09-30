@@ -95,6 +95,18 @@ function execute() {
     @apply="emit('applyImage', $event)"
     @overlay-focus="emit('overlayFocus', $event)"
   />
+  <!--
+    ⚠️ 提示用 `data-tooltip` + CSS 伪元素，**不用原生 `title`**。两个原因：
+
+    1. **原生 title 要悬停 1-2 秒才出现**，用户的感觉就是"没有提示"。
+    2. **`:title` 是动态绑定**，而这个按钮的 `is-active` 会随光标移动频繁变化，
+       每次重渲染都重设一遍 `title` 属性 —— 浏览器会把 tooltip 的计时器**重置**，
+       于是它经常永远等不到那 1-2 秒（用户原话："有时候出来有时候不出来，
+       悬浮久也不出来"）。静态的 `data-tooltip` 不会被重渲染打断。
+
+    `aria-label` 保留：读屏要靠它，`data-tooltip` 只是视觉层。
+    溢出菜单里已经带了文字标签，所以那里不再挂 tooltip。
+  -->
   <button
     v-else-if="control.kind === 'item'"
     class="nexusdown-toolbar__button"
@@ -103,7 +115,7 @@ function execute() {
     :disabled="isItemDisabled"
     type="button"
     :aria-label="control.label"
-    :title="control.label"
+    :data-tooltip="display === 'compact' ? control.label : undefined"
     @click="execute"
   >
     <component :is="'iconify-icon'" :icon="control.icon" aria-hidden="true" />
@@ -117,7 +129,7 @@ function execute() {
     :disabled="readonly"
     type="button"
     :aria-label="control.label"
-    title="查找替换 (Ctrl+F)"
+    data-tooltip="查找替换 (Ctrl+F)"
     @click="emit('find')"
   >
     <component :is="'iconify-icon'" :icon="control.icon" aria-hidden="true" />
@@ -131,7 +143,7 @@ function execute() {
     :disabled="readonly"
     type="button"
     :aria-label="`粘贴模式：${pasteModeLabel}`"
-    :title="pasteModeTitle"
+    :data-tooltip="display === 'compact' ? pasteModeTitle : undefined"
     @click="emit('togglePasteMode')"
   >
     <component :is="'iconify-icon'" :icon="pasteModeIcon" aria-hidden="true" />

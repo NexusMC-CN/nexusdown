@@ -153,7 +153,7 @@ onBeforeUnmount(() => {
       :disabled="isDisabled"
       type="button"
       aria-label="链接"
-      title="链接"
+      data-tooltip="链接"
       :aria-expanded="open"
       @mousedown.prevent
       @click="toggle"
