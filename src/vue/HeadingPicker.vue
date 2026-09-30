@@ -96,7 +96,7 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="nexusdown-heading-picker">
-    <button ref="trigger" class="nexusdown-toolbar__button nexusdown-heading-picker__trigger" :class="{ 'is-active': activeLevel !== undefined }" :disabled="isDisabled" type="button" aria-label="标题" title="标题级别" :aria-expanded="open" @click="toggle">
+    <button ref="trigger" class="nexusdown-toolbar__button nexusdown-heading-picker__trigger" :class="{ 'is-active': activeLevel !== undefined }" :disabled="isDisabled" type="button" aria-label="标题" data-tooltip="标题级别" :aria-expanded="open" @click="toggle">
       <span aria-hidden="true">H{{ activeLevel ?? '' }}</span>
       <component :is="'iconify-icon'" icon="lucide:chevron-down" aria-hidden="true" />
       <span v-if="showLabel">标题</span>

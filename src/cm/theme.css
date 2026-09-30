@@ -1,0 +1,620 @@
+/**
+ * nexusdown Live Preview —— 视觉主题（CodeMirror 6）
+ * ============================================================================
+ *
+ * 这个文件**只有视觉规则**。凡是「机制不成立就会坏」的规则都在 `theme.ts` 的
+ * `baseTheme` 里（例如 `.nd-mark` 必须把从 `.nd-strong` / `.nd-em` / `.nd-strike`
+ * 继承来的样式中和掉）。消费方可以整个替换这个文件而不影响功能。
+ *
+ * ## 颜色：两级回退，绝不写死
+ *
+ * nexusdown 是**独立包**，不能依赖 NexusMC 站里的设计令牌。所以每个颜色都是
+ * `var(--nd-*, var(--站里的令牌, 字面量))` 这条链：
+ *
+ * 1. 消费方覆盖 `--nd-*`（最直接，能单独调某一个）；
+ * 2. 消费方把站里的令牌定义在 `:root` —— NexusMC 论坛就是这么做的
+ *    （见 `forum-web/app/app.vue` 的 `--ink-1` / `--border` / `--surface` /
+ *    `--brand-ink`），此时自动跟随站点主题，不需要消费方改一行代码；
+ * 3. 两者都没有 → 用这里的字面量，白底黑字也读得下去。
+ *
+ * ## ⚠️ 不要用 `caret-color`
+ *
+ * CM6 的 `drawSelection()` 用 `Prec.highest` 注入了
+ * `.cm-content { caret-color: transparent !important }`，光标是它自己画的
+ * `.cm-cursor` 元素。所以在这里写 `caret-color` 会被 `!important` 吃掉 ——
+ * 表现是「改了没反应」。要改光标颜色只能改 `.cm-cursor { border-left-color }`。
+ * （这个坑本机踩过：排查了半天以为选择器没生效。）
+ *
+ * 下面「光标与当前行」一节就是那条规则。用 `.cm-editor` 前缀是为了稳压
+ * `@codemirror/view` 默认主题里的 `.cm-cursor`（同特异度靠文档顺序，加前缀更保险）。
+ */
+
+:root {
+  /* 文字层级 —— 对应站里的 --ink-1..4（正文 / 次级 / 辅助 / 最弱）。 */
+  --nd-text: var(--ink-1, #16181c);
+  --nd-text-2: var(--ink-2, #3d434d);
+  --nd-text-3: var(--ink-3, #6b7280);
+  --nd-text-4: var(--ink-4, #9aa1ab);
+
+  --nd-border: var(--border, #e4e7ea);
+  --nd-surface: var(--surface, #f6f7f8);
+
+  /*
+   * 链接色用 `--brand-ink`（#0B6BCB）而不是 `--brand`（#499DFF）：
+   * 后者在白底上只有 2.8:1，作为**文字**读不清。站里的令牌表就是这么分的。
+   */
+  --nd-brand: var(--brand-ink, #0b6bcb);
+
+  --nd-font-mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
+  --nd-radius: 6px;
+
+  /*
+   * 光标颜色。`drawSelection()` 自绘 `.cm-cursor`，颜色只能从 `border-left-color`
+   * 改（见下方「⚠️ 不要用 caret-color」）。默认跟随正文色，深色站点会自动变浅。
+   */
+  --nd-caret: var(--ink-1, #16181c);
+
+  /* 当前行高亮的底色（`highlightActiveLine()` 打上 `.cm-activeLine`）。 */
+  --nd-active-line: rgba(11, 107, 203, 0.07);
+}
+
+/**
+ * 揭示态标记的淡化程度。
+ *
+ * ⚠️ 这条**必须**写在能直接命中编辑器根元素的选择器上，不能放 `:root`：
+ * `theme.ts` 的 `baseTheme` 已经把 `--nd-mark-opacity: 0.35` 钉在了编辑器根元素上
+ * （`.cm-editor` 上的一个生成类），而「直接命中元素的规则」永远赢过
+ * 「从 `:root` 继承下来的值」—— 放 `:root` 上写多少都不会生效。
+ *
+ * 同特异度下由**文档顺序**决定胜负：style-mod 把自己的 `<style>` 插在 `<head>`
+ * 最前面，所以后加载的本文件能盖过 `baseTheme`（这正是 CM6 让 baseTheme 可覆盖的设计）。
+ */
+.cm-editor {
+  --nd-mark-opacity: 0.45;
+}
+
+/* ---------------------------------------------------------------------------
+ * 光标与当前行（由 `drawSelection()` / `highlightActiveLine()` 提供）
+ * ------------------------------------------------------------------------- */
+
+/*
+ * 光标。`drawSelection()` 用 `.cm-cursor` 元素自绘光标，默认边框是写死的
+ * `1.2px solid black`（暗色主题 `#ddd`），不跟随本主题。这里用变量接管，
+ * 站点换肤（`--ink-1`）时光标颜色会一起变。
+ */
+.cm-editor .cm-cursor,
+.cm-editor .cm-dropCursor {
+  border-left-color: var(--nd-caret, var(--nd-text));
+}
+
+/*
+ * 当前行高亮。默认底色是 `#cceeff44`，同样写死；换成变量以便跟随主题。
+ * 代码块行（`.nd-code-block`）也吃这条 —— 当前行在代码块里时高亮会盖过
+ * 代码块底色，这是有意的：光标所在行本来就该突出。
+ */
+.cm-editor .cm-activeLine {
+  background: var(--nd-active-line, rgba(11, 107, 203, 0.07));
+}
+
+/* ---------------------------------------------------------------------------
+ * 标题 —— `Decoration.line` 落在 `.cm-line` 上（所以是行级放大，不是文字放大）
+ * ------------------------------------------------------------------------- */
+
+.nd-h1,
+.nd-h2,
+.nd-h3,
+.nd-h4,
+.nd-h5,
+.nd-h6 {
+  font-weight: 700;
+  line-height: 1.3;
+  /*
+   * ⚠️ 显式关掉下划线。
+   *
+   * Setext 标题（`标题\n===`）的 `===` 是**单独一行**的 `HeaderMark`。
+   * 光标落进这个标题时它是揭示态，`===` 会显示出来 —— 而 `===` 在视觉上
+   * 就是一条下划线，很容易被当成"标题带了条线"。
+   * 这里把下划线彻底关掉，避免任何来源（继承、第三方样式）给它加线。
+   */
+  text-decoration: none;
+}
+
+.nd-h1 { font-size: 2em; }
+.nd-h2 { font-size: 1.6em; }
+.nd-h3 { font-size: 1.35em; }
+.nd-h4 { font-size: 1.15em; }
+.nd-h5 { font-size: 1em; }
+.nd-h6 { font-size: 0.9em; color: var(--nd-text-3); }
+
+/* ---------------------------------------------------------------------------
+ * 行内标记
+ *
+ * ⚠️ 这些 class 覆盖的是**整个节点（含 `**` 定界符）**。揭示态下 `**` 被
+ * `.nd-mark`（theme.ts）压回 normal —— 这里不需要为「定界符」写任何例外规则。
+ * ------------------------------------------------------------------------- */
+
+.nd-strong { font-weight: 700; }
+.nd-em { font-style: italic; }
+.nd-strike { text-decoration: line-through; color: var(--nd-text-3); }
+
+.nd-code {
+  padding: 0.15em 0.35em;
+  border-radius: 4px;
+  color: var(--nd-text);
+  background: var(--nd-surface);
+  font-family: var(--nd-font-mono);
+  font-size: 0.9em;
+}
+
+/* ---------------------------------------------------------------------------
+ * 块级
+ * ------------------------------------------------------------------------- */
+
+.nd-blockquote {
+  padding-left: 0.9em;
+  border-left: 3px solid var(--nd-border);
+  color: var(--nd-text-3);
+}
+
+.nd-list-item {
+  padding-left: 0.25em;
+}
+
+/*
+ * 代码块：每一行都是独立的 `.cm-line`，所以背景得逐行铺；
+ * 圆角只能给**首行**和**末行**，否则每一行都是四个圆角的糖葫芦。
+ *
+ * ⚠️ 用 `border-*-radius` 长手而不是 `border-radius` 简写：
+ * 简写会整体覆盖，单行代码块同时带 first / last 两个 class 时就只剩一种圆角。
+ */
+/*
+ * ⚠️ 代码块的"右边差一块"很可能不是代码块自己的问题，而是**滚动条**。
+ *
+ * `.cm-scroller` 是 `overflow: auto` 的滚动容器。内容一长就出现滚动条，
+ * 它会把 `.cm-content` **挤窄** —— 而代码块是通到 `.cm-content` 边缘的，
+ * 于是右边看起来比左边"少一块"（那块浅灰就是滚动条槽）。
+ *
+ * 把滚动条做**细**、槽做成透明，代码块就能真正通到边。
+ * 注意**不能**写 `overflow: hidden` 或者 `scrollbar-width: none` ——
+ * 那样用户就没法滚动了，只是把问题藏起来。
+ */
+.cm-editor {
+  /*
+   * 让 `height: auto` 变成**可插值**的（Chrome 129+ / Edge 129+）。
+   *
+   * 代码块折叠动画需要从"真实高度"过渡到 0，而真实高度只有 `auto` 知道 ——
+   * 没有这条属性的话 `height: auto → 0` 是**不可动画**的，只能瞬间跳。
+   * 用 `max-height` 代替则会有"前 92% 不动"的问题（见下面代码块的注释）。
+   *
+   * 不支持的浏览器**降级为瞬间切换** —— 不会坏，只是没动画。
+   */
+  interpolate-size: allow-keywords;
+}
+
+/*
+ * ⚠️ 代码块的"右边差一块"是**滚动条占位**。
+ *
+ * `.cm-scroller` 是 `overflow: auto`，内容一长就出滚动条，它把 `.cm-content`
+ * **挤窄**（实测 560 → 550，差 10px）。而代码块通到 `.cm-content` 边缘，
+ * 所以右边看着比左边"少一块"。
+ *
+ * **这是浏览器行为，消不掉**（`scrollbar-gutter` 只能控制"要不要预留"，
+ * 不能让它不占位；`overflow: overlay` 已废弃）。能做的是：
+ * ① 把滚动条做**细**（10px → 6px，缺口小一半多）；
+ * ② 槽做成**透明**，看起来是"代码块差一点"而不是"有一条灰色轨道"。
+ */
+.cm-editor .cm-scroller {
+  scrollbar-width: thin;
+  scrollbar-color: var(--nd-scroll-thumb, rgb(0 0 0 / 16%)) transparent;
+  /*
+   * ⚠️ 滚动条占位是**浏览器行为，消不掉**（`scrollbar-gutter` 只能控制
+   * "要不要预留"，不能让滚动条不占位；`overflow: overlay` 已废弃）。
+   *
+   * 实测：`.cm-scroller` 560px 时 `.cm-content` 只有 550px，**右边差 10px** ——
+   * 代码块通到 `.cm-content` 边缘，所以看起来"右边少一块"。
+   *
+   * `both-edges` 让**左右各预留一份**，两边对称。整体窄 10px，
+   * 但比"只有右边缺一块"好看得多 —— 用户截图里箭头指的就是那个不对称。
+   */
+  scrollbar-gutter: stable both-edges;
+}
+
+/* WebKit / Blink（Edge、Chrome）—— 6px 是还能点得动的下限。 */
+.cm-editor .cm-scroller::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.cm-editor .cm-scroller::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.cm-editor .cm-scroller::-webkit-scrollbar-thumb {
+  border-radius: 6px;
+  background: var(--nd-scroll-thumb, rgb(0 0 0 / 16%));
+}
+
+.cm-editor .cm-scroller::-webkit-scrollbar-thumb:hover {
+  background: var(--nd-scroll-thumb-hover, rgb(0 0 0 / 30%));
+}
+
+/*
+ * ⚠️ **必须用 `.cm-editor .cm-line.nd-code-block` 这个更强的选择器。**
+ *
+ * 写成 `.nd-code-block { padding: 0 0.9em }` 会被 CM6 自己的
+ * `.cm-line { padding: 0 2px 0 6px }` 盖掉（两者特异性相同，但 CM6 的
+ * baseTheme 注入在后面）—— 实测 padding 一直是 `0 2px 0 6px`，
+ * 于是标题栏的 `margin: 0 -0.9em` 就对不上：**左边超出 6px、右边缩进 14px**，
+ * 接缝处左右不对称（用户截图里箭头指的就是这两个角）。
+ */
+/*
+ * ⚠️ **只保留左 padding，右边留 0。**
+ *
+ * 这是"右边差一块"的**真正根因**（用户自己看出来的）：
+ * `.cm-line` 的 `padding-right` 会把行的 content-box 收窄，
+ * 而标题栏的 `width: 100%` 是相对 content-box 算的 ——
+ * 于是无论怎么调负 margin，右边都会少一个 pad。
+ *
+ * 把右边 padding 去掉，行的 content-box 右边缘 = 行的 border-box 右边缘，
+ * 标题栏（`width: calc(100% + pad)` + `margin-left: -pad`）就能**正好覆盖整行**。
+ *
+ * 左边保留：正文需要缩进，不然文字会贴着卡片边缘。
+ */
+.cm-editor .cm-line.nd-code-block {
+  padding-left: var(--nd-code-pad, 0.9em);
+  padding-right: 0;
+  background: var(--nd-surface);
+  font-family: var(--nd-font-mono);
+  font-size: 0.92em;
+  /*
+   * 折叠动画。
+   *
+   * ⚠️ **不要用 `max-height`。** 它有个致命问题：从大值（`40em` ≈ 550px）
+   * 过渡到 0，而代码块真实高度只有 31px —— **前 92% 的时间实际高度纹丝不动**，
+   * 只在最后 8% 突然收缩。用户看到的就是"收起没有动画"（展开方向反而正常，
+   * 因为从 0 开始每帧都在长）。
+   *
+   * 改用 `height: auto` ↔ `height: 0`：
+   * - `interpolate-size: allow-keywords`（Chrome 129+）让 `auto` 变成**可插值**的，
+   *   浏览器会拿**真实计算高度**当起点，两个方向都平滑；
+   * - 不支持这个属性的浏览器**降级为瞬间切换**（不会坏，只是没动画）。
+   *
+   * `overflow: hidden` 常驻（不是只在折叠态加）—— 过渡中途内容会溢出，
+   * 不裁的话会看到文字穿出去。
+   */
+  height: auto;
+  overflow: hidden;
+  transition:
+    height 0.28s cubic-bezier(0.4, 0, 0.2, 1),
+    padding-top 0.28s cubic-bezier(0.4, 0, 0.2, 1),
+    padding-bottom 0.28s cubic-bezier(0.4, 0, 0.2, 1),
+    opacity 0.22s ease;
+}
+
+/*
+ * 折叠态的非首行：压成 0 高。
+ *
+ * ⚠️ 它同时带 `.nd-code-block`（见 `fence.ts` 的注释）—— 两个状态共用
+ * `height` / `padding` / `opacity` 这几条属性，过渡才接得上。
+ */
+.cm-editor .cm-line.nd-code-folded {
+  height: 0;
+  padding-top: 0;
+  padding-bottom: 0;
+  opacity: 0;
+}
+
+/*
+ * 首行 / 末行 —— 只圆**外**角，并各自吃一段内边距。
+ *
+ * 这两行通常就是围栏行（` ```js ` / ` ``` `），文字被 `fence.ts` 的 `hideLine`
+ * 整行藏掉了 —— 所以它们**看起来是空的灰边**。那不是 bug，是**卡片的内边距**：
+ * 整个代码块是**一张连续的卡片**，上下各留一段灰边、四角圆润。
+ *
+ * 试过把它们折叠掉（`height: 0`），结果是"卡片上下凭空缺一块"，比多两条灰边
+ * 更奇怪，而且围栏行没高度就没法用鼠标点进去改语言标记。用户的原话：
+ * "我建议是保留上和下行，显示为一个真正的卡片的样子，这样方便你编辑和看。"
+ */
+/*
+ * ⚠️ 同样要加强选择器：CM6 的 `.cm-line { padding: 0 2px 0 6px }` 是**简写**，
+ * 会把 `padding-top` / `padding-bottom` 一起重置成 0。
+ */
+.cm-editor .cm-line.nd-code-block-first {
+  padding-top: 0.55em;
+  border-top-left-radius: var(--nd-radius);
+  border-top-right-radius: var(--nd-radius);
+}
+
+.cm-editor .cm-line.nd-code-block-last {
+  padding-bottom: 0.55em;
+  border-bottom-left-radius: var(--nd-radius);
+  border-bottom-right-radius: var(--nd-radius);
+}
+
+/*
+ * 代码窗口的**标题栏**。
+ *
+ * `fence.ts` 在非揭示态把开围栏行（` ```yaml `）整行换成这个 widget ——
+ * 用户要的是"模拟代码窗口的样子，窗口上写上代码比如 yaml/yml"。
+ *
+ * 它是 `Decoration.replace` 的**行内**替换（不是 block widget：block 的替换区间
+ * 方向键永远进不去），所以这里要靠 `display: flex` + `width: 100%` 把它撑满整行。
+ */
+.nd-code-header {
+  /*
+   * ⚠️ 必须是 `inline-flex`，**不能是 `flex`**。
+   *
+   * CM6 会在 `Decoration.replace` 的 widget **前后各插一个
+   * `<img class="cm-widgetBuffer">`**（行内元素，高 14px）。如果这里用
+   * 块级的 `display: flex`，那三个元素就会**垂直堆叠**成三行 ——
+   * 实测 `.cm-line` 高 72px（27 + 14 + 14 + 行距），比内容行（23px）厚三倍。
+   * `inline-flex` 让它们排在同一行里，widget 才能真正"占住那一行"。
+   */
+  display: inline-flex;
+  align-items: center;
+  gap: 0.7em;
+  /*
+   * ⚠️ 这里必须显式写 `box-sizing: border-box` + `calc(100% + pad)`。
+   *
+   * 实测推出来的账：
+   *   `.cm-content` 宽 560，去掉滚动条 gutter 后包含块 540；
+   *   `.cm-line` 是 `border-box`，`padding-left: 12.42` → content-box 527.58；
+   *   而 `.nd-code-header` 默认是 `content-box`，`width: 100%` 只取 **527.58**，
+   *   再把自己的 `padding: 0 12.42` 加上去 → 实际 **552.4**，右边超出 12.41px。
+   *
+   * 改成 `border-box` 后 `100%` 就是 527.58（含 padding），再补一个 pad
+   * （`calc(100% + pad)` = 540）正好等于整行宽。
+   *
+   * 配合 `margin-left: -pad`：
+   *   左边缘 = (行左 + pad) - pad = 行左      ✓
+   *   右边缘 = 行左 + 540 = 行右               ✓
+   */
+  box-sizing: border-box;
+  width: calc(100% + var(--nd-code-pad, 0.9em));
+  vertical-align: top;
+  line-height: 1;
+  min-height: 0;
+  padding: 0.6em var(--nd-code-pad, 0.9em);
+  /* 左移一个 pad，让背景通到行的左边缘 */
+  margin-left: calc(-1 * var(--nd-code-pad, 0.9em));
+  /* 标题栏比内容略深一档，形成 IDE 那种「标题栏 / 编辑区」的层次 */
+  background: var(--nd-code-header-bg, rgb(0 0 0 / 4%));
+  position: relative;
+  color: var(--nd-text-3);
+  user-select: none;
+}
+
+/*
+ * 标题栏底边的分隔线 —— **通栏**（macOS 工具条那种）。
+ *
+ * 用 `::after` 而不是 `border-bottom`：`border` 会被盒模型的 `padding`
+ * 影响位置，伪元素可以精确贴住标题栏的底边、且不参与布局。
+ *
+ * ⚠️ `left/right` 是 0（通栏）而不是收进内边距 —— 用户要的是
+ * "苹果那种条"，通栏的底边才是那个味道。收进去反而会在左右两端留缺口。
+ */
+.nd-code-header::after {
+  content: '';
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 1px;
+  background: var(--nd-border);
+  pointer-events: none;
+}
+
+/*
+ * 标题栏自己的圆角。
+ *
+ * ⚠️ 必须单独给。标题栏的背景靠负 margin **通到卡片边缘**，
+ * 而卡片的圆角画在 `.cm-line` 上 —— 方角的标题栏背景会**盖住**那个圆角，
+ * 看起来就是"上面两个角是尖的"。
+ *
+ * - 展开态：标题栏是首行，只需要**上**圆角。
+ * - 折叠态：`fence.ts` 给标题栏那一行同时推了 `first` 和 `last`
+ *   （它是整张卡片唯一可见的部分），所以四个角都要圆。
+ */
+.cm-editor .cm-line.nd-code-block-first .nd-code-header {
+  border-top-left-radius: var(--nd-radius);
+  border-top-right-radius: var(--nd-radius);
+}
+
+.cm-editor .cm-line.nd-code-block-last .nd-code-header {
+  border-bottom-left-radius: var(--nd-radius);
+  border-bottom-right-radius: var(--nd-radius);
+}
+
+/* 三个小圆点 —— 模拟窗口按钮。纯装饰，`aria-hidden` 在 widget 里设了。 */
+.nd-code-dots {
+  display: inline-flex;
+  gap: 0.32em;
+  flex: none;
+}
+
+.nd-code-dots i {
+  width: 0.62em;
+  height: 0.62em;
+  border-radius: 50%;
+  background: var(--nd-code-dot, #c8ccd2);
+}
+
+/*
+ * 「文件图标 + 文件名」这一组。
+ *
+ * 图标是**彩色圆角方块 + 语言缩写**（VSCode 文件图标的近似）——
+ * 不引入图标库：`iconify-icon` 虽然在本包依赖里，但它要从 CDN 拉图标数据，
+ * 离线/内网环境下会静默变成空标签。
+ */
+.nd-code-file {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45em;
+  min-width: 0;
+  flex: 0 1 auto;
+}
+
+.nd-code-icon {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.5em;
+  height: 1.35em;
+  padding: 0 0.3em;
+  border-radius: 3px;
+  background: var(--nd-code-icon-bg, transparent);
+  color: var(--nd-code-icon-fg, #fff);
+  font-family: var(--nd-font-mono);
+  font-size: 0.62em;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 0.01em;
+  /* 缩写最多三个字符（`C++` / `PHP`），再长就截断 */
+  overflow: hidden;
+}
+
+/*
+ * ⚠️ 真图标（内联 SVG）要走**另一套尺寸**，不能继承上面那套。
+ *
+ * 上面 `.nd-code-icon` 的 `font-size: 0.62em` / `min-width: 1.5em` / 灰底
+ * 都是给**降级徽章的文字**准备的（`TS` / `YML` 那种彩色方块）。
+ * SVG 自带 `width="1em" height="1em"`，`em` 跟着容器的 `font-size` 走 ——
+ * 直接继承的话图标只有 0.62em（约 8.5px），vscode-icons 那种细线条
+ * （`java` 的咖啡杯、`python` 的双蛇）会糊成一团灰块。
+ *
+ * 所以：有 SVG 时不加背景、不留内边距、字号回到 1em，图标本身 1.15em（约 16px）。
+ */
+.nd-code-icon:has(> svg) {
+  min-width: 0;
+  height: auto;
+  padding: 0;
+  background: none;
+  font-size: 1em;
+}
+
+.nd-code-icon svg {
+  display: block;
+  width: 1.4em;
+  height: 1.4em;
+}
+
+.nd-code-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--nd-text-2, var(--nd-text-3));
+  font-size: 0.85em;
+}
+
+/*
+ * 折叠按钮（标题栏最右侧的箭头）。
+ *
+ * ⚠️ 它靠 `ignoreEvent` 放行 `mousedown`/`click` 才收得到事件（见 widget 里的注释）——
+ * 光有样式不够。
+ */
+.nd-code-toggle {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.6em;
+  height: 1.6em;
+  /* 负的右边距：让箭头和标题栏右边缘的视觉距离等于左边缘到圆点的距离 */
+  margin-right: -0.4em;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--nd-text-3);
+  font-size: 0.8em;
+  cursor: pointer;
+  transition: background-color 0.12s, color 0.12s;
+}
+
+.nd-code-toggle:hover {
+  background: var(--nd-code-toggle-hover, rgb(0 0 0 / 6%));
+  color: var(--nd-text-1);
+}
+
+/*
+ * 折叠时代码块的**非首行** —— 压成 0 高。
+ *
+ * 只靠 `HIDE`（`Decoration.replace`）不够：它藏的是行内内容、不含换行符，
+ * **空行没有内容可藏**，仍然占一整行高度。所以要把行盒本身也压掉。
+ */
+.nd-code-folded {
+  height: 0;
+  min-height: 0;
+  padding: 0;
+  margin: 0;
+  overflow: hidden;
+  font-size: 0;
+  line-height: 0;
+}
+
+/* 语言名 —— 推到最右边，和左边的文件名分开。 */
+.nd-code-lang {
+  margin-left: auto;
+  flex: none;
+  font-family: var(--nd-font-mono);
+  font-size: 0.8em;
+  letter-spacing: 0.02em;
+  /* 语言名可能很长（`js title=x`），不许把标题栏撑破 */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/*
+ * 水平线（`---` / `***` / `___`）。
+ *
+ * 非揭示态下 `block.ts` 会把**整行字符藏掉**（不是换 `<hr>` widget ——
+ * `block: true` 的 replace 会让方向键永远进不去），线完全靠这条边框画出来。
+ * 少了它，`---` 会变成一行**空白**：看得见"消失"，看不见线。
+ *
+ * `padding-top` 是必要的：藏掉内容后这个 `.cm-line` 本身高度为 0，
+ * 不给点高度的话线会紧贴上一行的下沿。
+ */
+.nd-hr {
+  padding-top: 0.4em;
+  border-top: 1px solid var(--nd-border);
+}
+
+/* ---------------------------------------------------------------------------
+ * 链接
+ *
+ * 链接文字是**真实可编辑文本**（不是 widget），只有 Cmd/Ctrl + 点击才跳转。
+ * 所以 `cursor: pointer` 只在 hover 时给 —— 平时要让用户知道「这里可以直接改字」。
+ * ------------------------------------------------------------------------- */
+
+.nd-link {
+  color: var(--nd-brand);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.nd-link:hover {
+  cursor: pointer;
+}
+
+/* ---------------------------------------------------------------------------
+ * Widget
+ * ------------------------------------------------------------------------- */
+
+.nd-image-widget {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  border-radius: var(--nd-radius);
+}
+
+.nd-task-checkbox {
+  width: 15px;
+  height: 15px;
+  margin: 0 0.4em 0 0;
+  accent-color: var(--nd-brand);
+  vertical-align: -2px;
+  cursor: pointer;
+}

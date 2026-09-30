@@ -32,6 +32,23 @@ const props = withDefaults(defineProps<{
   extensionResolver?: (extensions: AnyExtension[]) => AnyExtension[]
   theme?: NexusdownTheme
   layout?: NexusdownEditorLayout
+  /**
+   * Which panes to show.
+   *
+   * - `both` (default) — the original two-pane editor
+   * - `rich` — **only the rich-text pane**. This is what a host needs when it
+   *   wants a single editing surface (e.g. a forum post composer that offers its
+   *   own "edit / preview" toggle): the Markdown source pane is not every user's
+   *   idea of "editing", and showing it by default forces a choice on people who
+   *   never wanted one.
+   * - `markdown` — only the source pane, for hosts that want a plain Markdown
+   *   textarea with highlighting.
+   *
+   * Kept separate from `layout` on purpose: `layout` is about **order**, this is
+   * about **how many**. Folding "rich-only" into `layout` would have made the
+   * two concepts fight each other (`layout="rich-only"` + `panes="markdown"`?).
+   */
+  panes?: 'both' | 'rich' | 'markdown'
   width?: EditorDimension
   height?: EditorDimension
   syncScroll?: boolean
@@ -40,7 +57,7 @@ const props = withDefaults(defineProps<{
   maxFileSize?: number
   pasteMode?: PasteMode
   class?: string
-}>(), { modelValue: '', contentType: 'markdown', readonly: false, theme: 'system', layout: 'rich-left', width: '100%', height: 420, syncScroll: true, showStatusBar: true, pasteMode: 'plain' })
+}>(), { modelValue: '', contentType: 'markdown', readonly: false, theme: 'system', layout: 'rich-left', panes: 'both', width: '100%', height: 420, syncScroll: true, showStatusBar: true, pasteMode: 'plain' })
 const emit = defineEmits<{
   'update:modelValue': [value: string]
   update: [snapshot: ReturnType<NexusdownEditorSession['getSnapshot']>]
@@ -68,16 +85,27 @@ function parseInitialJson(value: string): { content: JSONContent | undefined; er
 
 const initialJson = props.contentType === 'json' ? parseInitialJson(props.modelValue) : null
 const initialContent = initialJson ? initialJson.content : props.modelValue
-const session = shallowRef<NexusdownEditorSession>(markRaw(createNexusdownEditor({
-  content: initialContent ?? '',
-  contentType: props.contentType,
-  extensions: props.extensions,
-  extensionResolver: props.extensionResolver,
-  imageUpload: props.imageUpload,
-  maxFileSize: props.maxFileSize,
-  pasteMode: props.pasteMode,
-})))
-session.value.getEditor().setEditable(!props.readonly)
+
+/**
+ * The editor session, created **in `onMounted`, never during `setup()`**.
+ *
+ * Tiptap's `Editor` constructor builds a ProseMirror document, and that needs
+ * `window` / `document`. Creating the session at setup time therefore threw
+ * `[tiptap error]: there is no window object available` on every server render —
+ * which made the whole page 500 in Nuxt/Astro SSR, despite the README promising
+ * SSR support. Deferring to `onMounted` means the server pass renders the empty
+ * shell and the real editor comes up on the client.
+ *
+ * Rendering the editor on the server was never worth much anyway: it is an
+ * *editing* surface, so a server pass could only produce empty chrome. Showing
+ * stored Markdown is a different job — that is `nexusdown/render`, which is
+ * DOM-free and does run on the server.
+ *
+ * Everything below that touches the session is guarded, and the template keeps
+ * `v-if="session"` on the parts that need it, so the child components never
+ * receive `null`.
+ */
+const session = shallowRef<NexusdownEditorSession | null>(null)
 const markdownValue = ref(props.modelValue)
 const markdownComposing = ref(false)
 const richContent = ref<HTMLElement | null>(null)
@@ -94,8 +122,15 @@ const editorStyle = computed<Record<string, string>>(() => ({
 const layoutMode = computed<NexusdownEditorLayout>(() =>
   props.layout === 'markdown-left' ? 'markdown-left' : 'rich-left'
 )
+/** 只显示富文本（`panes="rich"`）时，Markdown 面板整块不渲染 */
+const showRich = computed(() => props.panes !== 'markdown')
+const showMarkdown = computed(() => props.panes !== 'rich')
 let unsubscribe: () => void = () => undefined
 let unsubscribeError: () => void = () => undefined
+// Declared here rather than as a `const` next to the subscription itself: the
+// subscription now happens in `onMounted`, but `onUnmounted` still needs to
+// reach the handle.
+let unsubscribeSelection: () => void = () => undefined
 let syncingScroll = false
 const findReplaceOpen = ref(false)
 /**
@@ -204,25 +239,31 @@ const toolbarContext = computed<ToolbarContext>(() => {
 
 defineExpose({ session })
 
-markdownValue.value = session.value.getMarkdown()
-unsubscribe = session.value.subscribe((snapshot) => {
-  // Echoing the normalised Markdown back into the textarea while the user is
-  // typing into it rewrites what they wrote — an unfinished `see [link` came
-  // back as `see \[link`, so `[`, `*` and friends could never be typed. The
-  // panel keeps the user's own text while it is the source of the change; the
-  // rich-text side still drives the value as usual.
-  if (snapshot.source !== 'markdown') markdownValue.value = snapshot.markdown
-  revision.value++
-  const value = props.contentType === 'html'
-    ? snapshot.html
-    : props.contentType === 'json'
-      ? JSON.stringify(snapshot.json)
-      : snapshot.markdown
-  emit('update:modelValue', value)
-  emit('update', snapshot)
-})
-unsubscribeError = session.value.onError(onSessionError)
-const unsubscribeSelection = session.value.onSelectionChange(() => { revision.value++ })
+/**
+ * Wire up subscriptions and mount the live editor. Called from `onMounted`,
+ * because the session does not exist until then — see the note on `session`.
+ */
+function startSession(created: NexusdownEditorSession) {
+  markdownValue.value = created.getMarkdown()
+  unsubscribe = created.subscribe((snapshot) => {
+    // Echoing the normalised Markdown back into the textarea while the user is
+    // typing into it rewrites what they wrote — an unfinished `see [link` came
+    // back as `see \[link`, so `[`, `*` and friends could never be typed. The
+    // panel keeps the user's own text while it is the source of the change; the
+    // rich-text side still drives the value as usual.
+    if (snapshot.source !== 'markdown') markdownValue.value = snapshot.markdown
+    revision.value++
+    const value = props.contentType === 'html'
+      ? snapshot.html
+      : props.contentType === 'json'
+        ? JSON.stringify(snapshot.json)
+        : snapshot.markdown
+    emit('update:modelValue', value)
+    emit('update', snapshot)
+  })
+  unsubscribeError = created.onError(onSessionError)
+  unsubscribeSelection = created.onSelectionChange(() => { revision.value++ })
+}
 
 // Surface a malformed initial JSON value through the same channel as any other
 // parse failure, now that the session is available to carry the event.
@@ -293,7 +334,25 @@ function closeFindReplace() {
 }
 
 onMounted(() => {
-  session.value.mountEditor(richElement.value)
+  // The session is created here, not at setup time — Tiptap's `Editor`
+  // constructor needs `window`. See the note on `session`.
+  //
+  // `richElement` is available immediately: the panes render unconditionally, so
+  // this first client render already has the node Tiptap mounts into.
+  const created = markRaw(createNexusdownEditor({
+    content: initialContent ?? '',
+    contentType: props.contentType,
+    extensions: props.extensions,
+    extensionResolver: props.extensionResolver,
+    imageUpload: props.imageUpload,
+    maxFileSize: props.maxFileSize,
+    pasteMode: props.pasteMode,
+  }))
+  created.getEditor().setEditable(!props.readonly)
+  session.value = created
+  startSession(created)
+  if (initialJson?.error) emit('parse-error', initialJson.error)
+  created.mountEditor(richElement.value)
 })
 
 // Switching the layout re-renders the rich pane through a different `v-if`
@@ -304,12 +363,21 @@ onMounted(() => {
 // Watch the layout itself rather than the `richElement` ref: a template ref is
 // reassigned on every render that remounts the node, and re-mounting on each of
 // those would tear down the editor during ordinary updates.
-watch(layoutMode, async () => {
+//
+// ⚠️ `panes` is watched too: a host that uses it as an "edit / source" toggle
+// goes `rich` → `markdown` → `rich`, and coming back the rich pane is a **new**
+// DOM node — without this the editor would render into a detached one and the
+// pane would look empty.
+watch([layoutMode, () => props.panes], async () => {
   await nextTick()
-  session.value.mountEditor(richElement.value)
+  session.value?.mountEditor(richElement.value)
 })
 
 watch([() => props.modelValue, () => props.contentType], ([value, contentType]) => {
+  // Before `onMounted` there is no session to push the value into, and there is
+  // nothing to be out of sync with either: `initialContent` is what the session
+  // will be created from.
+  if (!session.value) return
   if (contentType === 'markdown') {
     if (markdownComposing.value) {
       markdownValue.value = value
@@ -330,10 +398,10 @@ watch([() => props.modelValue, () => props.contentType], ([value, contentType]) 
   }
 })
 
-watch(() => props.readonly, (readonly) => session.value.getEditor().setEditable(!readonly))
-watch(() => props.imageUpload, (imageUpload) => session.value.setImageUpload(imageUpload))
-watch(() => props.maxFileSize, (maxFileSize) => session.value.setMaxFileSize(maxFileSize))
-watch(() => props.pasteMode, (pasteMode) => session.value.setPasteMode(pasteMode))
+watch(() => props.readonly, (readonly) => session.value?.getEditor().setEditable(!readonly))
+watch(() => props.imageUpload, (imageUpload) => session.value?.setImageUpload(imageUpload))
+watch(() => props.maxFileSize, (maxFileSize) => session.value?.setMaxFileSize(maxFileSize))
+watch(() => props.pasteMode, (pasteMode) => session.value?.setPasteMode(pasteMode))
 
 function onMarkdownInput(value: string) {
   markdownValue.value = value
@@ -385,16 +453,23 @@ onUnmounted(() => {
 <template>
   <section class="nexusdown-editor" :class="props.class" data-nexusdown="editor" :data-nexusdown-theme="resolvedTheme" :data-nexusdown-layout="layoutMode" :style="editorStyle" @keydown.capture="onEditorKeydown">
     <EditorToolbar v-if="session" :context="toolbarContext" :items="items" :readonly="readonly" @find="openFindReplace" />
-    <div class="nexusdown-editor__panes">
+    <!--
+      The panes themselves render unconditionally — `richElement` is a plain
+      container that Tiptap mounts into, and it must exist in the first client
+      render so `onMounted` has something to mount into (the session is created
+      there, see the note on `session`). Only the children that dereference
+      `props.session` are gated.
+    -->
+    <div class="nexusdown-editor__panes" :data-nexusdown-panes="panes">
       <template v-if="layoutMode === 'rich-left'">
-        <div ref="richPane" class="nexusdown-editor__pane nexusdown-editor__pane--rich" data-nexusdown="rich-text" @scroll="onRichScroll">
+        <div v-if="showRich" ref="richPane" class="nexusdown-editor__pane nexusdown-editor__pane--rich" data-nexusdown="rich-text" @scroll="onRichScroll">
           <div ref="richContent" class="nexusdown-rich-content">
             <div ref="richElement" class="nexusdown-rich-surface" />
-            <TableControls :session="session" :container="richContent" :readonly="readonly" />
-            <CodeBlockLanguage :session="session" :container="richContent" :readonly="readonly" />
+            <TableControls v-if="session" :session="session" :container="richContent" :readonly="readonly" />
+            <CodeBlockLanguage v-if="session" :session="session" :container="richContent" :readonly="readonly" />
           </div>
         </div>
-        <div class="nexusdown-editor__pane nexusdown-editor__pane--markdown">
+        <div v-if="showMarkdown" class="nexusdown-editor__pane nexusdown-editor__pane--markdown">
           <MarkdownEditor
             ref="markdownEditor"
             :model-value="markdownValue"
@@ -408,7 +483,7 @@ onUnmounted(() => {
         </div>
       </template>
       <template v-else>
-        <div class="nexusdown-editor__pane nexusdown-editor__pane--markdown">
+        <div v-if="showMarkdown" class="nexusdown-editor__pane nexusdown-editor__pane--markdown">
           <MarkdownEditor
             ref="markdownEditor"
             :model-value="markdownValue"
@@ -420,18 +495,18 @@ onUnmounted(() => {
             @selection-change="onMarkdownSelectionChange"
           />
         </div>
-        <div ref="richPane" class="nexusdown-editor__pane nexusdown-editor__pane--rich" data-nexusdown="rich-text" @scroll="onRichScroll">
+        <div v-if="showRich" ref="richPane" class="nexusdown-editor__pane nexusdown-editor__pane--rich" data-nexusdown="rich-text" @scroll="onRichScroll">
           <div ref="richContent" class="nexusdown-rich-content">
             <div ref="richElement" class="nexusdown-rich-surface" />
-            <TableControls :session="session" :container="richContent" :readonly="readonly" />
-            <CodeBlockLanguage :session="session" :container="richContent" :readonly="readonly" />
+            <TableControls v-if="session" :session="session" :container="richContent" :readonly="readonly" />
+            <CodeBlockLanguage v-if="session" :session="session" :container="richContent" :readonly="readonly" />
           </div>
         </div>
       </template>
     </div>
-    <EditorStatusBar v-if="showStatusBar" :session="session" />
+    <EditorStatusBar v-if="showStatusBar && session" :session="session" />
     <FindReplacePanel
-      v-if="findReplaceOpen"
+      v-if="findReplaceOpen && session"
       :session="session"
       :readonly="readonly"
       @close="closeFindReplace"

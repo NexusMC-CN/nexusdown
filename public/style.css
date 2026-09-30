@@ -3,7 +3,12 @@
 .nexusdown-editor[data-nexusdown-theme='light'] { --nexus-bg: #fff; --nexus-panel: #fafafa; --nexus-border: #e5e7eb; --nexus-text: #1f2937; --nexus-muted: #6b7280; --nexus-accent: #2563eb; color-scheme: light; }
 .nexusdown-editor[data-nexusdown-theme='dark'] { --nexus-bg: #111827; --nexus-panel: #172033; --nexus-border: #334155; --nexus-text: #e5e7eb; --nexus-muted: #94a3b8; --nexus-accent: #60a5fa; color-scheme: dark; }
 .nexusdown-editor[data-nexusdown-theme='dark'] .nexusdown-toolbar__button:hover { background: #263449; }
-.nexusdown-toolbar { position: relative; display: flex; flex: 0 0 auto; align-items: center; min-height: 48px; padding: 6px 10px; border-bottom: 1px solid var(--nexus-border); background: var(--nexus-panel); overflow: hidden; }
+/* ⚠️ 这里**不能**用 `overflow: hidden`（原来是 hidden）。
+   提示气泡挂在按钮下方，会超出这 48px 的高度，`hidden` 会把它整个裁掉 ——
+   表现就是"提示不出现"，而且很难查（DOM 里有、就是看不见）。
+   超宽的工具本来也不靠裁剪处理：`useToolbarOverflow` 会把放不下的收进「更多工具」，
+   并给它们加 `visibility: hidden`（见下面的 `[data-overflowed='true']`）。 */
+.nexusdown-toolbar { position: relative; display: flex; flex: 0 0 auto; align-items: center; min-height: 48px; padding: 6px 10px; border-bottom: 1px solid var(--nexus-border); background: var(--nexus-panel); overflow: visible; }
 .nexusdown-toolbar[data-overflow-ready='false'] { overflow-x: auto; }
 .nexusdown-toolbar__track { display: flex; align-items: center; flex-wrap: nowrap; min-width: max-content; }
 .nexusdown-toolbar__control { flex: 0 0 auto; }
@@ -26,12 +31,71 @@
 .nexusdown-toolbar__button:hover { color: var(--nexus-text); background: #eef2f7; }
 .nexusdown-toolbar__button.is-active { color: var(--nexus-accent); background: #dbeafe; }
 .nexusdown-toolbar__button:disabled { opacity: .4; cursor: not-allowed; }
+/**
+ * 工具栏提示气泡。
+ *
+ * 用伪元素而不是原生 `title`：原生 title 要悬停 1-2 秒才出现，而且属性被
+ * 重渲染重设时计时器会重置（见 `ToolbarControl.vue` 里的完整说明）。
+ *
+ * `transition-delay: .2s` 是刻意的 —— 立刻弹出的话，鼠标划过工具栏会闪一片；
+ * 200ms 足够过滤掉"路过"，又远快于原生那 1-2 秒。
+ */
+.nexusdown-toolbar__button[data-tooltip] { position: relative; }
+.nexusdown-toolbar__button[data-tooltip]::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  top: calc(100% + 7px);
+  left: 50%;
+  z-index: 60;
+  padding: 4px 9px;
+  border-radius: 6px;
+  background: rgb(24 24 27 / 94%);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.5;
+  white-space: nowrap;
+  opacity: 0;
+  transform: translateX(-50%) translateY(-3px);
+  pointer-events: none;
+  transition: opacity .12s ease, transform .12s ease;
+}
+.nexusdown-toolbar__button[data-tooltip]:hover::after,
+.nexusdown-toolbar__button[data-tooltip]:focus-visible::after {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+  transition-delay: .2s;
+}
+/* 触摸设备没有 hover，别让气泡卡在屏幕上 */
+@media (hover: none) {
+  .nexusdown-toolbar__button[data-tooltip]::after { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .nexusdown-toolbar__button[data-tooltip]::after { transition: none; }
+}
 .nexusdown-heading-picker { position: relative; }.nexusdown-heading-picker__trigger { gap: 2px; width: auto; min-width: 38px; padding: 0 6px; }.nexusdown-heading-picker__menu { position: fixed; z-index: 1000; display: grid; gap: 2px; min-width: 74px; padding: 5px; border: 1px solid var(--nexus-border); border-radius: 6px; background: var(--nexus-bg); box-shadow: 0 8px 20px rgb(15 23 42 / 12%); }.nexusdown-heading-picker__menu button { border: 0; border-radius: 4px; padding: 5px 8px; color: var(--nexus-text); background: transparent; text-align: left; cursor: pointer; }.nexusdown-heading-picker__menu button:hover { background: var(--nexus-panel); }
 .nexusdown-link-picker { position: relative; }.nexusdown-link-picker__menu { position: fixed; z-index: 1000; box-sizing: border-box; display: grid; gap: 10px; width: min(286px, calc(100vw - 16px)); padding: 14px; border: 1px solid var(--nexus-border); border-radius: 6px; background: var(--nexus-bg); box-shadow: 0 8px 24px rgb(15 23 42 / 16%); }.nexusdown-link-picker__field { display: grid; gap: 4px; color: var(--nexus-muted); font-size: 12px; }.nexusdown-link-picker__field input { box-sizing: border-box; width: 100%; min-height: 32px; padding: 6px 8px; border: 1px solid var(--nexus-border); border-radius: 4px; color: var(--nexus-text); background: var(--nexus-bg); font: inherit; font-size: 13px; outline: none; }.nexusdown-link-picker__field input:focus { border-color: var(--nexus-accent); box-shadow: 0 0 0 2px rgb(37 99 235 / 12%); }.nexusdown-link-picker__actions { display: flex; align-items: center; gap: 6px; }.nexusdown-link-picker__actions button { min-height: 30px; padding: 5px 10px; border: 1px solid var(--nexus-border); border-radius: 4px; color: var(--nexus-text); background: var(--nexus-bg); cursor: pointer; font: inherit; font-size: 12px; }.nexusdown-link-picker__actions button:hover:not(:disabled) { background: var(--nexus-panel); }.nexusdown-link-picker__actions button:last-child { border-color: var(--nexus-accent); color: #fff; background: var(--nexus-accent); }.nexusdown-link-picker__actions button:last-child:hover:not(:disabled) { border-color: var(--nexus-accent); color: #fff; background: var(--nexus-accent); }.nexusdown-link-picker__actions button:disabled { opacity: .45; cursor: not-allowed; }.nexusdown-link-picker__spacer { flex: 1; }
 iconify-icon { display: inline-block; width: 1em; height: 1em; }
 .nexusdown-editor__panes { display: grid; grid-template-columns: 1fr 1fr; flex: 1 1 auto; min-height: 0; overflow: hidden; }
 .nexusdown-editor__pane { min-width: 0; min-height: 0; overflow: auto; overscroll-behavior: contain; }
 .nexusdown-editor__pane--rich { border-right: 1px solid var(--nexus-border); }
+/* 单面板（`panes="rich"` / `"markdown"`）：只剩一栏，不能再按 1fr 1fr 分，
+   也不该再画那条"两栏之间"的分隔线 —— 它现在会贴在编辑器的右边缘上。 */
+.nexusdown-editor__panes[data-nexusdown-panes='rich'],
+.nexusdown-editor__panes[data-nexusdown-panes='markdown'] { grid-template-columns: 1fr; }
+.nexusdown-editor__panes[data-nexusdown-panes='rich'] .nexusdown-editor__pane--rich,
+.nexusdown-editor__panes[data-nexusdown-panes='markdown'] .nexusdown-editor__pane--rich { border-right: 0; border-left: 0; }
+/**
+ * 单面板时**不要** `overscroll-behavior: contain`。
+ *
+ * `contain` 会阻止**滚动链**：面板滚到底之后，滚轮不再传给页面 ——
+ * 于是"光标在编辑器里时整个页面滚不动"（用户原话）。
+ *
+ * 双栏时它是有意义的（左右两栏各自的滚动互不干扰），
+ * 但只剩一栏时它没有任何好处，只是把页面锁住。
+ */
+.nexusdown-editor__panes[data-nexusdown-panes='rich'] .nexusdown-editor__pane,
+.nexusdown-editor__panes[data-nexusdown-panes='markdown'] .nexusdown-editor__pane { overscroll-behavior: auto; }
 .nexusdown-editor[data-nexusdown-layout='markdown-left'] .nexusdown-editor__pane--rich { border-right: 0; border-left: 1px solid var(--nexus-border); }
 .nexusdown-rich-content, .nexusdown-markdown-input { box-sizing: border-box; width: 100%; min-height: 372px; padding: 28px; border: 0; outline: 0; font: inherit; line-height: 1.65; }
 .nexusdown-rich-content .ProseMirror, .nexusdown-rich-content .ProseMirror:focus { min-height: 316px; border: 0; outline: 0; box-shadow: none; }
@@ -54,7 +118,7 @@ iconify-icon { display: inline-block; width: 1em; height: 1em; }
 .nexusdown-markdown-editor .hljs-bullet, .nexusdown-markdown-editor .hljs-meta { color: #116329; }.nexusdown-markdown-editor .hljs-link { color: #0969da; text-decoration: underline; }.nexusdown-markdown-editor .hljs-string, .nexusdown-markdown-editor .hljs-symbol { color: #953800; }
 .nexusdown-editor[data-nexusdown-theme='dark'] .nexusdown-markdown-editor .hljs-bullet, .nexusdown-editor[data-nexusdown-theme='dark'] .nexusdown-markdown-editor .hljs-meta { color: #7ee787; }.nexusdown-editor[data-nexusdown-theme='dark'] .nexusdown-markdown-editor .hljs-link { color: #58a6ff; }.nexusdown-editor[data-nexusdown-theme='dark'] .nexusdown-markdown-editor .hljs-string, .nexusdown-editor[data-nexusdown-theme='dark'] .nexusdown-markdown-editor .hljs-symbol { color: #ffa657; }
 .nexusdown-editor[data-nexusdown-theme='dark'] .nexusdown-markdown-editor .hljs-section { color: #79c0ff; }.nexusdown-editor[data-nexusdown-theme='dark'] .nexusdown-markdown-editor .hljs-strong { color: #d2a8ff; }.nexusdown-editor[data-nexusdown-theme='dark'] .nexusdown-markdown-editor .hljs-emphasis { color: #ffa657; }.nexusdown-editor[data-nexusdown-theme='dark'] .nexusdown-markdown-editor .hljs-code, .nexusdown-editor[data-nexusdown-theme='dark'] .nexusdown-markdown-editor .hljs-quote { color: #a5d6ff; }
-@media (max-width: 760px) { .nexusdown-editor__panes { grid-template-columns: 1fr; grid-template-rows: repeat(2, minmax(0, 1fr)); } .nexusdown-editor__pane--rich { border-right: 0; border-left: 0; } .nexusdown-editor__pane:first-child { border-bottom: 1px solid var(--nexus-border); } }
+@media (max-width: 760px) { .nexusdown-editor__panes { grid-template-columns: 1fr; grid-template-rows: repeat(2, minmax(0, 1fr)); } .nexusdown-editor__pane--rich { border-right: 0; border-left: 0; } .nexusdown-editor__pane:first-child { border-bottom: 1px solid var(--nexus-border); } .nexusdown-editor__panes[data-nexusdown-panes='rich'], .nexusdown-editor__panes[data-nexusdown-panes='markdown'] { grid-template-rows: minmax(0, 1fr); } }
 .nexusdown-rich-content .ProseMirror .nexusdown-find-replace__match { background-color: rgb(250 204 21 / 35%); border-radius: 2px; }
 .nexusdown-rich-content .ProseMirror .nexusdown-find-replace__match--current { background-color: rgb(250 204 21 / 80%); border-radius: 2px; box-shadow: 0 0 0 1px rgb(202 138 4 / 30%); }
 .nexusdown-find-replace { position: absolute; right: 8px; bottom: 34px; left: 8px; z-index: 30; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 6px 10px; border: 1px solid var(--nexus-border); border-radius: 6px; background: var(--nexus-panel); box-shadow: 0 8px 24px rgb(15 23 42 / 16%); color: var(--nexus-text); }

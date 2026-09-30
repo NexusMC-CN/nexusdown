@@ -5,9 +5,27 @@ import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { Extension } from '@tiptap/core'
 import NexusdownEditor from '../../src/vue/NexusdownEditor.vue'
-import { createDefaultToolbarItems } from '../../src/core/toolbar'
+import { createDefaultToolbarItems, type ToolbarContext } from '../../src/core/toolbar'
 import type { NexusdownEditorSession } from '../../src/core/session'
 import { nextTick } from 'vue'
+
+/**
+ * 挂载编辑器并**等一帧**。
+ *
+ * ⚠️ 会话在 `onMounted` 里创建 —— Tiptap 的 `Editor` 构造函数需要 `window`，
+ * 所以它不能在 `setup()` 里建（那样 Nuxt/Astro 的每次服务端渲染都会 500）。
+ * 代价是**依赖会话的子节点（工具栏、状态栏、表格控件）晚一帧才渲染**，
+ * 同步断言只能看到"会话前的空壳"：`[data-nexusdown="toolbar"]` 会是 0 个。
+ *
+ * 所以凡是断言工具栏 / 状态栏 / 会话内容的测试，都要走这个 helper。
+ */
+type EditorMountOptions = Parameters<typeof mount<typeof NexusdownEditor>>[1]
+
+async function mountEditor(options: EditorMountOptions = {}) {
+  const wrapper = mount(NexusdownEditor, options)
+  await nextTick()
+  return wrapper
+}
 
 describe('measured editor toolbar overflow', () => {
   it('keeps tail tools reachable, executes commands once, and returns focus after widening', async () => {
@@ -40,11 +58,13 @@ describe('measured editor toolbar overflow', () => {
     }
     let executions = 0
     const customId = 'custom[0]."menu'
-    const wrapper = mount(NexusdownEditor, {
+    const wrapper = await mountEditor( {
       attachTo: document.body,
       props: { modelValue: 'Hello', height: '70vh', toolbarItems: [
         ...createDefaultToolbarItems(),
-        { id: customId, group: 'custom', icon: 'lucide:star', label: '自定义斜体', execute: (context) => { executions++; return context.session.commands.toggleItalic() } },
+        // ⚠️ `context` 要显式标注：`mountEditor` 把 `mount` 包了一层，
+        // 上下文类型推断不到这里（`Parameters<typeof mount<...>>` 解析出的是宽泛的那个重载）。
+        { id: customId, group: 'custom', icon: 'lucide:star', label: '自定义斜体', execute: (context: ToolbarContext) => { executions++; return context.session.commands.toggleItalic() } },
       ] },
     })
     try {
@@ -91,8 +111,8 @@ describe('measured editor toolbar overflow', () => {
 })
 
 describe('NexusdownEditor', () => {
-  it('renders rich text before the Markdown editor by default (rich-left layout)', () => {
-    const wrapper = mount(NexusdownEditor, { props: { modelValue: '# Hello' } })
+  it('renders rich text before the Markdown editor by default (rich-left layout)', async () => {
+    const wrapper = await mountEditor( { props: { modelValue: '# Hello' } })
     const rich = wrapper.get('[data-nexusdown="rich-text"]').element
     const markdown = wrapper.get('[data-nexusdown="markdown-editor"]').element
 
@@ -101,8 +121,8 @@ describe('NexusdownEditor', () => {
     wrapper.unmount()
   })
 
-  it('reverses pane DOM order for the markdown-left layout', () => {
-    const wrapper = mount(NexusdownEditor, {
+  it('reverses pane DOM order for the markdown-left layout', async () => {
+    const wrapper = await mountEditor( {
       props: { modelValue: '# Hello', layout: 'markdown-left' },
     })
     const rich = wrapper.get('[data-nexusdown="rich-text"]').element
@@ -113,8 +133,8 @@ describe('NexusdownEditor', () => {
     wrapper.unmount()
   })
 
-  it('falls back to rich-left for an unknown layout value', () => {
-    const wrapper = mount(NexusdownEditor, {
+  it('falls back to rich-left for an unknown layout value', async () => {
+    const wrapper = await mountEditor( {
       props: { modelValue: '# Hello', layout: 'sideways' as never },
     })
     const rich = wrapper.get('[data-nexusdown="rich-text"]').element
@@ -125,8 +145,8 @@ describe('NexusdownEditor', () => {
     wrapper.unmount()
   })
 
-  it('preserves custom class and style while exposing dimension CSS variables', () => {
-    const wrapper = mount(NexusdownEditor, {
+  it('preserves custom class and style while exposing dimension CSS variables', async () => {
+    const wrapper = await mountEditor( {
       attrs: { class: 'custom-editor', style: '--nexusdown-accent: #7c3aed' },
       props: { modelValue: '# Hello', width: 900, height: '70vh' },
     })
@@ -140,8 +160,8 @@ describe('NexusdownEditor', () => {
     wrapper.unmount()
   })
 
-  it('renders rich text, markdown, and one shared toolbar', () => {
-    const wrapper = mount(NexusdownEditor, { props: { modelValue: '# Hello', contentType: 'markdown' } })
+  it('renders rich text, markdown, and one shared toolbar', async () => {
+    const wrapper = await mountEditor( { props: { modelValue: '# Hello', contentType: 'markdown' } })
     expect(wrapper.find('[data-nexusdown="rich-text"]').exists()).toBe(true)
     expect(wrapper.find('[data-nexusdown="markdown"]').exists()).toBe(true)
     expect(wrapper.findAll('[data-nexusdown="toolbar"]').length).toBe(1)
@@ -149,8 +169,8 @@ describe('NexusdownEditor', () => {
     wrapper.unmount()
   })
 
-  it('keeps a fixed default size and accepts custom width and height', () => {
-    const wrapper = mount(NexusdownEditor, {
+  it('keeps a fixed default size and accepts custom width and height', async () => {
+    const wrapper = await mountEditor( {
       props: { modelValue: '# Hello', width: 900, height: '70vh' },
     })
     const editor = wrapper.get('[data-nexusdown="editor"]').element as HTMLElement
@@ -158,7 +178,7 @@ describe('NexusdownEditor', () => {
     expect(editor.style.getPropertyValue('--nexusdown-height')).toBe('70vh')
     wrapper.unmount()
 
-    const defaults = mount(NexusdownEditor, { props: { modelValue: '# Hello' } })
+    const defaults = await mountEditor( { props: { modelValue: '# Hello' } })
     const defaultEditor = defaults.get('[data-nexusdown="editor"]').element as HTMLElement
     expect(defaultEditor.style.getPropertyValue('--nexusdown-width')).toBe('100%')
     expect(defaultEditor.style.getPropertyValue('--nexusdown-height')).toBe('420px')
@@ -166,7 +186,7 @@ describe('NexusdownEditor', () => {
   })
 
   it('syncs rich and Markdown scrolling in both directions using their rendered ranges', async () => {
-    const wrapper = mount(NexusdownEditor, {
+    const wrapper = await mountEditor( {
       props: { modelValue: `${'# Heading\n\n'}${'Long content\n'.repeat(40)}` },
     })
     await new Promise((resolve) => setTimeout(resolve, 0))
@@ -192,7 +212,7 @@ describe('NexusdownEditor', () => {
   })
 
   it('can disable linked scrolling without affecting either editor', async () => {
-    const wrapper = mount(NexusdownEditor, {
+    const wrapper = await mountEditor( {
       props: { modelValue: '# Heading\n\nContent', syncScroll: false },
     })
     await new Promise((resolve) => setTimeout(resolve, 0))
@@ -213,7 +233,7 @@ describe('NexusdownEditor', () => {
   })
 
   it('emits markdown updates from the markdown surface', async () => {
-    const wrapper = mount(NexusdownEditor, { props: { modelValue: '# Hello' } })
+    const wrapper = await mountEditor( { props: { modelValue: '# Hello' } })
     await wrapper.get('[data-nexusdown="markdown"]').setValue('# Updated')
     await new Promise((resolve) => setTimeout(resolve, 0))
     expect(wrapper.emitted('update:modelValue')?.at(-1)).toEqual(['# Updated'])
@@ -221,14 +241,14 @@ describe('NexusdownEditor', () => {
   })
 
   it('mounts the rich text surface as a Tiptap EditorView', async () => {
-    const wrapper = mount(NexusdownEditor, { props: { modelValue: '**Bold**' } })
+    const wrapper = await mountEditor( { props: { modelValue: '**Bold**' } })
     await new Promise((resolve) => setTimeout(resolve, 0))
     expect(wrapper.find('[data-nexusdown="rich-text"] .ProseMirror').exists()).toBe(true)
     wrapper.unmount()
   })
 
   it('uses html when an external html model value changes', async () => {
-    const wrapper = mount(NexusdownEditor, {
+    const wrapper = await mountEditor( {
       props: { modelValue: '<p>First</p>', contentType: 'html' },
     })
     await wrapper.setProps({ modelValue: '<h2>Second</h2>' })
@@ -238,14 +258,14 @@ describe('NexusdownEditor', () => {
   })
 
   it('makes the Tiptap surface readonly when readonly is enabled', async () => {
-    const wrapper = mount(NexusdownEditor, { props: { modelValue: 'Text', readonly: true } })
+    const wrapper = await mountEditor( { props: { modelValue: 'Text', readonly: true } })
     await new Promise((resolve) => setTimeout(resolve, 0))
     expect(wrapper.get('.ProseMirror').attributes('contenteditable')).toBe('false')
     wrapper.unmount()
   })
 
   it('applies toolbar formatting to the selection in the visible EditorView', async () => {
-    const wrapper = mount(NexusdownEditor, { props: { modelValue: 'Selected text' } })
+    const wrapper = await mountEditor( { props: { modelValue: 'Selected text' } })
     await new Promise((resolve) => setTimeout(resolve, 0))
     const vm = wrapper.vm as unknown as { session: NexusdownEditorSession }
     vm.session.getEditor().commands.selectAll()
@@ -254,9 +274,9 @@ describe('NexusdownEditor', () => {
     wrapper.unmount()
   })
 
-  it('applies an explicit theme and accepts custom Tiptap extensions', () => {
+  it('applies an explicit theme and accepts custom Tiptap extensions', async () => {
     const custom = Extension.create({ name: 'vueCustomExtension' })
-    const wrapper = mount(NexusdownEditor, {
+    const wrapper = await mountEditor( {
       props: { modelValue: '# Hello', theme: 'dark', extensions: [custom] },
     })
     expect(wrapper.get('[data-nexusdown="editor"]').attributes('data-nexusdown-theme')).toBe('dark')
@@ -265,8 +285,8 @@ describe('NexusdownEditor', () => {
     wrapper.unmount()
   })
 
-  it('renders the syntax-highlight mirror alongside the markdown input', () => {
-    const wrapper = mount(NexusdownEditor, { props: { modelValue: '# Heading\n\n**bold**' } })
+  it('renders the syntax-highlight mirror alongside the markdown input', async () => {
+    const wrapper = await mountEditor( { props: { modelValue: '# Heading\n\n**bold**' } })
     expect(wrapper.find('[data-nexusdown="markdown-editor"]').exists()).toBe(true)
     expect(wrapper.find('[data-nexusdown="markdown-highlight"] .hljs-section').exists()).toBe(true)
     expect(wrapper.find('[data-nexusdown="markdown-highlight"] .hljs-strong').exists()).toBe(true)
@@ -274,7 +294,7 @@ describe('NexusdownEditor', () => {
   })
 
   it('inserts a table from the shared toolbar', async () => {
-    const wrapper = mount(NexusdownEditor, { props: { modelValue: 'Before' } })
+    const wrapper = await mountEditor( { props: { modelValue: 'Before' } })
     await new Promise((resolve) => setTimeout(resolve, 0))
     await wrapper.get('button[aria-label="表格"]').trigger('click')
     expect(wrapper.find('.ProseMirror table').exists()).toBe(true)
@@ -283,7 +303,7 @@ describe('NexusdownEditor', () => {
   })
 
   it('shows table controls for the active table and adds rows or columns', async () => {
-    const wrapper = mount(NexusdownEditor, {
+    const wrapper = await mountEditor( {
       props: { modelValue: '| A | B |\n| --- | --- |\n| C | D |' },
     })
     await new Promise((resolve) => setTimeout(resolve, 0))
@@ -304,7 +324,7 @@ describe('NexusdownEditor', () => {
   })
 
   it('opens the image popup and inserts an image with alt text', async () => {
-    const wrapper = mount(NexusdownEditor, { props: { modelValue: 'Before' } })
+    const wrapper = await mountEditor( { props: { modelValue: 'Before' } })
     await new Promise((resolve) => setTimeout(resolve, 0))
     await wrapper.get('button[aria-label="图片"]').trigger('click')
 
@@ -326,7 +346,7 @@ describe('NexusdownEditor', () => {
   })
 
   it('updates block formatting state when the caret moves between lines', async () => {
-    const wrapper = mount(NexusdownEditor, { props: { modelValue: '> Quote\n\nPlain' } })
+    const wrapper = await mountEditor( { props: { modelValue: '> Quote\n\nPlain' } })
     await new Promise((resolve) => setTimeout(resolve, 0))
     const vm = wrapper.vm as unknown as { session: NexusdownEditorSession }
     const quoteButton = wrapper.get('button[aria-label="引用"]')
@@ -340,7 +360,7 @@ describe('NexusdownEditor', () => {
   })
 
   it('offers H1 through H6 and applies the selected heading level', async () => {
-    const wrapper = mount(NexusdownEditor, { props: { modelValue: 'Section' } })
+    const wrapper = await mountEditor( { props: { modelValue: 'Section' } })
     await new Promise((resolve) => setTimeout(resolve, 0))
     await wrapper.get('button[aria-label="标题"]').trigger('click')
     expect(document.body.querySelectorAll('[data-nexusdown="heading-menu"] button')).toHaveLength(6)
@@ -353,7 +373,7 @@ describe('NexusdownEditor', () => {
   })
 
   it('closes the heading menu on an outside pointer press', async () => {
-    const wrapper = mount(NexusdownEditor, { props: { modelValue: 'Section' } })
+    const wrapper = await mountEditor( { props: { modelValue: 'Section' } })
     await new Promise((resolve) => setTimeout(resolve, 0))
     await wrapper.get('button[aria-label="标题"]').trigger('click')
     expect(document.body.querySelector('[data-nexusdown="heading-menu"]')).not.toBeNull()
@@ -365,7 +385,7 @@ describe('NexusdownEditor', () => {
   })
 
   it('closes the heading menu on Escape', async () => {
-    const wrapper = mount(NexusdownEditor, { props: { modelValue: 'Section' } })
+    const wrapper = await mountEditor( { props: { modelValue: 'Section' } })
     await new Promise((resolve) => setTimeout(resolve, 0))
     await wrapper.get('button[aria-label="标题"]').trigger('click')
     expect(document.body.querySelector('[data-nexusdown="heading-menu"]')).not.toBeNull()
@@ -377,7 +397,7 @@ describe('NexusdownEditor', () => {
   })
 
   it('keeps the heading menu open when pressing inside it', async () => {
-    const wrapper = mount(NexusdownEditor, { props: { modelValue: 'Section' } })
+    const wrapper = await mountEditor( { props: { modelValue: 'Section' } })
     await new Promise((resolve) => setTimeout(resolve, 0))
     await wrapper.get('button[aria-label="标题"]').trigger('click')
     const menu = document.body.querySelector('[data-nexusdown="heading-menu"]') as HTMLElement
@@ -390,7 +410,7 @@ describe('NexusdownEditor', () => {
   })
 
   it('detaches its dismissal listeners when the heading menu closes', async () => {
-    const wrapper = mount(NexusdownEditor, { props: { modelValue: 'Section' } })
+    const wrapper = await mountEditor( { props: { modelValue: 'Section' } })
     await new Promise((resolve) => setTimeout(resolve, 0))
     const removeSpy = vi.spyOn(document, 'removeEventListener')
 
@@ -407,7 +427,7 @@ describe('NexusdownEditor', () => {
   })
 
   it('opens an independent link popup with display text and URL fields', async () => {
-    const wrapper = mount(NexusdownEditor, { props: { modelValue: 'Selected text' } })
+    const wrapper = await mountEditor( { props: { modelValue: 'Selected text' } })
     await new Promise((resolve) => setTimeout(resolve, 0))
     const vm = wrapper.vm as unknown as { session: NexusdownEditorSession }
     vm.session.getEditor().commands.selectAll()
@@ -434,7 +454,7 @@ describe('NexusdownEditor', () => {
   })
 
   it('renders task items with a clickable checkbox and editable text beside it', async () => {
-    const wrapper = mount(NexusdownEditor, { props: { modelValue: '- [ ] First task' } })
+    const wrapper = await mountEditor( { props: { modelValue: '- [ ] First task' } })
     await new Promise((resolve) => setTimeout(resolve, 0))
 
     const item = wrapper.get('[data-type="taskList"] li')
@@ -453,7 +473,7 @@ describe('NexusdownEditor', () => {
 
   it('defers markdown parsing while a table cell is under IME composition', async () => {
     const initial = '| A | B |\n| --- | --- |\n|  |  |'
-    const wrapper = mount(NexusdownEditor, { props: { modelValue: initial } })
+    const wrapper = await mountEditor( { props: { modelValue: initial } })
     await new Promise((resolve) => setTimeout(resolve, 0))
     const vm = wrapper.vm as unknown as { session: NexusdownEditorSession }
     const baseline = vm.session.getMarkdown()
@@ -470,14 +490,14 @@ describe('NexusdownEditor', () => {
     wrapper.unmount()
   })
 
-  it('keeps the link apply action blue while hovering', () => {
+  it('keeps the link apply action blue while hovering', async () => {
     for (const path of ['../../src/style.css', '../../public/style.css']) {
       const css = readFileSync(new URL(path, import.meta.url), 'utf8')
       expect(css).toMatch(/\.nexusdown-link-picker__actions button:last-child:hover:not\(:disabled\)\s*\{[^}]*background:\s*var\(--nexus-accent\)/)
     }
   })
 
-  it('keeps enhanced editor styles in both package stylesheets', () => {
+  it('keeps enhanced editor styles in both package stylesheets', async () => {
     for (const path of ['../../src/style.css', '../../public/style.css']) {
       const css = readFileSync(new URL(path, import.meta.url), 'utf8')
       expect(css).toMatch(/\.nexusdown-rich-content \.ProseMirror th,[^{]+\{[^}]*position:\s*relative/)
@@ -487,7 +507,7 @@ describe('NexusdownEditor', () => {
     }
   })
 
-  it('keeps src and public stylesheets byte-identical', () => {
+  it('keeps src and public stylesheets byte-identical', async () => {
     // `src/style.css` is the authoring source; `public/style.css` is what tsup
     // copies into `dist/style.css` (the published `nexusdown/style.css`). They
     // silently drifted apart once already, so lock them together. `npm run
@@ -515,7 +535,7 @@ describe('NexusdownEditor', () => {
     expect(shim).not.toMatch(/^\s*(import|export)\s+type\s/m)
   })
 
-  it('ships the mobile adaptations in both stylesheets', () => {
+  it('ships the mobile adaptations in both stylesheets', async () => {
     for (const path of ['../../src/style.css', '../../public/style.css']) {
       const css = readFileSync(new URL(path, import.meta.url), 'utf8')
       // 16px inputs: below this iOS Safari auto-zooms on focus.
@@ -529,7 +549,7 @@ describe('NexusdownEditor', () => {
     }
   })
 
-  it('does not override the editor height at the phone breakpoint', () => {
+  it('does not override the editor height at the phone breakpoint', async () => {
     for (const path of ['../../src/style.css', '../../public/style.css']) {
       const css = readFileSync(new URL(path, import.meta.url), 'utf8')
       expect(css.match(/@media \(max-width: 480px\) \{[\s\S]*?\.nexusdown-editor\s*\{[^}]*\}/)).toBeNull()
@@ -537,7 +557,7 @@ describe('NexusdownEditor', () => {
   })
 
   it('deletes table rows, columns, and the whole table from toolbar controls', async () => {
-    const wrapper = mount(NexusdownEditor, {
+    const wrapper = await mountEditor( {
       props: { modelValue: '| A | B |\n| --- | --- |\n| C | D |\n| E | F |' },
     })
     await new Promise((resolve) => setTimeout(resolve, 0))
@@ -563,7 +583,7 @@ describe('NexusdownEditor', () => {
 
   it('uploads a local image through the imageUpload prop', async () => {
     const upload = vi.fn(async () => 'https://cdn.example.com/uploaded.png')
-    const wrapper = mount(NexusdownEditor, {
+    const wrapper = await mountEditor( {
       props: { modelValue: 'Before', imageUpload: upload },
     })
     await new Promise((resolve) => setTimeout(resolve, 0))
@@ -586,7 +606,7 @@ describe('NexusdownEditor', () => {
 
   it('does not insert an uploaded image after readonly turns on while it is pending', async () => {
     let finishUpload: (source: string) => void = () => undefined
-    const wrapper = mount(NexusdownEditor, {
+    const wrapper = await mountEditor( {
       props: {
         modelValue: 'Before',
         imageUpload: () => new Promise((resolve) => { finishUpload = resolve }),
@@ -611,7 +631,7 @@ describe('NexusdownEditor', () => {
   it('syncs runtime image, file-size, and paste-mode props into the session', async () => {
     const initialUpload = vi.fn(async () => 'https://cdn.example.com/initial.png')
     const updatedUpload = vi.fn(async () => 'https://cdn.example.com/updated.png')
-    const wrapper = mount(NexusdownEditor, {
+    const wrapper = await mountEditor( {
       props: { modelValue: 'Before', imageUpload: initialUpload, maxFileSize: 1, pasteMode: 'plain' },
     })
     const vm = wrapper.vm as unknown as { session: NexusdownEditorSession }
@@ -630,7 +650,7 @@ describe('NexusdownEditor', () => {
   })
 
   it('opens the find-and-replace panel with Ctrl+F and replaces matches', async () => {
-    const wrapper = mount(NexusdownEditor, {
+    const wrapper = await mountEditor( {
       attachTo: document.body,
       props: { modelValue: 'foo bar foo' },
     })
@@ -653,9 +673,9 @@ describe('NexusdownEditor', () => {
   })
 
   it('scopes the find shortcut to the active editable editor', async () => {
-    const first = mount(NexusdownEditor, { attachTo: document.body, props: { modelValue: 'First' } })
-    const second = mount(NexusdownEditor, { attachTo: document.body, props: { modelValue: 'Second' } })
-    const readonly = mount(NexusdownEditor, { attachTo: document.body, props: { modelValue: 'Read only', readonly: true } })
+    const first = await mountEditor( { attachTo: document.body, props: { modelValue: 'First' } })
+    const second = await mountEditor( { attachTo: document.body, props: { modelValue: 'Second' } })
+    const readonly = await mountEditor( { attachTo: document.body, props: { modelValue: 'Read only', readonly: true } })
 
     await first.get('.ProseMirror').trigger('keydown', { key: 'f', ctrlKey: true })
     expect(first.find('[data-nexusdown="find-replace"]').exists()).toBe(true)
@@ -669,7 +689,7 @@ describe('NexusdownEditor', () => {
   })
 
   it('replaces once when Enter is pressed in the replacement input', async () => {
-    const wrapper = mount(NexusdownEditor, { props: { modelValue: 'foo foo foo' } })
+    const wrapper = await mountEditor( { props: { modelValue: 'foo foo foo' } })
     await wrapper.get('button[aria-label="查找替换"]').trigger('click')
     const panel = wrapper.get('[data-nexusdown="find-replace"]')
     await panel.get('input[aria-label="查找内容"]').setValue('foo')
@@ -685,7 +705,7 @@ describe('NexusdownEditor', () => {
   })
 
   it('navigates through every find match without resetting the current index', async () => {
-    const wrapper = mount(NexusdownEditor, { props: { modelValue: 'foo foo foo' } })
+    const wrapper = await mountEditor( { props: { modelValue: 'foo foo foo' } })
     await wrapper.get('button[aria-label="查找替换"]').trigger('click')
     const panel = wrapper.get('[data-nexusdown="find-replace"]')
     await panel.get('input[aria-label="查找内容"]').setValue('foo')
@@ -702,7 +722,7 @@ describe('NexusdownEditor', () => {
   })
 
   it('continues replacing from the selected next match', async () => {
-    const wrapper = mount(NexusdownEditor, { props: { modelValue: 'foo foo foo' } })
+    const wrapper = await mountEditor( { props: { modelValue: 'foo foo foo' } })
     await wrapper.get('button[aria-label="查找替换"]').trigger('click')
     const panel = wrapper.get('[data-nexusdown="find-replace"]')
     await panel.get('input[aria-label="查找内容"]').setValue('foo')
@@ -721,7 +741,7 @@ describe('NexusdownEditor', () => {
   it('flushes a pending find query before replacing instead of using stale matches', async () => {
     vi.useFakeTimers()
     try {
-      const wrapper = mount(NexusdownEditor, { props: { modelValue: 'foo bar foo' } })
+      const wrapper = await mountEditor( { props: { modelValue: 'foo bar foo' } })
       await wrapper.get('button[aria-label="查找替换"]').trigger('click')
       const panel = wrapper.get('[data-nexusdown="find-replace"]')
       const term = panel.get('input[aria-label="查找内容"]')
@@ -740,7 +760,7 @@ describe('NexusdownEditor', () => {
   })
 
   it('cycles paste mode through plain, structured and markdown via the toolbar button', async () => {
-    const wrapper = mount(NexusdownEditor, { props: { modelValue: 'Hello' } })
+    const wrapper = await mountEditor( { props: { modelValue: 'Hello' } })
     await new Promise((resolve) => setTimeout(resolve, 0))
     const vm = wrapper.vm as unknown as { session: NexusdownEditorSession }
     const button = () => wrapper.get('button[aria-label*="粘贴模式"]')
@@ -777,7 +797,7 @@ describe('NexusdownEditor', () => {
       configurable: true,
       value: () => emptyRect,
     })
-    const wrapper = mount(NexusdownEditor, {
+    const wrapper = await mountEditor( {
       attachTo: document.body,
       props: { modelValue: '```js\nconst value = 1\n```' },
     })
@@ -809,7 +829,7 @@ describe('NexusdownEditor', () => {
     let wrapper: ReturnType<typeof mount> | undefined
     try {
       Object.defineProperty(window, 'innerHeight', { configurable: true, value: 260 })
-      wrapper = mount(NexusdownEditor, {
+      wrapper = await mountEditor( {
         attachTo: document.body,
         props: { modelValue: '```js\nconst value = 1\n```' },
       })
@@ -846,7 +866,7 @@ describe('NexusdownEditor', () => {
     const originalMatches = dialog.matches.bind(dialog)
     dialog.matches = (selector: string) => selector === ':modal' ? modal : originalMatches(selector)
     document.body.append(dialog)
-    const wrapper = mount(NexusdownEditor, {
+    const wrapper = await mountEditor( {
       attachTo: dialog,
       props: { modelValue: '```js\nconst value = 1\n```' },
     })
@@ -866,7 +886,7 @@ describe('NexusdownEditor', () => {
   })
 
   it('supports keyboard navigation in the teleported code language menu', async () => {
-    const wrapper = mount(NexusdownEditor, {
+    const wrapper = await mountEditor( {
       attachTo: document.body,
       props: { modelValue: '```js\nconst value = 1\n```' },
     })
@@ -905,7 +925,7 @@ describe('NexusdownEditor', () => {
   })
 
   it('renders the status bar with character and line counts', async () => {
-    const wrapper = mount(NexusdownEditor, {
+    const wrapper = await mountEditor( {
       props: { modelValue: '# Title\n\nHello world' },
     })
     await new Promise((resolve) => setTimeout(resolve, 0))
@@ -922,7 +942,7 @@ describe('NexusdownEditor', () => {
   })
 
   it('counts task-list text blocks as rendered lines and stays visible when readonly', async () => {
-    const wrapper = mount(NexusdownEditor, {
+    const wrapper = await mountEditor( {
       props: { modelValue: '- [ ] First task', readonly: true },
     })
     await new Promise((resolve) => setTimeout(resolve, 0))
@@ -934,7 +954,7 @@ describe('NexusdownEditor', () => {
   })
 
   it('reactively shows and hides the status bar when showStatusBar changes', async () => {
-    const wrapper = mount(NexusdownEditor, {
+    const wrapper = await mountEditor( {
       props: { modelValue: '# Title', showStatusBar: false },
     })
 
@@ -951,7 +971,7 @@ describe('NexusdownEditor', () => {
   it('renders every toolbar group declared by the default items', async () => {
     // Regression: EditorToolbar kept a hardcoded group list, so items in a new
     // group (extension, indent) were silently dropped from the rendered toolbar.
-    const wrapper = mount(NexusdownEditor, { props: { modelValue: '# Title' } })
+    const wrapper = await mountEditor( { props: { modelValue: '# Title' } })
     await new Promise((resolve) => setTimeout(resolve, 0))
 
     const items = createDefaultToolbarItems()

@@ -21,3 +21,4 @@ tsup.config.bundled_*.mjs
 # above), so a pnpm lockfile is a local artefact of the same install.
 pnpm-lock.yaml
 pnpm-workspace.yaml
+*.tgz
