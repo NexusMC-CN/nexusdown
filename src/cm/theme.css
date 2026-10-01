@@ -689,8 +689,29 @@
  * Widget
  * ------------------------------------------------------------------------- */
 
+/*
+ * ⚠️⚠️ **必须是 `inline-block`，不能是 `block`。**
+ *
+ * CM6 会在 `Decoration.replace` 的 widget **前后各插一个
+ * `<img class="cm-widgetBuffer">`**（行内元素）。widget 一旦是**块级**，
+ * 这三个元素就会**垂直堆叠成三行** —— 实测图片行 DOM 高 **63px（3×21）**，
+ * 而 CM6 的高度表还以为是 **42px（2×21）**：
+ *
+ * ```
+ * 行10 ![图一](a.png)   cm高=42   dom高=63   差=-21  ✗
+ * ```
+ *
+ * 高度表一错位，`coordsAtPos` 给出的 y 就和文字对不上 —— 表现是
+ * **"光标浮在文字上面/下面"**，而且**零报错**。
+ *
+ * `code-header.ts` 里记录过同一个坑（那里是 `.nd-code-header` 用了 `flex`，
+ * 实测 `.cm-line` 高 72px）。**凡是 `Decoration.replace` 的 widget 都适用。**
+ *
+ * `vertical-align: top` 是为了消掉 inline-block 默认基线对齐在图片下方留的缝。
+ */
 .nd-image-widget {
-  display: block;
+  display: inline-block;
+  vertical-align: top;
   max-width: 100%;
   height: auto;
   border-radius: var(--nd-radius);

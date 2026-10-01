@@ -24,9 +24,17 @@
 /* 整段只有 2 张以上图片 → 显示侧会渲染成轮播。 */
 .cm-editor .cm-line.nd-para-carousel {
   /*
-   * 上下虚线，暗示"这几张图是一组"。
-   * 只给上下，不给左右 —— 左右加边框会和 `.cm-line` 的 padding 打架。
+   * ⚠️⚠️ **不要用 `border-top` / `border-bottom`。**
+   *
+   * 边框是**布局属性** —— 上下各 1px 会让这一行**高 2px**，而 CM6 的高度表
+   * 是测量出来的、且不会因为装饰变化就自动重测。行高一变，`coordsAtPos`
+   * 和实际文字位置就错开（本仓库在"折叠动画"和"scrollbar-gutter"上各踩过一次，
+   * 表现都是"光标和文字对不上"，且**零报错**）。
+   *
+   * 用 `box-shadow` 的 inset 画同样的线 —— **它不参与布局**，行高一点不变。
+   * 四条阴影依次是：上、右、下、左。
    */
-  border-top: 1px dashed var(--nd-border, #e4e7ea);
-  border-bottom: 1px dashed var(--nd-border, #e4e7ea);
+  box-shadow:
+    inset 0 1px 0 0 var(--nd-border, #e4e7ea),
+    inset 0 -1px 0 0 var(--nd-border, #e4e7ea);
 }
