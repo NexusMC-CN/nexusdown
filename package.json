@@ -7,7 +7,6 @@
     "dist",
     "src/render",
     "src/cm",
-    "src/editor",
     "src/shared"
   ],
   "exports": {
@@ -29,9 +28,10 @@
     "./cm/theme.css": "./src/cm/theme.css",
     "./editor": {
       "types": "./src/editor/index.d.ts",
-      "import": "./src/editor/index.js",
-      "default": "./src/editor/index.js"
-    }
+      "import": "./dist/editor/index.js",
+      "default": "./dist/editor/index.js"
+    },
+    "./editor/style.css": "./dist/editor/nexusdown.css"
   },
   "scripts": {
     "test": "vitest run",
@@ -39,7 +39,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
-    "build": "tsup",
+    "build": "tsup && vite build --config vite.editor.config.ts",
     "prepare": "npm run build",
     "check:exports": "node scripts/check-exports.mjs",
     "build:astro-example": "npm --prefix examples/astro-vue run build",
