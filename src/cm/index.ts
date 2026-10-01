@@ -188,6 +188,22 @@ export { nexusdownLivePreview, type LivePreviewOptions } from './plugin';
 export { baseTheme } from './theme';
 export { foldedBlocks, toggleFold } from './fold';
 /*
+ * ★ **CM6 原语，给 `nexusdown/editor` 用。**
+ *
+ * UI 层**不该自己 `import '@codemirror/view'`** —— 那样它会从**自己的解析路径**
+ * 拿到一份模块，而 `nexusdown()` 来自**另一条**解析路径。只要这两条路径有一处
+ * 不同（pnpm 的隔离布局、optional peer 没被链接、Vite 的预打包…），
+ * 拿到的就是**两个模块实例**，而 CM6 的 facet / StateField 按**模块标识**比较 ——
+ * 结果是 `Unrecognized extension value in extension set ([object Object])`，
+ * 或者更糟：**装饰静默失效**（不报错，就是不渲染）。
+ *
+ * 所以统一走这里：UI 要什么，问引擎要。**一条解析路径，一个实例。**
+ */
+export { EditorState } from '@codemirror/state';
+export { EditorView, keymap } from '@codemirror/view';
+export { defaultKeymap, redo, undo } from '@codemirror/commands';
+export { syntaxTree } from '@codemirror/language';
+/*
  * Markdown 编辑命令 —— **工具栏和快捷键共用这一份**。
  *
  * 以前它们在应用里（每个消费者抄一遍），而 `shortcuts.ts` 里还有一份

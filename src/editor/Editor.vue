@@ -91,13 +91,22 @@ async function mount(): Promise<void> {
   if (!el) return
 
   try {
-    const [{ EditorState }, { EditorView: View, keymap }, { defaultKeymap }, { nexusdown }] =
-      await Promise.all([
-        import('@codemirror/state'),
-        import('@codemirror/view'),
-        import('@codemirror/commands'),
-        import('../cm/index'),
-      ])
+    /*
+     * ★ **只 import 一次，而且只 import 引擎。**
+     *
+     * 以前这里对 `@codemirror/state` / `view` / `commands` 各做了一次动态 import ——
+     * 那是**四条独立的解析路径**，而 `nexusdown()` 来自第五条。
+     * 只要有一条落到不同的模块实例上（pnpm 的隔离布局很容易造成），
+     * 就会炸 `Unrecognized extension value in extension set`，
+     * 或者更糟：**装饰静默失效**（不报错，就是不渲染）。
+     *
+     * 现在统一从 `../cm/index` 拿 —— UI 要什么，问引擎要。**一个实例。**
+     *
+     * ⚠️ 仍然必须是**动态** import：`@codemirror/view` 在模块顶层就会碰 `document`
+     * （建样式表），SSR 阶段静态 import 会直接崩。
+     */
+    const { EditorState, EditorView: View, keymap, defaultKeymap, nexusdown } =
+      await import('../cm/index')
 
     view.value = new View({
       state: EditorState.create({

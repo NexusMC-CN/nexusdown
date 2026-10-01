@@ -45,10 +45,21 @@
  * 12 个路径写在文件里，离线、SSR、剪包都不会出问题。
  */
 import { nextTick, onUnmounted, ref, watch } from 'vue'
-import { redo, undo } from '@codemirror/commands'
-import { syntaxTree } from '@codemirror/language'
+/*
+ * ⚠️ **运行时依赖一律从引擎拿**（`../cm/index`），不要直接 import `@codemirror/*`。
+ *
+ * 直接 import 会让这个组件从**自己的解析路径**拿到一份模块，而 `nexusdown()`
+ * 来自另一条 —— 两条路径一旦落到不同实例，CM6 的 facet / StateField
+ * 按模块标识比较就会失败：`Unrecognized extension value`，
+ * 或者更糟的**装饰静默失效**（不报错，就是不渲染）。
+ *
+ * 类型 import（`type`）是安全的 —— 编译期就擦掉了，不进运行时。
+ */
 import type { Command, EditorView } from '@codemirror/view'
 import {
+  redo,
+  syntaxTree,
+  undo,
   insertLink,
   toggleBold,
   toggleBulletList,
