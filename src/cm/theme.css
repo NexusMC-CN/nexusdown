@@ -220,16 +220,36 @@
   scrollbar-width: thin;
   scrollbar-color: var(--nd-scroll-thumb, rgb(0 0 0 / 16%)) transparent;
   /*
-   * ⚠️ 滚动条占位是**浏览器行为，消不掉**（`scrollbar-gutter` 只能控制
-   * "要不要预留"，不能让滚动条不占位；`overflow: overlay` 已废弃）。
+   * ⚠️⚠️ **必须是 `stable`，绝不能写 `stable both-edges`。**
    *
-   * 实测：`.cm-scroller` 560px 时 `.cm-content` 只有 550px，**右边差 10px** ——
-   * 代码块通到 `.cm-content` 边缘，所以看起来"右边少一块"。
+   * ## 为什么曾经写了 `both-edges`
    *
-   * `both-edges` 让**左右各预留一份**，两边对称。整体窄 10px，
-   * 但比"只有右边缺一块"好看得多 —— 用户截图里箭头指的就是那个不对称。
+   * 滚动条占位是**浏览器行为，消不掉**（`scrollbar-gutter` 只能控制"要不要预留"，
+   * 不能让滚动条不占位；`overflow: overlay` 已废弃）。实测 `.cm-scroller` 560px 时
+   * `.cm-content` 只有 550px，**右边差 10px** —— 代码块通到 `.cm-content` 边缘，
+   * 看起来"右边少一块"。当时为了**左右对称**，选了 `both-edges`。
+   *
+   * ## 为什么这是个严重的错误
+   *
+   * `both-edges` 在 scroller 的**左右两侧各预留 10px**。左侧那份会把
+   * `.cm-cursorLayer` 的**定位基准推右 10px**，而 CM6 计算光标坐标时用的基准
+   * **不认这个槽** —— 于是**光标永远偏右 10px**，而且**第 0 列就已经偏**（不是累积的）。
+   *
+   * 症状："光标和文字对不上，像隔了两个空格"（10px ≈ 2 个空格）。
+   * 真实 app（`/posts/new`）实测：
+   *
+   * | `scrollbar-gutter` | 光标偏右 | `.cm-content` left |
+   * | --- | --- | --- |
+   * | `stable both-edges` | **10px** ✗ | 197.5 |
+   * | `stable` | **0px** ✓ | 187.5 |
+   * | `auto` | **0px** ✓ | 187.5 |
+   *
+   * 代价是右边回到"只有右侧预留"的不对称 —— **但光标正确远比这点对称重要**。
+   *
+   * ⚠️ 顺带一个让这个 bug 极难定位的事实：预留宽度是**默认滚动条宽 10px**，
+   * 和下面 `::-webkit-scrollbar` 设的 6px **无关** —— 肉眼看不出多出来的是什么。
    */
-  scrollbar-gutter: stable both-edges;
+  scrollbar-gutter: stable;
 }
 
 /* WebKit / Blink（Edge、Chrome）—— 6px 是还能点得动的下限。 */
