@@ -69,6 +69,33 @@
 
   /* 当前行高亮的底色（`highlightActiveLine()` 打上 `.cm-activeLine`）。 */
   --nd-active-line: rgba(11, 107, 203, 0.07);
+  /* ---------------------------------------------------------------------
+   * 编辑器 UI 用的令牌（工具栏 / 浮层 / 面板）
+   *
+   * 一律**两级回退**：`var(--站令牌, 字面量)` —— 站点定义了自己的令牌就跟站点走，
+   * 没定义就用这里的默认值。**这是 nexusdown 的 UI 能"既独立又跟随主题"的全部机制**
+   * （见 `docs/dialect-extensions.md` 上方那段）。别把字面量写死在组件里。
+   * ------------------------------------------------------------------- */
+
+  --nd-surface-2: var(--surface-2, #eef0f2);
+  --nd-line: var(--line, #e9ecef);
+  --nd-brand-soft: var(--brand-soft, rgb(11 107 203 / 8%));
+  --nd-brand-soft-border: var(--brand-soft-border, rgb(11 107 203 / 24%));
+  --nd-brand-strong: var(--brand-strong, #0a5cae);
+
+  /* 圆角两档 —— `--nd-radius` 已存在（6px，代码块在用），这里另开两档给 UI 组件 */
+  --nd-radius-sm: var(--r-sm, 4px);
+  --nd-radius-md: var(--r-md, 8px);
+
+  /* 动效节奏。站点改 `--dur` / `--ease` 就能整体调快慢与手感 */
+  --nd-dur: var(--dur, 160ms);
+  --nd-dur-fast: var(--dur-fast, 100ms);
+  --nd-ease: var(--ease, cubic-bezier(0.4, 0, 0.2, 1));
+  --nd-ease-out: var(--ease-out, cubic-bezier(0, 0, 0.2, 1));
+
+  --nd-shadow-1: var(--shadow-1, 0 1px 2px rgb(0 0 0 / 6%));
+  --nd-shadow-2: var(--shadow-2, 0 4px 16px rgb(0 0 0 / 10%));
+
 }
 
 /**

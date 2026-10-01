@@ -1,5 +1,6 @@
 {
   "name": "nexusdown",
+  "description": "开箱即用的 Markdown 编辑器，以及保证「编辑时看到的 = 发布出来的」的渲染器 —— 编辑器和渲染器共用同一套方言实现，不可能对不上。",
   "version": "0.0.0",
   "type": "module",
   "files": [
@@ -8,7 +9,8 @@
     "src/vue",
     "src/core",
     "src/render",
-    "src/cm"
+    "src/cm",
+    "src/editor"
   ],
   "exports": {
     ".": {
@@ -32,6 +34,11 @@
       "require": "./dist/cm/index.cjs"
     },
     "./cm/theme.css": "./src/cm/theme.css",
+    "./editor": {
+      "types": "./src/editor/index.ts",
+      "import": "./src/editor/index.js",
+      "default": "./src/editor/index.js"
+    },
     "./vue": {
       "types": "./src/vue/entry.ts",
       "import": "./src/vue/entry.js",
