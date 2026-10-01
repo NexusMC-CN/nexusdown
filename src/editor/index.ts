@@ -31,4 +31,5 @@
  * - Nuxt：加进 `build.transpile`（参考 `core-next-web/nuxt.config.ts`）
  * - 其它打包器：确认它处理 node_modules 里的 `.vue`
  */
+export { default as NexusdownEditor } from './Editor.vue'
 export { default as NexusdownToolbar } from './Toolbar.vue'
