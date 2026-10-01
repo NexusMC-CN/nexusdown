@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import NexusdownEditor from 'nexusdown/vue'
-import 'nexusdown/style.css'
+import { NexusdownEditor } from 'nexusdown/editor'
 
 const props = defineProps<{
   initialValue: string
@@ -22,9 +21,7 @@ const value = ref(props.initialValue)
     </div>
     <NexusdownEditor
       v-model="value"
-      content-type="markdown"
-      height="420px"
-      sync-scroll
+      style="--nd-editor-height: 420px"
     />
     <pre class="demo-editor__value" aria-label="当前 Markdown 内容">{{ value }}</pre>
   </section>

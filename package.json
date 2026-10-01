@@ -5,23 +5,16 @@
   "type": "module",
   "files": [
     "dist",
-    "src/style.css",
-    "src/vue",
-    "src/core",
     "src/render",
     "src/cm",
-    "src/editor"
+    "src/editor",
+    "src/shared"
   ],
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "require": "./dist/index.cjs"
-    },
-    "./core": {
-      "types": "./dist/core/index.d.ts",
-      "import": "./dist/core/index.js",
-      "require": "./dist/core/index.cjs"
     },
     "./render": {
       "types": "./dist/render/index.d.ts",
@@ -35,17 +28,10 @@
     },
     "./cm/theme.css": "./src/cm/theme.css",
     "./editor": {
-      "types": "./src/editor/index.ts",
+      "types": "./src/editor/index.d.ts",
       "import": "./src/editor/index.js",
       "default": "./src/editor/index.js"
-    },
-    "./vue": {
-      "types": "./src/vue/entry.ts",
-      "import": "./src/vue/entry.js",
-      "default": "./src/vue/entry.js"
-    },
-    "./vue/*": "./src/vue/*",
-    "./style.css": "./src/style.css"
+    }
   },
   "scripts": {
     "test": "vitest run",
@@ -53,9 +39,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
-    "sync:style": "node -e \"require('fs').copyFileSync('src/style.css','public/style.css')\"",
-    "gen:vue-entry": "node scripts/generate-vue-entry.mjs",
-    "build": "npm run sync:style && npm run gen:vue-entry && tsup",
+    "build": "tsup",
     "prepare": "npm run build",
     "check:exports": "node scripts/check-exports.mjs",
     "build:astro-example": "npm --prefix examples/astro-vue run build",

@@ -42,6 +42,16 @@ import { onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
 
 import NexusdownToolbar from './Toolbar.vue'
 
+/*
+ * ★ **自己引主题**，消费方不用记得。
+ *
+ * `theme.css` 里有 CM6 的整套外观（`--nd-*` 令牌、光标、当前行、代码块、
+ * 各种装饰的样式）。少了它编辑器是**能跑但难看** —— 那种"少了什么"最难查。
+ *
+ * 消费方重复引一次没关系（打包器会去重）。
+ */
+import '../cm/theme.css'
+
 const props = defineProps<{
   /** 文档内容。配 `v-model` 用。 */
   modelValue: string
