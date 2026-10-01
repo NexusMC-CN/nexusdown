@@ -162,3 +162,12 @@ export function renderMarkdown(markdown: string, options?: RenderMarkdownOptions
   if (typeof markdown !== 'string' || markdown.trim() === '') return ''
   return resolveParser(options?.plugins).render(markdown)
 }
+
+/*
+ * 代码块标题栏的 HTML —— **和编辑器 widget 用的是同一个函数**。
+ *
+ * `renderMarkdown` 产出的围栏代码块里已经带了这个标题栏（见 `renderer.ts` 的
+ * `rules.fence`）。单独导出是给**自己渲染容器**的消费方用的 —— 比如要套一层
+ * 自己的卡片、或者做演示/预览，直接调它就能拿到和编辑器逐字一致的结构。
+ */
+export { renderCodeHeaderHtml, type CodeHeaderRenderOptions } from '../cm/widgets/code-header-parts.js'

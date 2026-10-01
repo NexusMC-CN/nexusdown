@@ -141,6 +141,35 @@ describe('renderMarkdown', () => {
     expect(html).toContain('const x = 1')
   })
 
+  /*
+   * ★ 契约测试：显示侧的代码块标题栏，和**编辑器里看到的**是同一个函数产出的。
+   *
+   * 这一条守的是「编辑时看到的 = 发布出来的」。少了它，两边各自演化 ——
+   * 编辑器写出显示侧不认的语法那类问题，会在视觉层重演一遍。
+   */
+  it('fenced code carries the same header markup as the editor widget', () => {
+    const html = renderMarkdown('```yaml ci.yml\nname: build\n```')
+    expect(html).toContain('<div class="nd-code-fence">')
+    expect(html).toContain('class="nd-code-header"')
+    expect(html).toContain('<span class="nd-code-title">ci.yml</span>')
+    expect(html).toContain('<span class="nd-code-lang">yaml</span>')
+    // 三个圆点
+    expect(html).toContain('<span class="nd-code-dots" aria-hidden="true"><i></i><i></i><i></i></span>')
+    // 显示侧没有折叠按钮 —— 这里的 HTML 是死的，没人接事件
+    expect(html).not.toContain('nd-code-toggle')
+  })
+
+  it('fence info is escaped in the display-side header too', () => {
+    const html = renderMarkdown('```ts <img src=x onerror=alert(1)>\nconst x = 1\n```')
+    expect(html).not.toContain('<img')
+    expect(html).toContain('&lt;img')
+  })
+
+  it('indented code blocks stay plain (no fence, no header)', () => {
+    const html = renderMarkdown('    const x = 1')
+    expect(html).toBe('<pre><code>const x = 1</code></pre>')
+  })
+
   it('renders a hard break', () => {
     expect(renderMarkdown('line one  \nline two')).toContain('<br')
   })

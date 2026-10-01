@@ -567,6 +567,59 @@
   white-space: nowrap;
 }
 
+/* ---------------------------------------------------------------------------
+ * 代码块的**显示侧**容器
+ *
+ * 编辑器里代码块是「一组 `.cm-line`」（contenteditable 的行），显示侧是一个
+ * `<div class="nd-code-fence">` —— DOM 结构必然不同。但**标题栏的标记和类名
+ * 是同一份**（`cm/widgets/code-header-parts.ts` 的 `renderCodeHeaderHtml`），
+ * 所以圆点 / 图标 / 文件名 / 语言名的视觉**逐字一致**，不靠人工同步。
+ *
+ * 下面只覆盖**几何**：编辑器里标题栏要「通到行的左右边缘」，靠的是
+ * `inline-flex` + `width: calc(100% + pad)` + 负 margin（见上面 `.nd-code-header`
+ * 那段长注释，账推得很细）。显示侧是个普通块，把这三条改回正常值就行 ——
+ * 这是**唯一**需要分叉的地方，而且是结构决定的，不是抄漏了。
+ * ------------------------------------------------------------------------- */
+
+.nd-code-fence {
+  margin: 1em 0;
+  border: 1px solid var(--nd-border);
+  border-radius: var(--nd-radius);
+  background: var(--nd-surface);
+  /* 圆角裁住里面的标题栏底色和 `<pre>` 的横向滚动条 */
+  overflow: hidden;
+}
+
+.nd-code-fence > .nd-code-header {
+  display: flex;
+  box-sizing: border-box;
+  width: auto;
+  margin-left: 0;
+  border-bottom: 1px solid var(--nd-border);
+}
+
+.nd-code-fence > pre {
+  margin: 0;
+  /*
+   * ⚠️ `--nd-code-pad` **不在 `:root` 里定义**（本文件其他地方都是靠兜底值用的）。
+   * 少写 `, 0.9em` 的话，变量解析失败会让**整条 `padding` 声明失效** ——
+   * 回退到初始值 0，而且**零报错**（实测踩过：`pre` 的 padding 变成 0）。
+   */
+  padding: 0.85em var(--nd-code-pad, 0.9em);
+  /* 代码行不折行，横向滚动 —— 和编辑器里 `white-space: pre` 的行为一致 */
+  overflow-x: auto;
+  background: transparent;
+}
+
+.nd-code-fence > pre > code {
+  padding: 0;
+  background: none;
+  color: var(--nd-text);
+  font-family: var(--nd-font-mono);
+  font-size: 0.92em;
+  line-height: 1.55;
+}
+
 /*
  * 水平线（`---` / `***` / `___`）。
  *
