@@ -1,0 +1,51 @@
+/**
+ * `table` 功能的视觉规则（编辑器侧）。
+ *
+ * ⚠️ 这个文件由 `theme.css` **统一 `@import`**（接线在那边，别在这里 import 任何东西）——
+ * 和 `decorate/*.ts` 不各自 import CSS 是同一个约定：CSS 只有一个入口，
+ * 消费方替换 `theme.css` 就能整体换肤。
+ *
+ * 这里只有**视觉**；`|` / 分隔行的淡化靠 `MUTED_MARK`（`.nd-mark`，见
+ * `decorate/shared.ts` + `theme.ts` 的 baseTheme），本文件不重复定义淡化。
+ */
+
+/*
+ * 整张表：数字按位对齐。
+ *
+ * ⚠️ 为什么用 `tabular-nums` 而不是「等宽字体」：
+ *   编辑器里表格是**一组 `.cm-line`**，没有包裹元素、也不能整块 replace
+ *   （block replace 会让方向键进不去，见 `table.ts`），所以**列宽对不齐是结构决定的**，
+ *   换等宽字体也救不回来（各单元格字符数本就不同），反而会把中文挤成方块。
+ *   真正能做的「对齐」就是让数字等宽 —— 表格里成列的数字对齐全靠这一条。
+ *
+ * ⚠️ 必须写成 `.cm-editor .cm-line.nd-table` 这种更强的选择器：CM6 自己的
+ *   `.cm-line` 规则是后注入的，同特异度会盖过裸 `.nd-table`（`theme.css` 里
+ *   代码块那段踩过同一个坑，注释写得很细）。
+ */
+.cm-editor .cm-line.nd-table {
+  font-variant-numeric: tabular-nums;
+}
+
+/*
+ * 表头行加粗。
+ *
+ * `Decoration.line` 落在 `.cm-line` 上，`font-weight` 会继承给整行文字；
+ * 行内的 `|` 管道被 `MUTED_MARK` 把 font-weight 中和回 normal（`.nd-mark` 的机制），
+ * 所以结果是「文字粗、管道细」，正好是要的层次。
+ */
+.cm-editor .cm-line.nd-table-header {
+  font-weight: 700;
+}
+
+/*
+ * 分隔行（`| --- | --- |`）：压矮 + 等宽 + 缩小，让它看起来像一条**表格分隔线**
+ * 而不是一行正文。
+ *
+ * 文字本身的淡化由 `MUTED_MARK` 负责，这里只管行盒的几何。
+ * 分隔行是纯 ASCII 语法（`-` `:` `|`），等宽在这里没有任何副作用，反而更像一条线。
+ */
+.cm-editor .cm-line.nd-table-delimiter {
+  line-height: 1;
+  font-size: 0.85em;
+  font-family: var(--nd-font-mono, monospace);
+}

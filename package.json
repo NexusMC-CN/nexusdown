@@ -64,6 +64,7 @@
     "@codemirror/view": "^6.0.0",
     "@lezer/common": "^1.0.0",
     "@lezer/markdown": "^1.0.0",
+    "katex": "^0.18.0",
     "vue": "^3.0.0"
   },
   "peerDependenciesMeta": {
@@ -86,6 +87,9 @@
       "optional": true
     },
     "@lezer/markdown": {
+      "optional": true
+    },
+    "katex": {
       "optional": true
     }
   },

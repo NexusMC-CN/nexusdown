@@ -3,7 +3,8 @@
  *
  * **白名单 + 默认拒绝**：只有下面三类放行，其余带 scheme 的一律拒绝。
  *   - `http(s)://`
- *   - `data:image/*`
+ *   - `data:image/(gif|png|jpeg|webp);`（**和 markdown-it 的 `GOOD_DATA_RE` 逐字一致**，
+ *     见下面 `safeUrl` 里的长注释；`image/apng`、`image/svg+xml` 等都不放行）
  *   - **无 scheme 的相对路径**（`./a.png`、`/a.png`、`#anchor`、`?q=1`）
  *
  * ⚠️ `mailto:` 也会被拒（和 silkdown 一致）。要做邮件链接得自己传 policy。
@@ -34,8 +35,33 @@ export function safeUrl(url: string): string | null {
   if (!SCHEME_RE.test(trimmed)) return trimmed
 
   if (/^https?:\/\//i.test(trimmed)) return trimmed
-  // 内联图片。`data:image/*` 放在 <img src> 里不会执行脚本。
-  if (/^data:image\//i.test(trimmed)) return trimmed
+
+  /*
+   * 内联图片。**必须和 markdown-it 的 `GOOD_DATA_RE` 逐字一致**：
+   *
+   *   node_modules/markdown-it/dist/markdown-it.mjs:3532
+   *     GOOD_DATA_RE = /^data:image\/(gif|png|jpeg|webp);/
+   *
+   * 即：只认这四种 subtype，而且后面**必须紧跟 `;`**。其余 `data:image/*`
+   * （`image/apng`、`image/svg+xml`、`image/bmp`、`image/avif`…）以及缺分号的
+   * 写法一律拒绝。
+   *
+   * ## 为什么是**收紧这里**，而不是放开 markdown-it
+   *
+   * 渲染侧产出的才是「发出去的东西」。编辑器放行、渲染器拒绝的写法 =
+   * 作者在编辑器里看到图、一发布图没了 —— 这正是本库要消灭的那类「两侧不一致」。
+   * 之前这里放行 `data:image/*`、渲染侧只认四种，于是 **APNG（`image/apng`）
+   * 与 SVG（`image/svg+xml`）两侧行为相反**，就是这个 bug。
+   *
+   * 往哪个方向对齐两种都行，但**收紧这里**更安全：
+   *   - 改 `md.validateLink` 是个**全局**开关，会连 `<a href>` 的 `data:` 一起放行
+   *     （`data:` 顶层导航、SVG 载荷的面比 `<img>` 大得多）；
+   *   - 只改这一个函数，影响面仅限「编辑器认不认这个 URL」这一条，不动渲染器契约。
+   *
+   * 收敛到「渲染器的白名单」还有个额外好处：白名单从此只有**一份**（markdown-it 内置），
+   * 不需要两边各自维护。`tests/cm/media.test.ts` 里有交叉断言盯着这条不变量。
+   */
+  if (/^data:image\/(?:gif|png|jpeg|webp);/i.test(trimmed)) return trimmed
 
   // 其余带 scheme 的全部拒绝：`javascript:` / `vbscript:` / `file:` / `blob:` /
   // `mailto:` / 以及任何自定义 scheme。

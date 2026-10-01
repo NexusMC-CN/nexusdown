@@ -1,0 +1,33 @@
+/**
+ * `emoji` 的编辑器侧视觉。
+ *
+ * 由消费方在 `theme.css` 顶部 `@import`（见接线清单）——
+ * ⚠️ `@import` 必须在 `:root {` **之前**，否则浏览器会静默丢弃整条 `@import`
+ * （CSS 规定 `@import` 只能出现在样式表最前面，晚于任何规则就无效）。
+ *
+ * 这里只写「编辑器里怎么显示字形」，不涉及任何机制 —— 机制（替换、原子区间）
+ * 在 `emoji.ts` 里。
+ */
+
+/*
+ * 字形本身。用一个比正文略大的行内盒，让它和旁边的中英文在视觉上对齐。
+ *
+ * ⚠️ 不要给它 `background` / `border` —— emoji 是**内容**不是「标记」，
+ * 加底色会让人误以为是个可点的控件（对比 `.nd-code` 那种刻意做成胶囊的）。
+ */
+.nd-emoji {
+  /* 略放大：多数系统的 emoji 字形默认和 x-height 齐平，看起来偏小 */
+  font-size: 1.15em;
+  line-height: 1;
+  /*
+   * 垂直微调：emoji 字形的基线通常比拉丁字母低一点点，`-0.15em` 是实测
+   * 「和同行中文底边对齐」的经验值。
+   */
+  vertical-align: -0.15em;
+  /*
+   * 告诉浏览器优先用**彩色** emoji 字体，别退化成单色文本字形
+   * （和 `shared/emoji-data.ts` 里显式带 VS16 是同一件事的两手准备）。
+   */
+  font-family:
+    'Apple Color Emoji', 'Segoe UI Emoji', 'Noto Color Emoji', 'Segoe UI Symbol', sans-serif;
+}

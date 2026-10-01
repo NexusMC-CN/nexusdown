@@ -18,6 +18,7 @@ import { decorateHeading } from './decorate/heading';
 import { decorateInline } from './decorate/inline';
 import { decorateLink, linkClickHandler } from './decorate/link';
 import { decorateListItem } from './decorate/list';
+import { EDITOR_FEATURE_BY_NODE } from './features/index';
 import { foldedBlocks } from './fold';
 import { nexusdownLivePreview } from './plugin';
 import { markdownKeymap } from './shortcuts';
@@ -128,6 +129,13 @@ export function nexusdown(opts: NexusdownOptions = {}): Extension {
       },
       urlPolicy,
       references,
+      /*
+       * ★ **功能模块**（`src/cm/features/`）。
+       *
+       * 加新元素 = 往 `EDITOR_FEATURES` 加一项，**不要改 `plugin.ts`** ——
+       * 骨架只认「节点名 → 功能」，不认识任何具体元素。
+       */
+      features: EDITOR_FEATURE_BY_NODE,
     }),
 
     // ---------------------------------------------------------------------

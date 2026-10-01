@@ -1,0 +1,32 @@
+/*
+ * `paragraph` —— 独占一段的两种特殊段落，**编辑器侧的提示**。
+ *
+ * ⚠️ **不要用 `::after` / `::before` 加文字标签。** 伪元素的内容**占布局**，
+ * 会改变 `.cm-line` 的宽度 → 开着 `lineWrapping` 时换行点跟着变 → CM6 的高度表
+ * 和 `posAtCoords` 都会偏（这类问题在本仓库踩过好几次，见 `theme.css` 里
+ * `.cm-line` 那段长注释）。所以提示**只用背景和边框**——它们不参与布局。
+ *
+ * ⚠️ 选择器要带 `.cm-editor .cm-line` 前缀：CM6 的 baseTheme 里
+ * `.cm-line { padding: 0 2px 0 6px }` 是**简写**，特异性相同的情况下
+ * 单 class 选择器会被它按文档顺序压掉（同样是踩过的坑）。
+ */
+
+/* 整段只有一条链接 → 显示侧会渲染成 SEO 卡片。 */
+.cm-editor .cm-line.nd-para-card {
+  /*
+   * 左侧一条竖线 + 极淡底色，暗示"这段会变成一张卡"。
+   * 用 `--nd-brand` 而不是灰：这是"会变形态"的提示，不是"禁用"。
+   */
+  box-shadow: inset 3px 0 0 var(--nd-brand, #0b6bcb);
+  background: color-mix(in srgb, var(--nd-brand, #0b6bcb) 5%, transparent);
+}
+
+/* 整段只有 2 张以上图片 → 显示侧会渲染成轮播。 */
+.cm-editor .cm-line.nd-para-carousel {
+  /*
+   * 上下虚线，暗示"这几张图是一组"。
+   * 只给上下，不给左右 —— 左右加边框会和 `.cm-line` 的 padding 打架。
+   */
+  border-top: 1px dashed var(--nd-border, #e4e7ea);
+  border-bottom: 1px dashed var(--nd-border, #e4e7ea);
+}
