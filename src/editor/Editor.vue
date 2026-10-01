@@ -182,7 +182,15 @@ async function mount(): Promise<void> {
      * 所以这里自己解剖：每项的类型 + 有没有 CM6 的 `extension` 标记。
      * 控制台里一眼能看出是哪一项、是什么。
      */
-    console.error('[nexusdown] 编辑器初始化失败，扩展数组逐项：')
+    /*
+     * ⚠️ **先打原始报错，再打解剖。**
+     *
+     * 顺序很重要：上一版把解剖放前面，结果用户复制控制台时只拿到解剖，
+     * **原始报错在页面文字里**（`error.value`）没被带上 —— 白排查一轮。
+     * 让最容易漏的东西排在**第一行**。
+     */
+    console.error('[nexusdown] 编辑器初始化失败：', e)
+    console.error('[nexusdown] 扩展数组逐项（每项都该有 extension 标记）：')
     const walk = (items: unknown[], depth = 0) => {
       for (const item of items) {
         const pad = '  '.repeat(depth + 1)
