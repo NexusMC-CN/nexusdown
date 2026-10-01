@@ -108,45 +108,44 @@ async function mount(): Promise<void> {
     const { EditorState, EditorView: View, keymap, defaultKeymap, nexusdown } =
       await import('../cm/index')
 
-    view.value = new View({
-      state: EditorState.create({
-        doc: props.modelValue,
-        extensions: [
-          /*
-           * ★ `nexusdown()` 返回的是**一个 Extension 数组**，里面已经有：
-           * 语言（GFM markdown）→ live preview 装饰 → 自动换行 → 多光标
-           * （`allowMultipleSelections` —— 命令的多光标安全靠它，见 `commands.ts`）
-           * → 链接点击 → Markdown 快捷键 → 撤销栈 → `drawSelection()`
-           * （**光标就是它画的**，没有它 `.cm-cursor` 这个元素根本不存在）
-           * → 当前行高亮 → 基础语法着色 → baseTheme。
-           *
-           * 所以这里**不需要**再补 `history()` / `drawSelection()`。
-           */
-          nexusdown(),
+    const extensionList: unknown[] = [
+      /*
+       * ★ `nexusdown()` 返回的是**一个 Extension 数组**，里面已经有：
+       * 语言（GFM markdown）→ live preview 装饰 → 自动换行 → 多光标
+       * （`allowMultipleSelections` —— 命令的多光标安全靠它，见 `commands.ts`）
+       * → 链接点击 → Markdown 快捷键 → 撤销栈 → `drawSelection()`
+       * （**光标就是它画的**，没有它 `.cm-cursor` 这个元素根本不存在）
+       * → 当前行高亮 → 基础语法着色 → baseTheme。
+       *
+       * 所以这里**不需要**再补 `history()` / `drawSelection()`。
+       */
+      nexusdown(),
 
-          /*
-           * `nexusdown()` **故意不含** `defaultKeymap`（它只带 `historyKeymap`
-           * 和 Markdown 快捷键），补上是为了 `Mod-a` / `Mod-Backspace` / `Escape`
-           * 这些编辑器里本该有的通用键。
-           *
-           * ⚠️ **顺序**：放在 `nexusdown()` **之后**，优先级低于它 ——
-           * 保证 `Mod-b` 不会被通用键抢走。
-           *
-           * 不加 `indentWithTab`：那会把 Tab 吃掉（键盘用户再也跳不出编辑器）。
-           */
-          keymap.of(defaultKeymap),
+      /*
+       * `nexusdown()` **故意不含** `defaultKeymap`（它只带 `historyKeymap`
+       * 和 Markdown 快捷键），补上是为了 `Mod-a` / `Mod-Backspace` / `Escape`
+       * 这些编辑器里本该有的通用键。
+       *
+       * ⚠️ **顺序**：放在 `nexusdown()` **之后**，优先级低于它 ——
+       * 保证 `Mod-b` 不会被通用键抢走。
+       *
+       * 不加 `indentWithTab`：那会把 Tab 吃掉（键盘用户再也跳不出编辑器）。
+       */
+      keymap.of(defaultKeymap),
 
-          /*
-           * 唯一的出口：把文档同步回 `v-model`。
-           *
-           * ⚠️ 只在 `docChanged` 时回填 —— 光标移动、选区变化也会触发
-           * `updateListener`，不加判断的话每动一下光标就重算整篇字符串。
-           */
-          View.updateListener.of((u) => {
-            if (u.docChanged) emit('update:modelValue', u.state.doc.toString())
-          }),
-        ],
+      /*
+       * 唯一的出口：把文档同步回 `v-model`。
+       *
+       * ⚠️ 只在 `docChanged` 时回填 —— 光标移动、选区变化也会触发
+       * `updateListener`，不加判断的话每动一下光标就重算整篇字符串。
+       */
+      View.updateListener.of((u) => {
+        if (u.docChanged) emit('update:modelValue', u.state.doc.toString())
       }),
+    ]
+
+    view.value = new View({
+      state: EditorState.create({ doc: props.modelValue, extensions: extensionList }),
       parent: el,
     })
 
@@ -161,6 +160,36 @@ async function mount(): Promise<void> {
     }
   } catch (e) {
     error.value = `编辑器没能加载：${(e as Error).message}`
+    /*
+     * ★ **把扩展数组逐项打出来。**
+     *
+     * CM6 那句 `Unrecognized extension value in extension set ([object Object])`
+     * 只说"有个东西不是扩展"，**不说是什么** —— 而它的提示（"多个 @codemirror/state
+     * 实例"）只是**猜测**，很容易把人带偏（本项目就被带偏过一次）。
+     *
+     * 所以这里自己解剖：每项的类型 + 有没有 CM6 的 `extension` 标记。
+     * 控制台里一眼能看出是哪一项、是什么。
+     */
+    console.error('[nexusdown] 编辑器初始化失败，扩展数组逐项：')
+    const walk = (items: unknown[], depth = 0) => {
+      for (const item of items) {
+        const pad = '  '.repeat(depth + 1)
+        if (Array.isArray(item)) {
+          console.error(`${pad}[Array(${item.length})]`)
+          walk(item, depth + 1)
+          continue
+        }
+        if (item === null || item === undefined) {
+          console.error(`${pad}${String(item)}   ← 不是扩展`)
+          continue
+        }
+        const ctor = (item as { constructor?: { name?: string } }).constructor
+        const name = ctor?.name ?? typeof item
+        const isExt = 'extension' in (item as object)
+        console.error(`${pad}${name}${isExt ? '' : '   ← 不是扩展'}`)
+      }
+    }
+    walk(extensionList)
   }
 }
 
