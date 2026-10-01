@@ -90,6 +90,17 @@ async function mount(): Promise<void> {
   const el = host.value
   if (!el) return
 
+  /*
+   * ⚠️ **必须在 `try` 外面声明。**
+   *
+   * 一开始写成了 `const extensionList = [...]` 在 `try` 里 —— `const` 是**块作用域**，
+   * `catch` 看不见它，于是诊断代码自己抛 `ReferenceError`，
+   * **把真正的报错盖掉了**（实测踩过：控制台只看到 `extensionList is not defined`）。
+   *
+   * 诊断代码**绝不能自己崩** —— 它的全部价值就是告诉你别处为什么崩。
+   */
+  let extensionList: unknown[] = []
+
   try {
     /*
      * ★ **只 import 一次，而且只 import 引擎。**
@@ -108,7 +119,7 @@ async function mount(): Promise<void> {
     const { EditorState, EditorView: View, keymap, defaultKeymap, nexusdown } =
       await import('../cm/index')
 
-    const extensionList: unknown[] = [
+    extensionList = [
       /*
        * ★ `nexusdown()` 返回的是**一个 Extension 数组**，里面已经有：
        * 语言（GFM markdown）→ live preview 装饰 → 自动换行 → 多光标
@@ -159,7 +170,8 @@ async function mount(): Promise<void> {
       ;(window as unknown as Record<string, unknown>).__cmView = view.value
     }
   } catch (e) {
-    error.value = `编辑器没能加载：${(e as Error).message}`
+    const original = e instanceof Error ? e.message : String(e)
+    error.value = `编辑器没能加载：${original}`
     /*
      * ★ **把扩展数组逐项打出来。**
      *
