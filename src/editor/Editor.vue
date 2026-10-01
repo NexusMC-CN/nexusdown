@@ -37,7 +37,7 @@
  * 判据：**这个东西换个场景还有用吗？** 有 → annexus；只对编辑器有意义 → 这里。
  * 所以只用 annexus 的**令牌**（经 `--nd-*` 间接），不用它的组件。
  */
-import type { EditorView } from '@codemirror/view'
+import type { EditorView } from 'nexusdown/cm'
 import { onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
 
 import NexusdownToolbar from './Toolbar.vue'
@@ -111,13 +111,24 @@ async function mount(): Promise<void> {
      * 就会炸 `Unrecognized extension value in extension set`，
      * 或者更糟：**装饰静默失效**（不报错，就是不渲染）。
      *
-     * 现在统一从 `../cm/index` 拿 —— UI 要什么，问引擎要。**一个实例。**
+     * ⚠️⚠️ **必须 import 构建产物（`nexusdown/cm`），不能 import 原始源码
+     * （`../cm/index`）。**
+     *
+     * 这个文件是**以原始 `.vue` 形式发给消费方**的，它的 import 会由**消费方的
+     * 打包器**解析 —— 解析权不在我们手里。实测：直接 import `@codemirror/*`
+     * 或原始源码，在 Nuxt 里会拿到**第二份 `@codemirror/state`**
+     * （报 `Unrecognized extension value in extension set`，
+     * 而扩展数组本身每一项都是合法的 —— 这个组合本身就是"两个模块实例"的铁证）。
+     *
+     * 走 `nexusdown/cm` 之后：
+     * - 解析权回到**包的 `exports`**（`dist/cm/index.js`，CM6 在里面是 external）
+     * - 这个文件里**一个 `@codemirror/*` 都没有**，消费方的打包器无从分裂
      *
      * ⚠️ 仍然必须是**动态** import：`@codemirror/view` 在模块顶层就会碰 `document`
      * （建样式表），SSR 阶段静态 import 会直接崩。
      */
     const { EditorState, EditorView: View, keymap, defaultKeymap, nexusdown } =
-      await import('../cm/index')
+      await import('nexusdown/cm')
 
     extensionList = [
       /*

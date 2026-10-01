@@ -204,6 +204,14 @@ export { EditorView, keymap } from '@codemirror/view';
 export { defaultKeymap, redo, undo } from '@codemirror/commands';
 export { syntaxTree } from '@codemirror/language';
 /*
+ * 类型也转出去 —— 让 UI 层**连类型都不需要碰 `@codemirror/*`**。
+ *
+ * 不只是洁癖：`.vue` 是以原始源码发给消费方的，`import type` 虽然会被 TS 擦掉，
+ * 但**万一某个消费方的 transform 没擦**，它就变成运行时 import，
+ * 又把"第二份 CM6"引回来。
+ */
+export type { Command } from '@codemirror/view';
+/*
  * Markdown 编辑命令 —— **工具栏和快捷键共用这一份**。
  *
  * 以前它们在应用里（每个消费者抄一遍），而 `shortcuts.ts` 里还有一份

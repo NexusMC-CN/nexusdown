@@ -55,7 +55,7 @@ import { nextTick, onUnmounted, ref, watch } from 'vue'
  *
  * 类型 import（`type`）是安全的 —— 编译期就擦掉了，不进运行时。
  */
-import type { Command, EditorView } from '@codemirror/view'
+import type { Command, EditorView } from 'nexusdown/cm'
 import {
   redo,
   syntaxTree,
@@ -69,8 +69,8 @@ import {
   toggleOrderedList,
   toggleQuote,
   wrapCodeBlock,
-} from '../cm/index'
-import { codeIconSvg } from '../cm/index'
+} from 'nexusdown/cm'
+import { codeIconSvg } from 'nexusdown/cm'
 
 const props = defineProps<{
   /** 编辑器实例。还没挂上时是 `null` —— 那时所有按钮都禁用。 */
