@@ -82,6 +82,25 @@ describe('nexusdown() 必需基础设施', () => {
     });
   });
 
+  describe('allowMultipleSelections（多光标）', () => {
+    /*
+     * ★ 这条守的是**命令的「多光标安全」前提**。
+     *
+     * 所有命令都走 `state.changeByRange()` —— 而它**只在开了这个 facet 时**
+     * 才遍历所有选区。少了它，多光标下只有主选区生效，而且**零报错**
+     * （`commands.test.ts` 里为此专门钉了一条断言）。
+     *
+     * 所以这个 facet 不是"可选优化"，是命令正确性的一部分。
+     */
+    it('nexusdown() 开了 allowMultipleSelections', () => {
+      const view = new EditorView({
+        state: EditorState.create({ doc: 'x', extensions: [nexusdown()] }),
+      })
+      expect(view.state.facet(EditorState.allowMultipleSelections)).toBe(true)
+      view.destroy()
+    })
+  })
+
   describe('drawSelection（光标可见）', () => {
     it('挂载后存在光标层 .cm-cursorLayer', () => {
       const view = mount();

@@ -188,6 +188,23 @@ export { nexusdownLivePreview, type LivePreviewOptions } from './plugin';
 export { baseTheme } from './theme';
 export { foldedBlocks, toggleFold } from './fold';
 /*
+ * Markdown 编辑命令 —— **工具栏和快捷键共用这一份**。
+ *
+ * 以前它们在应用里（每个消费者抄一遍），而 `shortcuts.ts` 里还有一份
+ * 逐字相同的 `toggle()`。判据：**改了它会导致编辑器行为不一致 → 属于 nexusdown。**
+ */
+export {
+  insertLink,
+  toggleBold,
+  toggleBulletList,
+  toggleHeading,
+  toggleInlineCode,
+  toggleItalic,
+  toggleOrderedList,
+  toggleQuote,
+  wrapCodeBlock,
+} from './commands';
+/*
  * 代码块标题栏的**纯逻辑**。
  *
  * 导出是因为「同一个标题栏有三个渲染者」：编辑器 widget、`nexusdown/render`
