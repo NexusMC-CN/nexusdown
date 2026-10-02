@@ -20,6 +20,7 @@
  * attribute value that legitimately contains a newline is untouched.
  */
 import type { MarkdownIt, RendererRule } from 'markdown-it'
+import { renderCodeHeaderHtml } from '../cm/widgets/code-header-parts.js'
 import { TASK_ITEM_META } from './task-list.js'
 
 const LF = 0x0a
@@ -97,7 +98,20 @@ export function applyNexusdownRenderer(md: MarkdownIt): void {
     // after it, which is not part of the class name.
     const language = info ? info.split(/\s+/)[0]! : ''
     const className = language ? ` class="language-${escapeHtml(language)}"` : ''
-    return `<pre><code${className}>${escapeHtml(withoutTrailingNewline(token.content))}</code></pre>`
+    /*
+     * ★ **标题栏和编辑器里看到的是同一个函数产出的**（`renderCodeHeaderHtml`）。
+     *
+     * 编辑器那条路走 `widgets/code-header.ts`（CM6 的 widget），显示侧走这里 ——
+     * 两边调的是**同一份纯逻辑**，所以结构、类名、图标逐字一致。
+     * 这是「编辑器显示的 = 发布出来的」的**结构性保证**，不是靠人工同步。
+     *
+     * 显示侧**不带折叠按钮**：这里的 HTML 是死的，没人接事件。
+     */
+    const header = renderCodeHeaderHtml(info)
+    return (
+      `<div class="nd-code-fence">${header}` +
+      `<pre><code${className}>${escapeHtml(withoutTrailingNewline(token.content))}</code></pre></div>`
+    )
   }
 
   rules.code_block = (tokens, idx) =>

@@ -179,6 +179,19 @@ export function nexusdown(opts: NexusdownOptions = {}): Extension {
 export { nexusdownLivePreview, type LivePreviewOptions } from './plugin';
 export { baseTheme } from './theme';
 export { foldedBlocks, toggleFold } from './fold';
+/*
+ * 代码块标题栏的**纯逻辑**。
+ *
+ * 导出是因为「同一个标题栏有三个渲染者」：编辑器 widget、`nexusdown/render`
+ * 的 fence 规则、以及消费方自己的演示/预览 UI。三者必须长得一样，
+ * 所以结构、类名、图标必须来自**同一个函数**，而不是各自手抄。
+ */
+export {
+  codeIconSvg,
+  parseFenceInfo,
+  renderCodeHeaderHtml,
+  type CodeHeaderRenderOptions,
+} from './widgets/code-header-parts';
 export type {
   DecorationBuild,
   DecorationRanges,

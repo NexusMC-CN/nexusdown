@@ -4,7 +4,8 @@
  * 重点是 `parseFenceInfo` —— 围栏信息是**自由文本**（CommonMark 没有规定格式），
  * 约定俗成写成 `语言 文件名`。这个函数决定了标题栏上显示什么。
  */
-import { CodeFenceHeaderWidget, parseFenceInfo } from '../../src/cm/widgets/code-header.js'
+import { CodeFenceHeaderWidget } from '../../src/cm/widgets/code-header.js'
+import { parseFenceInfo, renderCodeHeaderHtml } from '../../src/cm/widgets/code-header-parts.js'
 
 describe('parseFenceInfo', () => {
   it('只有语言', () => {
@@ -95,4 +96,45 @@ describe('CodeFenceHeaderWidget', () => {
     expect(base.eq(new CodeFenceHeaderWidget('ts a.ts', true, 10))).toBe(false)
     expect(base.eq(new CodeFenceHeaderWidget('ts a.ts', false, 20))).toBe(false)
   })
+
+  // ---------------------------------------------------------------- 纯函数（显示侧也用）
+
+  describe('renderCodeHeaderHtml', () => {
+    it('结构：圆点 + 文件 + 语言', () => {
+      const html = renderCodeHeaderHtml('yaml ci.yml')
+      expect(html).toContain('<span class="nd-code-dots" aria-hidden="true"><i></i><i></i><i></i></span>')
+      expect(html).toContain('<span class="nd-code-title">ci.yml</span>')
+      expect(html).toContain('<span class="nd-code-lang">yaml</span>')
+      expect(html).toContain('class="nd-code-header"')
+    })
+
+    it('★ 语言和文件名是用户输入，必须转义', () => {
+      const html = renderCodeHeaderHtml('ts <img src=x onerror=alert(1)>')
+      expect(html).not.toContain('<img')
+      expect(html).toContain('&lt;img')
+      const lang = renderCodeHeaderHtml('"><script>alert(1)</script>')
+      expect(lang).not.toContain('<script')
+    })
+
+    it('只有编辑器要折叠按钮', () => {
+      expect(renderCodeHeaderHtml('ts a.ts')).not.toContain('nd-code-toggle')
+      expect(renderCodeHeaderHtml('ts a.ts', { interactive: true })).toContain('nd-code-toggle')
+    })
+
+    it('折叠态按钮画右箭头', () => {
+      const html = renderCodeHeaderHtml('ts a.ts', { interactive: true, folded: true })
+      expect(html).toContain('aria-expanded="false"')
+      expect(html).toContain('aria-label="展开代码块"')
+    })
+
+    it('和 widget 产出同一份结构（单一来源，不靠人工同步）', () => {
+      const el = render('ts a.ts')
+      const html = renderCodeHeaderHtml('ts a.ts')
+      expect(html).toContain('<span class="nd-code-title">a.ts</span>')
+      expect(el.querySelector('.nd-code-title')?.textContent).toBe('a.ts')
+      expect(el.querySelector('.nd-code-lang')?.textContent).toBe('ts')
+      expect(el.querySelectorAll('.nd-code-dots i')).toHaveLength(3)
+    })
+  })
+
 })
