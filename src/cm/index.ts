@@ -227,7 +227,11 @@ export type { Command } from '@codemirror/view';
  * 逐字相同的 `toggle()`。判据：**改了它会导致编辑器行为不一致 → 属于 nexusdown。**
  */
 export {
+  insertBlockMath,
+  insertEmbed,
+  insertInlineMath,
   insertLink,
+  insertTable,
   toggleBold,
   toggleBulletList,
   toggleHeading,

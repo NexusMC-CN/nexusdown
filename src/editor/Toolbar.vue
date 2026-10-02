@@ -35,14 +35,14 @@
  *
  * ## 图标为什么是内联 SVG
  *
- * 上一版用 `B` / `H2` / `1.` 这些**文字短标签**当图标。代价是 12 个按钮的
+ * 上一版用 `B` / `H2` / `1.` 这些**文字短标签**当图标。代价是十几个按钮的
  * 视觉重量**全看字体**：`B` 是粗的、`I` 是斜的、`1.` 和 `H1` 宽度差一倍，
  * 摆在一起像"拼凑"（用户原话）。而且字号被锁死在 12.5px，想再精致也没余地。
  *
  * 换成手写的 16×16 内联 SVG：同一套 `stroke-width: 1.5` + 同样的圆头圆角，
  * 视觉重量是自己说了算的。**不引图标库**（`@iconify` / `lucide` / 图标字体都不引）——
  * 这个项目已经踩过"运行时从 CDN 拉图标、离线时静默变空标签"的坑，
- * 12 个路径写在文件里，离线、SSR、剪包都不会出问题。
+ * 十几个路径写在文件里，离线、SSR、剪包都不会出问题。
  */
 import { nextTick, onUnmounted, ref, watch } from 'vue'
 /*
@@ -60,7 +60,11 @@ import {
   redo,
   syntaxTree,
   undo,
+  insertBlockMath,
+  insertEmbed,
+  insertInlineMath,
   insertLink,
+  insertTable,
   toggleBold,
   toggleBulletList,
   toggleHeading,
@@ -90,9 +94,11 @@ const props = defineProps<{
  *
  * ⚠️ **所有图形都画在同一个 16×16 网格上，视觉重量靠"墨迹面积"对齐。**
  * 描边类图元统一落在 `y ∈ [2.7, 13.3]` 这一带，谁都不许比别人大一圈或小一圈。
- * 这不是靠眼睛估的：把 12 个图标逐个栅格化、扫像素算外框和墨迹面积，
+ * 这不是靠眼睛估的：把每个图标逐个栅格化、扫像素算外框和墨迹面积，
  * 每个都要落在均值的 ±15% 以内（`italic` 是唯一例外，见下面那条注释）。
- * **改任何一个图标都要重新量一遍。**
+ * **改任何一个图标都要重新量一遍** —— 量法固化在 `scripts/measure-icons.mjs`，
+ * 它直接从本文件里读 `ICONS` 表（不是手抄一份，否则量的是另一个东西），
+ * 跑 `node scripts/measure-icons.mjs` 就出面积和比值。
  *
  * ⚠️ 序号用 `<text>` 而不是 path：5~7px 高的数字用 path 画，`stroke-width: 1.5`
  * 的笔画会把字腔糊死（"2"和"3"分不出来）。文字交给字体去渲染反而干净。
@@ -105,10 +111,10 @@ type Shape =
   | { t: 'x'; x: number; y: number; v: string; size: number }
 
 type IconName =
-  | 'bold' | 'italic' | 'inlineCode'
+  | 'bold' | 'italic' | 'inlineCode' | 'inlineMath'
   | 'h1' | 'h2' | 'h3'
-  | 'bullet' | 'ordered' | 'quote'
-  | 'link' | 'codeBlock'
+  | 'bullet' | 'ordered' | 'quote' | 'table'
+  | 'link' | 'codeBlock' | 'blockMath' | 'embed'
   | 'undo' | 'redo'
 
 /** 列表三行的 y —— 无序和有序**共用同一组基准线**，两个图标才会像一对。 */
@@ -152,6 +158,13 @@ const ICONS: Record<IconName, Shape[]> = {
   inlineCode: [
     { t: 'p', d: 'M6.4 3.2 2 8 6.4 12.8M9.6 3.2 14 8 9.6 12.8' },
   ],
+  /* 行内公式：Σ（求和号）—— 一个**独立的数学符号**，正好对应"行内"这个尺寸感。
+     四段笔画（顶横 / 斜下 / 斜上 / 底横）加起来 29.8，扫出来墨迹面积 **45.2**
+     （均值的 0.97 倍）。
+     和块级公式那个分式（三层结构）刻意拉开形状差，并排不会认错。 */
+  inlineMath: [
+    { t: 'p', d: 'M12.6 3.4H4.2l4.6 4.6-4.6 4.6h8.4' },
+  ],
   /* H1 / H2 / H3：同一个 H，只有右下角的数字不同。 */
   h1: [{ t: 'p', d: 'M2.2 3.2v9.6M7.8 3.2v9.6M2.2 8h5.6' }, { t: 'x', x: 11.4, y: 12.7, v: '1', size: 7.2 }],
   h2: [{ t: 'p', d: 'M2.2 3.2v9.6M7.8 3.2v9.6M2.2 8h5.6' }, { t: 'x', x: 11.4, y: 12.7, v: '2', size: 7.2 }],
@@ -175,10 +188,19 @@ const ICONS: Record<IconName, Shape[]> = {
     { t: 'r', x: 3, y: 3, w: 2, h: 10, rx: 1 },
     { t: 'p', d: `M7.4 ${ROWS[0]}h6.2M7.4 ${ROWS[1]}h6.2M7.4 ${ROWS[2]}h4.4` },
   ],
+  /* 表格：外框 + 表头分隔线 + 表头下方一条竖分隔（两列）。
+     ⚠️ 它是全套里**最宽扁**的一个（外框只占 y 3.9~12.1，别的图标都到 2.x~13.x）——
+     这不是画小了，是**表格图形本身的性质**：外框越高，周长越大，
+     墨迹面积会直接冲出 ±15% 带（试过 8.8×6.8 的外框，扫出来面积 60.2、比值 1.27，
+     复现：`node scripts/measure-icons.mjs '{"t":[{"t":"p","d":"M3.6 4.6h8.8v6.8H3.6zM3.6 7.8h8.8M8 7.8v3.6"}]}'`）。
+     所以它靠**面积**（51.2，均值的 1.09 倍）而不是外框和别的图标对齐。 */
+  table: [
+    { t: 'p', d: 'M4.6 4.6h6.8v6.8H4.6zM4.6 7.8h6.8M8 7.8v3.6' },
+  ],
   /* 链接：两节链环，对角咬合。坐标是 Feather `link` 的 24 网格缩到 16 的，
      缩放系数 **0.55** 不是 2/3 = 0.667 —— 2/3 缩出来墨迹面积 58.4（均值的 1.27 倍），
      一排里明显"跳"出来。0.55 落到 52.3（1.12 倍），和其他图标齐平。
-     （这个数不是拍脑袋：把 12 个图标逐个栅格化、扫像素算墨迹面积量出来的。） */
+     （这个数不是拍脑袋：把每个图标逐个栅格化、扫像素算墨迹面积量出来的。） */
   link: [
     {
       t: 'p',
@@ -189,6 +211,18 @@ const ICONS: Record<IconName, Shape[]> = {
   /* 代码块：`</>` —— 比行内代码多一条中缝斜杠，尖括号同时收小一圈。 */
   codeBlock: [
     { t: 'p', d: 'M5.8 5.2 2.6 8l3.2 2.8M10.2 5.2 13.4 8l-3.2 2.8M9.6 3.2 6.4 12.8' },
+  ],
+  /* 块级公式：**分式**（分子 / 分数线 / 分母）—— 三层结构，天然对应"块"。
+     中间那条分数线（11.2）比上下两条（各 8）长，一眼和"三条等长的汉堡菜单"分开。
+     扫出来墨迹面积 **46.1**（均值的 0.99 倍）。 */
+  blockMath: [
+    { t: 'p', d: 'M4 4.8h8M4 11.2h8M2.4 8h11.2' },
+  ],
+  /* 嵌入：一个**带播放三角的取景框**（第三方嵌入以视频为主，B站/抖音都是视频）。
+     框 7.2×6.4 + 三角 3×2.4，面积 **52.6**（均值的 1.12 倍）。
+     和表格图标同样是"宽扁的框"，但框里是三角而不是网格线，并排不会认错。 */
+  embed: [
+    { t: 'p', d: 'M4.4 4.8h7.2v6.4H4.4zM6.8 6.8l3 1.2-3 1.2z' },
   ],
   /* 撤销 / 重做：**镜像的一对**。重做的每个 x 都是 16 - 撤销的 x，
      手写两份而不是 `transform: scale(-1,1)` —— 负缩放会把圆头端点也翻过去，
@@ -380,10 +414,10 @@ function cancelLink() {
  * 模板只认 `demo`，所以以后换图标不会连带动画，两个按钮也可以共用一段演示。
  */
 type DemoName =
-  | 'bold' | 'italic' | 'inlineCode'
+  | 'bold' | 'italic' | 'inlineCode' | 'inlineMath'
   | 'h1' | 'h2' | 'h3'
-  | 'bullet' | 'ordered' | 'quote'
-  | 'link' | 'codeBlock'
+  | 'bullet' | 'ordered' | 'quote' | 'table'
+  | 'link' | 'codeBlock' | 'blockMath' | 'embed'
   | 'undo' | 'redo'
 
 interface ToolButton {
@@ -403,6 +437,9 @@ const GROUPS: ToolButton[][] = [
     { icon: 'bold', demo: 'bold', title: '加粗（Ctrl/⌘ + B）', act: () => runCommand(toggleBold), kind: 'bold' },
     { icon: 'italic', demo: 'italic', title: '斜体（Ctrl/⌘ + I）', act: () => runCommand(toggleItalic), kind: 'italic' },
     { icon: 'inlineCode', demo: 'inlineCode', title: '行内代码（Ctrl/⌘ + `）', act: () => runCommand(toggleInlineCode), kind: 'inlineCode' },
+    /* 行内公式和上面三个同类（都是"一对定界符包住一段文字"），所以并在一组。
+       它**没有** `kind` —— 插入类按钮不是开关，不点亮 `aria-pressed`。 */
+    { icon: 'inlineMath', demo: 'inlineMath', title: '行内公式', act: () => runCommand(insertInlineMath) },
   ],
   [
     { icon: 'h1', demo: 'h1', title: '一级标题', act: () => runCommand(toggleHeading(1)), kind: 'h1' },
@@ -413,10 +450,17 @@ const GROUPS: ToolButton[][] = [
     { icon: 'bullet', demo: 'bullet', title: '无序列表', act: () => runCommand(toggleBulletList), kind: 'bullet' },
     { icon: 'ordered', demo: 'ordered', title: '有序列表', act: () => runCommand(toggleOrderedList), kind: 'ordered' },
     { icon: 'quote', demo: 'quote', title: '引用', act: () => runCommand(toggleQuote), kind: 'quote' },
+    /* 表格是**块级结构**（GFM 管道表），和列表 / 引用同类，所以并进这一组。 */
+    { icon: 'table', demo: 'table', title: '插入表格', act: () => runCommand(insertTable) },
   ],
   [
     { icon: 'link', demo: 'link', title: '插入链接', act: openLink },
     { icon: 'codeBlock', demo: 'codeBlock', title: '插入代码块', act: () => runCommand(wrapCodeBlock), kind: 'codeBlock' },
+    /* 块级公式 / 嵌入和代码块一样是**围栏**（```math / ```embed），并在一组。
+       注意 `codeBlock` 有 `kind` 而这两个没有：前者会随光标进入代码块点亮，
+       后两者是纯插入，编辑器侧也没有对应的"光标在里面"判定（`detectActive` 里没有它们）。 */
+    { icon: 'blockMath', demo: 'blockMath', title: '块级公式', act: () => runCommand(insertBlockMath) },
+    { icon: 'embed', demo: 'embed', title: '嵌入', act: () => runCommand(insertEmbed) },
   ],
   [
     /* 撤销 / 重做是**动作**不是**开关**，没有 `kind` —— 不给它们写 `aria-pressed`。 */
@@ -592,6 +636,23 @@ function replayDemos(event: MouseEvent) {
                 </span>
               </div>
 
+              <!-- 行内公式：源码 `$x^2$` → 渲染成上标 `x²` -->
+              <div v-else-if="b.demo === 'inlineMath'" class="demo-inline-math">
+                <span class="demo-inline-math__box">
+                  <!--
+                    `^` 和 `2` 拆成两个元素：源码态是 `x^2`（`^` 露出来、`2` 在基线上），
+                    渲染态是 `x²`（`^` 消失、`2` 缩小并抬起来）。
+
+                    `2` 的 `margin-left` 从 4px 收到 0：`^` 是绝对定位的（不推文字），
+                    所以得由 `2` 自己让出 / 收回这 4px，`^` 才有地方站。
+                  -->
+                  <span class="demo-inline-math__base">x<span class="demo-inline-math__caret">^</span></span>
+                  <span class="demo-inline-math__sup">2</span>
+                  <span class="demo-inline-math__syntax demo-inline-math__syntax--l">$</span>
+                  <span class="demo-inline-math__syntax demo-inline-math__syntax--r">$</span>
+                </span>
+              </div>
+
               <!-- 三级标题：同一个模板 + 同一个节奏，只有目标字号不同 -->
               <div
                 v-else-if="b.demo === 'h1' || b.demo === 'h2' || b.demo === 'h3'"
@@ -627,6 +688,22 @@ function replayDemos(event: MouseEvent) {
                   <span class="demo-quote__text">引用一段话</span>
                   <span class="demo-quote__bar" />
                   <span class="demo-quote__syntax">&gt;</span>
+                </span>
+              </div>
+
+              <!-- 表格：两段文字被 `|` 串起来（源码），再落成一行表格（渲染） -->
+              <div v-else-if="b.demo === 'table'" class="demo-table">
+                <span class="demo-table__box">
+                  <span class="demo-table__cell">列一</span>
+                  <span class="demo-table__cell">列二</span>
+                  <!--
+                    三个 `|`：左右各一个贴住整块（`--l` / `--r`），
+                    中间那个用 `left: 50%` 落在两个单元格的**分界**上 ——
+                    单元格各带 7px 内边距，中间天然空出 14px 给它站。
+                  -->
+                  <span class="demo-table__syntax demo-table__syntax--l">|</span>
+                  <span class="demo-table__syntax demo-table__syntax--m">|</span>
+                  <span class="demo-table__syntax demo-table__syntax--r">|</span>
                 </span>
               </div>
 
@@ -669,6 +746,23 @@ function replayDemos(event: MouseEvent) {
                   <div class="demo-code-block__code">name: build</div>
                   <span class="demo-code-block__syntax demo-code-block__syntax--close">```</span>
                 </div>
+              </div>
+
+              <!-- 块级公式：```math 围栏夹住一行公式，渲染后围栏被"消化"掉 -->
+              <div v-else-if="b.demo === 'blockMath'" class="demo-block-math">
+                <span class="demo-block-math__syntax demo-block-math__syntax--open">```math</span>
+                <span class="demo-block-math__formula">E = mc²</span>
+                <span class="demo-block-math__syntax demo-block-math__syntax--close">```</span>
+              </div>
+
+              <!-- 嵌入：```embed 围栏 + provider → 落成一张占位卡 -->
+              <div v-else-if="b.demo === 'embed'" class="demo-embed">
+                <span class="demo-embed__syntax demo-embed__syntax--open">```embed bilibili</span>
+                <span class="demo-embed__card">
+                  <span class="demo-embed__icon" aria-hidden="true">▶</span>
+                  <span class="demo-embed__label">哔哩哔哩 · 视频</span>
+                </span>
+                <span class="demo-embed__syntax demo-embed__syntax--close">```</span>
               </div>
 
               <!-- 撤销 / 重做：同一个模板，方向相反 -->
@@ -739,7 +833,7 @@ function replayDemos(event: MouseEvent) {
  *
  * | 量 | 值 | 为什么 |
  * | --- | --- | --- |
- * | 按钮 | 28 × 28 | 够大的点击区，同时 12 个按钮横向排得下 |
+ * | 按钮 | 28 × 28 | 够大的点击区；一行排不下时 `.row` 的 `flex-wrap` 会折行 |
  * | 图标 | 16 × 16 | 28 里居中 → 左右各让出 6px，悬停底色不贴图标 |
  * | 行左右内边距 | 22 | 22 + 6 = **28**，图标正好落在纸上那条竖线上（见下） |
  * | 组内间距 | 2 | 同一组是"一个整体"，按钮之间几乎贴着 |
@@ -867,7 +961,7 @@ function replayDemos(event: MouseEvent) {
 .tb.primary { background-color: var(--nd-brand-soft); color: var(--nd-brand); font-weight: 500; }
 .tb.primary:hover:not(:disabled) { background-color: var(--nd-brand-soft-border); }
 
-/* 分隔线：细、短、不抢戏 —— 只是给 12 个按钮分组。16px 比按钮矮一截，
+/* 分隔线：细、短、不抢戏 —— 只是给一排按钮分组。16px 比按钮矮一截，
    一眼能看出是"分隔"而不是"两个按钮中间夹了个东西"。 */
 .sep {
   flex: none;
@@ -1433,12 +1527,14 @@ function replayDemos(event: MouseEvent) {
 .demo-bold__box,
 .demo-italic__box,
 .demo-inline-code__box,
+.demo-inline-math__box,
 .demo-h1__box,
 .demo-h2__box,
 .demo-h3__box,
 .demo-bullet__box,
 .demo-ordered__box,
 .demo-quote__box,
+.demo-table__box,
 .demo-link__box {
   position: relative;
   display: inline-block;
@@ -1471,6 +1567,7 @@ function replayDemos(event: MouseEvent) {
 .demo-bold__syntax--l,
 .demo-italic__syntax--l,
 .demo-inline-code__syntax--l,
+.demo-inline-math__syntax--l,
 .demo-h1__syntax,
 .demo-h2__syntax,
 .demo-h3__syntax,
@@ -1478,6 +1575,7 @@ function replayDemos(event: MouseEvent) {
 .demo-ordered__syntax,
 .demo-bullet__marker,
 .demo-ordered__marker,
+.demo-table__syntax--l,
 .demo-link__syntax--l {
   right: 100%;
   margin-right: 2px;
@@ -1487,6 +1585,8 @@ function replayDemos(event: MouseEvent) {
 .demo-bold__syntax--r,
 .demo-italic__syntax--r,
 .demo-inline-code__syntax--r,
+.demo-inline-math__syntax--r,
+.demo-table__syntax--r,
 .demo-link__syntax--r {
   left: 100%;
   margin-left: 2px;
@@ -2683,6 +2783,318 @@ function replayDemos(event: MouseEvent) {
   }
 }
 
+/* ---------------------------------------------------------------- 10. 表格 */
+
+/**
+ * 两段普通文字 → 被三个 `|` 串起来（源码）→ 落成一行表格（渲染）。
+ *
+ * 1. **边框画在单元格上、只动 `border-color`** —— 和代码块窗口同一条：
+ *    1px 边框一直占位，动画只换颜色，所以格子宽度全程不变，`|` 消失时不会左右跳。
+ * 2. **中间那个 `|` 落在两个单元格的分界上**（`left: 50%`）——
+ *    单元格各带 7px 左右内边距，中间天然空出 14px 给它站。
+ * 3. 三个 `|` 走通用标记的 `demo-syntax`（藏 → 露 → 被消化），节奏和别的演示一致。
+ */
+.demo-table {
+  box-sizing: border-box;
+  width: 120px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  font: 13px/1.5 system-ui, sans-serif;
+  color: var(--nd-text);
+  white-space: nowrap;
+}
+/* 覆盖通用 `__box` 的 `inline-block` —— 两个格子要并排、垂直居中 */
+.demo-table__box {
+  display: inline-flex;
+  align-items: center;
+}
+.demo-table__cell {
+  padding: 1px 7px;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  animation-name: demo-table-cell;
+  animation-duration: 2.8s;
+  animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+  animation-fill-mode: forwards;
+  animation-play-state: paused;
+}
+/*
+ * ⚠️ 选择器**必须带 `.demo-table__box >` 前缀**。
+ *
+ * 通用规则 `[class*='__box'] > [class*='__syntax']` 的特异性是 (0,2,0)
+ * （两个属性选择器），比单类名 (0,1,0) 高 —— 不加前缀的话它那条
+ * `transform: translateY(-50%)` 会盖过这里的 `translate(-50%, -50%)`，
+ * 中间的 `|` 会**偏右半个字宽**（左边缘对齐到中线而不是中心对齐到中线）。
+ */
+.demo-table__box > .demo-table__syntax--m {
+  left: 50%;
+  transform: translate(-50%, -50%);
+}
+@keyframes demo-table-cell {
+  /* 1–3：还看不出是表格，就是两段并排的文字 */
+  0%,
+  44% {
+    border-color: transparent;
+    background-color: transparent;
+  }
+  /* 4 渲染：格子浮出来，停住 */
+  70%,
+  100% {
+    border-color: var(--nd-border);
+    background-color: var(--nd-surface);
+  }
+}
+/* demo-table-cell —— 悬停时跑起来 */
+.tb-wrap:hover .demo-table__cell,
+.tb:focus-visible + .demo-pop .demo-table__cell {
+  animation-play-state: running;
+}
+
+/* ---------------------------------------------------------------- 11. 行内公式 */
+
+/**
+ * `x^2` → `$x^2$`（源码）→ `x²`（渲染）。
+ *
+ * 1. **`2` 从"基线上的大号"变成"抬起来的小号"**：`translateY(-5px) scale(0.72)`。
+ *    不用 `vertical-align: super` —— 那是关键字，插值不了（和链接下划线
+ *    不能用 `text-decoration` 是同一类理由）。
+ * 2. **`^` 绝对定位，由 `2` 的 `margin-left` 让位**：`^` 不能进文档流，
+ *    否则它淡出后左边会留一个洞；所以让 `2` 的 `margin-left` 从 4px 收到 0 ——
+ *    两者同步，看起来就是 `^` 被吃掉、`2` 贴回 `x`。
+ * 3. `$` 走通用标记的 `demo-syntax`。
+ */
+.demo-inline-math {
+  box-sizing: border-box;
+  width: 120px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  font: 13px/1.5 system-ui, sans-serif;
+  color: var(--nd-text);
+  white-space: nowrap;
+}
+.demo-inline-math__base {
+  position: relative;
+  display: inline-block;
+}
+.demo-inline-math__sup {
+  display: inline-block;
+  /* 以左下角为轴缩放：缩小后仍贴着 `x` 的基线，再整体抬起 */
+  transform-origin: left bottom;
+  animation-name: demo-inline-math-sup;
+  animation-duration: 2.8s;
+  animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+  animation-fill-mode: forwards;
+  animation-play-state: paused;
+}
+.demo-inline-math__caret {
+  position: absolute;
+  left: 100%;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--nd-text-4);
+  animation-name: demo-inline-math-caret;
+  animation-duration: 2.8s;
+  animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+  animation-fill-mode: forwards;
+  animation-play-state: paused;
+}
+@keyframes demo-inline-math-sup {
+  /* 1–3：`^` 还在，`2` 站在基线上、和正文同号 */
+  0%,
+  58% {
+    transform: translateY(0) scale(1);
+    margin-left: 4px;
+  }
+  /* 4 渲染：`^` 消失，`2` 缩小抬起、贴回 `x` */
+  66%,
+  100% {
+    transform: translateY(-5px) scale(0.72);
+    margin-left: 0;
+  }
+}
+@keyframes demo-inline-math-caret {
+  /* `^` 是"被公式消化掉"的源码字符：整段可见，渲染态才消失 */
+  0%,
+  58% {
+    opacity: 1;
+  }
+  66%,
+  100% {
+    opacity: 0;
+  }
+}
+/* demo-inline-math-sup / demo-inline-math-caret —— 悬停时跑起来 */
+.tb-wrap:hover .demo-inline-math__sup,
+.tb:focus-visible + .demo-pop .demo-inline-math__sup,
+.tb-wrap:hover .demo-inline-math__caret,
+.tb:focus-visible + .demo-pop .demo-inline-math__caret {
+  animation-play-state: running;
+}
+
+/* ---------------------------------------------------------------- 12. 块级公式 */
+
+/**
+ * 一行普通文字 `E = mc²` → ` ```math ` / ` ``` ` 围栏夹住它（源码）
+ * → 围栏消失、公式变成**数学字体**（衬线斜体）居中（渲染）。
+ *
+ * 1. **围栏绝对定位在上下两端**，不参与布局 —— 和代码块演示同一条：
+ *    围栏淡出后公式不会移位（否则会"空出去一行"）。
+ * 2. **公式只切字体、不动字号**，`steps(1, end)` 卡在 44%/66% 两个整点上，
+ *    和别的演示"标记露出 / 消失"的节奏对齐（`font-family` 插值不了，只能用 steps）。
+ */
+.demo-block-math {
+  position: relative;
+  box-sizing: border-box;
+  width: 120px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  font: 13px/1.5 system-ui, sans-serif;
+  color: var(--nd-text);
+}
+.demo-block-math__formula {
+  white-space: nowrap;
+  animation-name: demo-block-math-font;
+  animation-duration: 2.8s;
+  animation-timing-function: steps(1, end);
+  animation-fill-mode: forwards;
+  animation-play-state: paused;
+}
+/* 围栏和代码块演示同号（11px 等宽），贴在公式上下两端 */
+.demo-block-math__syntax {
+  position: absolute;
+  left: 6px;
+  font: 400 11px/1 ui-monospace, Consolas, monospace;
+  letter-spacing: -0.03em;
+}
+/* 2px 而不是 0：围栏 10px 高、公式居中约 16px，44px 的画布里
+   2 + 10 + 16 + 10 + 2 = 40，刚好放得下且不互相压。 */
+.demo-block-math__syntax--open { top: 2px; }
+.demo-block-math__syntax--close { bottom: 2px; }
+@keyframes demo-block-math-font {
+  0%, 44% { font-family: system-ui, sans-serif; font-style: normal; }
+  66%, 100% {
+    font-family: 'Cambria Math', 'STIX Two Math', 'Times New Roman', serif;
+    font-style: italic;
+  }
+}
+/* demo-block-math-font —— 悬停时跑起来 */
+.tb-wrap:hover .demo-block-math__formula,
+.tb:focus-visible + .demo-pop .demo-block-math__formula {
+  animation-play-state: running;
+}
+
+/* ---------------------------------------------------------------- 13. 嵌入 */
+
+/**
+ * `哔哩哔哩 · 视频` 一行普通文字 → ` ```embed bilibili ` 围栏夹住它（源码）
+ * → 落成一张**占位卡**（播放图标 + 标题，渲染）。
+ *
+ * 1. **卡片常驻，只在渲染态浮出边框和底色**（只动 `border-color` / `background-color`）
+ *    —— 和表格格子同一招，尺寸全程不变。
+ * 2. **播放图标始终占位、只淡入**：不进文档流就不会把标题推走
+ *    （和列表标记同一条：标记出现时文字不许动）。
+ * 3. 围栏绝对定位在上下两端，理由同块级公式。
+ *
+ * ⚠️ 演示里的 ` ```embed bilibili ` **只写了 provider**（没写 kind/id）——
+ * 44px 的画布塞不下完整的一行（`embed bilibili video BV1xx411c7mD` 要 200px+）。
+ * 卡片上的「哔哩哔哩 · 视频」是渲染后的结果，正好补上 kind 的信息。
+ */
+.demo-embed {
+  position: relative;
+  box-sizing: border-box;
+  width: 120px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  font: 13px/1.5 system-ui, sans-serif;
+  color: var(--nd-text);
+}
+.demo-embed__card {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  /*
+   * 上下内边距只给 1px：卡片居中后高约 20px，44px 的画布上下各剩 12px，
+   * 正好够 10px 高的围栏站（围栏在 `top: 2px` / `bottom: 2px`）。
+   * 给到 2px 卡片就有 22px 高，会和上围栏压 1px。
+   */
+  padding: 1px 8px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  animation-name: demo-embed-card;
+  animation-duration: 2.8s;
+  animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+  animation-fill-mode: forwards;
+  animation-play-state: paused;
+}
+.demo-embed__icon {
+  flex: none;
+  font-size: 10px;
+  line-height: 1;
+  color: var(--nd-brand);
+  animation-name: demo-embed-icon;
+  animation-duration: 2.8s;
+  animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+  animation-fill-mode: forwards;
+  animation-play-state: paused;
+}
+.demo-embed__label {
+  font-size: 11px;
+  white-space: nowrap;
+}
+/* 围栏：` ```embed bilibili ` 比代码块的 ` ```yaml ` 长，字号收到 10px 才塞得下 */
+.demo-embed__syntax {
+  position: absolute;
+  left: 6px;
+  font: 400 10px/1 ui-monospace, Consolas, monospace;
+  letter-spacing: -0.03em;
+}
+.demo-embed__syntax--open { top: 2px; }
+.demo-embed__syntax--close { bottom: 2px; }
+@keyframes demo-embed-card {
+  /* 1–3：还看不出是卡片，就是一行文字 */
+  0%,
+  44% {
+    border-color: transparent;
+    background-color: transparent;
+  }
+  /* 4 渲染：卡片浮出来，停住 */
+  70%,
+  100% {
+    border-color: var(--nd-border);
+    background-color: var(--nd-surface);
+  }
+}
+@keyframes demo-embed-icon {
+  /* 播放图标只在渲染态出现 —— 源码态它就是一行普通文字 */
+  0%,
+  58% {
+    opacity: 0;
+  }
+  70%,
+  100% {
+    opacity: 1;
+  }
+}
+/* demo-embed-card / demo-embed-icon —— 悬停时跑起来 */
+.tb-wrap:hover .demo-embed__card,
+.tb:focus-visible + .demo-pop .demo-embed__card,
+.tb-wrap:hover .demo-embed__icon,
+.tb:focus-visible + .demo-pop .demo-embed__icon {
+  animation-play-state: running;
+}
+
 /* ---------------------------------------------------------------- 降低动效偏好 */
 
 /**
@@ -2815,5 +3227,35 @@ function replayDemos(event: MouseEvent) {
     opacity: 1;
     background-size: 0% 1.5px;
   }
+
+  /* 10. 表格：格子边框长满（三个 `|` 已消失，走通用 `__syntax` 那条） */
+  .demo-table__cell {
+    animation: none;
+    border-color: var(--nd-border);
+    background-color: var(--nd-surface);
+  }
+
+  /* 11. 行内公式：`^` 消失、`2` 已经抬起来贴回 `x` */
+  .demo-inline-math__sup {
+    animation: none;
+    transform: translateY(-5px) scale(0.72);
+    margin-left: 0;
+  }
+  .demo-inline-math__caret { animation: none; opacity: 0; }
+
+  /* 12. 块级公式：公式切到数学字体（围栏走通用 `__syntax`，已停在消失） */
+  .demo-block-math__formula {
+    animation: none;
+    font-family: 'Cambria Math', 'STIX Two Math', 'Times New Roman', serif;
+    font-style: italic;
+  }
+
+  /* 13. 嵌入：卡片浮出、播放图标可见 */
+  .demo-embed__card {
+    animation: none;
+    border-color: var(--nd-border);
+    background-color: var(--nd-surface);
+  }
+  .demo-embed__icon { animation: none; opacity: 1; }
 }
 </style>

@@ -17,7 +17,11 @@ import { EditorSelection, EditorState } from '@codemirror/state'
 import { EditorView } from '@codemirror/view'
 
 import {
+  insertBlockMath,
+  insertEmbed,
+  insertInlineMath,
   insertLink,
+  insertTable,
   toggleBold,
   toggleBulletList,
   toggleHeading,
@@ -178,6 +182,125 @@ describe('insertLink', () => {
     const v = editor('点这里', [0, 3])
     const out = run(v, insertLink('https://example.com'))
     expect(out.doc).toBe('[点这里](https://example.com)')
+    v.destroy()
+  })
+})
+
+/* ---------------------------------------------------------------- 插入骨架类 */
+
+/** 和 `commands.ts` 里的 `TABLE_SKELETON` 逐字一致 —— 断言的是**落下来的源码**。 */
+const TABLE = '| 列一 | 列二 |\n| --- | --- |\n|  |  |'
+
+describe('insertTable', () => {
+  it('空白处 → 落下两列表骨架，光标（选区）在第一个单元格里', () => {
+    const v = editor('', 0)
+    const out = run(v, insertTable)
+    expect(out.doc).toBe(TABLE)
+    // `| ` 是 2 个字符，`列一` 占 [2, 4) —— 选中占位字，接着打字就替换掉它
+    expect(out.ranges[0]).toEqual([2, 4])
+    v.destroy()
+  })
+
+  it('有选区 → 用骨架替换选区（表格没有"包住选中内容"的语义）', () => {
+    const v = editor('旧内容', [0, 3])
+    const out = run(v, insertTable)
+    expect(out.doc).toBe(TABLE)
+    v.destroy()
+  })
+
+  it('★ 多光标：每个选区各插一份，第二份的选区跟着第一份的插入右移', () => {
+    const v = editor('ab', 0, 2)
+    const out = run(v, insertTable)
+    expect(out.doc).toBe(TABLE + 'ab' + TABLE)
+    // 第一份骨架（TABLE.length 字）+ 中间的 `ab`（2 字）+ 第二份里 `列一` 的偏移 [2, 4]
+    expect(out.ranges).toEqual([
+      [2, 4],
+      [TABLE.length + 2 + 2, TABLE.length + 2 + 4],
+    ])
+    v.destroy()
+  })
+})
+
+describe('insertInlineMath', () => {
+  it('空白处 → 插一对 `$`，光标停在正中间', () => {
+    const v = editor('', 0)
+    const out = run(v, insertInlineMath)
+    expect(out.doc).toBe('$$')
+    expect(out.ranges[0]).toEqual([1, 1])
+    v.destroy()
+  })
+
+  it('有选区 → 用 `$` 包住选区', () => {
+    const v = editor('x^2', [0, 3])
+    const out = run(v, insertInlineMath)
+    expect(out.doc).toBe('$x^2$')
+    // 选区仍罩住原来的公式（两端各被一个 `$` 顶开 1 格）
+    expect(out.ranges[0]).toEqual([1, 4])
+    v.destroy()
+  })
+
+  it('★ 多光标：每个选区各插一对，各自的光标都居中', () => {
+    const v = editor('ab', 0, 2)
+    const out = run(v, insertInlineMath)
+    expect(out.doc).toBe('$$ab$$')
+    expect(out.ranges).toEqual([
+      [1, 1],
+      [5, 5],
+    ])
+    v.destroy()
+  })
+})
+
+describe('insertBlockMath', () => {
+  it('空白处 → 落三行围栏，光标停在中间那行', () => {
+    const v = editor('', 0)
+    const out = run(v, insertBlockMath)
+    expect(out.doc).toBe('```math\n\n```')
+    // ` ```math\n ` 是 8 个字符，光标正好落在空行上
+    expect(out.ranges[0]).toEqual([8, 8])
+    v.destroy()
+  })
+
+  it('有选区 → 把选中的整行包进围栏（和 wrapCodeBlock 同一套）', () => {
+    const v = editor('a = 1', [0, 5])
+    const out = run(v, insertBlockMath)
+    expect(out.doc).toBe('```math\na = 1\n```')
+    expect(out.ranges[0]).toEqual([8, 13])
+    v.destroy()
+  })
+
+  it('★ 多光标：每个选区各落一份围栏', () => {
+    const v = editor('ab', 0, 2)
+    const out = run(v, insertBlockMath)
+    expect(out.doc).toBe('```math\n\n```ab```math\n\n```')
+    // 第一份围栏 12 字 + `ab` 2 字 + 第二份里空行的偏移 8
+    expect(out.ranges).toEqual([
+      [8, 8],
+      [12 + 2 + 8, 12 + 2 + 8],
+    ])
+    v.destroy()
+  })
+})
+
+describe('insertEmbed', () => {
+  it('空白处 → 落三行 `embed` 围栏，光标停在中间那行', () => {
+    const v = editor('', 0)
+    const out = run(v, insertEmbed)
+    expect(out.doc).toBe('```embed\n\n```')
+    // ` ```embed\n ` 是 9 个字符
+    expect(out.ranges[0]).toEqual([9, 9])
+    v.destroy()
+  })
+
+  it('★ 多光标：每个选区各落一份围栏', () => {
+    const v = editor('ab', 0, 2)
+    const out = run(v, insertEmbed)
+    expect(out.doc).toBe('```embed\n\n```ab```embed\n\n```')
+    // 第一份围栏 13 字 + `ab` 2 字 + 第二份里空行的偏移 9
+    expect(out.ranges).toEqual([
+      [9, 9],
+      [13 + 2 + 9, 13 + 2 + 9],
+    ])
     v.destroy()
   })
 })
