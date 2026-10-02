@@ -66,4 +66,37 @@ describe('mountEditor', () => {
     view.destroy()
     el.remove()
   })
+
+  /*
+   * 数学渲染函数的**整条透传链**：`mountEditor` → `nexusdown()` →
+   * `createEditorFeatureMap()` → math 功能的块级公式装饰。
+   *
+   * ⚠️ 围栏**不能放在文档开头**：`EditorState.create` 不传 selection 时光标落在
+   * 位置 0，也就是第一行 —— 那正好是开围栏行，会被判成**揭示态**、不渲染公式。
+   * 所以前面垫一段 `前言`。
+   */
+  it('★ 传了 mathRenderer → ```math 围栏渲染成公式（不是代码块）', () => {
+    const el = host()
+    const view = mountEditor({
+      parent: el,
+      doc: '前言\n\n```math\nx^2\n```',
+      mathRenderer: {
+        renderToString: (tex) => `<span class="katex-stub" data-tex="${tex}"></span>`,
+      },
+    })
+
+    expect(el.querySelector('.katex-stub')).toBeTruthy()
+    expect(el.querySelector('.nd-code-block')).toBeNull()
+    view.destroy()
+    el.remove()
+  })
+
+  it('★ 没传 mathRenderer → ```math 仍降级成普通代码块（不报错）', () => {
+    const el = host()
+    const view = mountEditor({ parent: el, doc: '前言\n\n```math\nx^2\n```' })
+
+    expect(el.querySelector('.nd-code-block')).toBeTruthy()
+    view.destroy()
+    el.remove()
+  })
 })

@@ -236,6 +236,26 @@ describe('embed —— 非 embed 围栏：行为必须完全不变', () => {
   })
 })
 
+describe('embed —— 把 math 围栏让出去', () => {
+  /*
+   * ` ```math ` 在语法上也是一个 `FencedCode`，而 `FencedCode` 归 embed 认领 ——
+   * 不主动让的话它会被这里画成代码块，和 math 功能的公式 widget 叠在同一区间上。
+   *
+   * ⚠️ 这里**只注入 embedFeature**，所以 math 功能不在场、围栏落成"什么都不画"
+   * （源码可见）。真实编辑器里 math 功能一定会注册，它会接手这个围栏 ——
+   * 完整的两者协同在 `math.test.ts` 的「与 embed 的分流」里钉住。
+   */
+  it('★ ` ```math ` 不产生任何 embed 装饰（不画代码块、不画占位卡）', () => {
+    const { instance } = mount('```math\nx^2\n```\n\n尾部')
+    expect(read(instance)).toHaveLength(0)
+  })
+
+  it('` ```mathx ` 这种"以 math 开头"的 info 不被误判（仍走普通代码块）', () => {
+    const { instance } = mount('```mathx\nx\n```\n\n尾部')
+    expect(read(instance).filter((d) => d.widget === 'CodeFenceHeaderWidget')).toHaveLength(1)
+  })
+})
+
 describe('embed —— context 透传（折叠）', () => {
   /**
    * 直接调 `embedFeature.decorate`，**绕开 `plugin.ts`**。

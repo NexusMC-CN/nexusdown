@@ -18,7 +18,8 @@ import { decorateHeading } from './decorate/heading';
 import { decorateInline } from './decorate/inline';
 import { decorateLink, linkClickHandler } from './decorate/link';
 import { decorateListItem } from './decorate/list';
-import { EDITOR_FEATURE_BY_NODE } from './features/index';
+import { createEditorFeatureMap } from './features/index';
+import type { MathRenderer } from './features/math';
 import { foldedBlocks } from './fold';
 import { nexusdownLivePreview } from './plugin';
 import { markdownKeymap } from './shortcuts';
@@ -84,6 +85,24 @@ export interface NexusdownOptions {
   urlPolicy?: UrlPolicy;
   /** 引用式链接（`[text][ref]`）索引；不传则由 link 装饰器从 doc 现算。 */
   references?: LinkReferences;
+  /**
+   * **数学渲染函数**（可选）—— 让块级 ` ```math ` 围栏在编辑器里就显示成公式。
+   *
+   * 形状与渲染侧的 `KatexLike` **完全一致**，所以消费方可以把**同一个 katex 对象**
+   * 同时喂给编辑器和渲染器：
+   *
+   * ```ts
+   * import katex from 'katex'
+   * import 'katex/dist/katex.min.css'      // ⚠️ 字体 CSS 也要引
+   *
+   * mountEditor({ parent, doc, mathRenderer: katex })
+   * renderMarkdown(src, { plugins: [katexRenderer(katex)] })
+   * ```
+   *
+   * 不传时**不报错**：块级公式退回普通代码块（见 `features/math.ts`）。
+   * 库**自己不 import katex** —— 那是 peer（~4 MB，绝大多数是字体），不该替所有消费方付这个体积。
+   */
+  mathRenderer?: MathRenderer;
 }
 
 /**
@@ -108,7 +127,7 @@ export interface NexusdownOptions {
  * CM6 的 `historyField` 是 StateField，同一份 field 只生效一次。
  */
 export function nexusdown(opts: NexusdownOptions = {}): Extension {
-  const { codeLanguages, defaultCodeLanguage, urlPolicy, references } = opts;
+  const { codeLanguages, defaultCodeLanguage, urlPolicy, references, mathRenderer } = opts;
 
   return [
     // ⚠️ 必须用 `base: markdownLanguage`（GFM）。
@@ -134,8 +153,12 @@ export function nexusdown(opts: NexusdownOptions = {}): Extension {
        *
        * 加新元素 = 往 `EDITOR_FEATURES` 加一项，**不要改 `plugin.ts`** ——
        * 骨架只认「节点名 → 功能」，不认识任何具体元素。
+       *
+       * ⚠️ 走 `createEditorFeatureMap()` 而不是直接给 `EDITOR_FEATURE_BY_NODE`：
+       * 前者会把消费方注入的 `mathRenderer` 带进 math 功能（块级公式要用）。
+       * 没传渲染函数时它**原样返回**那张默认表，行为一字不变。
        */
-      features: EDITOR_FEATURE_BY_NODE,
+      features: createEditorFeatureMap({ mathRenderer }),
     }),
 
     // ---------------------------------------------------------------------

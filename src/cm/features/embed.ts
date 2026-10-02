@@ -9,6 +9,9 @@
  * `FencedCode`。但 `FencedCode` 是**所有代码块**的节点 —— 认领它就等于把普通代码块
  * 也抢过来了。所以本功能的 `decorate` 第一件事就是分流：
  *
+ * - `info` 第一段是 `math` → **让出去**（什么都不画）。块级公式也是一个围栏，
+ *   但它归 `features/math.ts`（从 `Document` 扫描里认领）；这里不让的话两边会
+ *   在同一区间上各推一条 replace；
  * - `info` 第一段不是 `embed` → **原样交回** `decorateFencedCode`（`decorate/fence.ts`），
  *   普通代码块的行为**一个字节都不变**；
  * - 是 `embed` 但 provider/kind/id 不合法 → **也交回**，让作者在代码窗口里看到
@@ -52,7 +55,7 @@ import type { EditorSelection, Text } from '@codemirror/state'
 import { Decoration, WidgetType } from '@codemirror/view'
 
 import { embedGlyph, embedTitle, parseEmbedFence, type EmbedSpec } from '../../render/features/embed.js'
-import { decorateFencedCode, isEmbedInfo, readFenceInfo } from '../decorate/fence.js'
+import { decorateFencedCode, isEmbedInfo, isMathInfo, readFenceInfo } from '../decorate/fence.js'
 import { HIDE, pushAtomicRange } from '../decorate/shared.js'
 import type { EditorFeature } from '../feature.js'
 import type { DecorateContext, DecorationRanges, MarkdownNode } from '../types.js'
@@ -153,6 +156,20 @@ function decorateEmbed(
   context?: DecorateContext,
 ): void {
   const info = readFenceInfo(doc, node)
+
+  /*
+   * ` ```math ` 围栏**不归 embed**，直接让出去。
+   *
+   * ⚠️ 这一条必须在下面「不是 embed → 交回 `decorateFencedCode`」**之前**。
+   * embed 认领的是**所有** `FencedCode`（见文件头），而块级公式在语法上也是
+   * 一个围栏，所以默认会被这里画成代码块 —— 那块**公式 widget** 由
+   * `features/math.ts` 从 `Document` 扫描里产出，两者叠在同一区间上会打架
+   * （两条 replace 重叠）。
+   *
+   * 让出去之后，math 功能负责它的全部表现：注入了渲染函数 → 公式；
+   * 没注入 → 它自己调 `decorateFencedCode` 退回普通代码块（见那边）。
+   */
+  if (isMathInfo(info)) return
 
   // 不是 embed → **原样交回**给原来的围栏装饰。普通代码块（```js）走的就是这条。
   if (!isEmbedInfo(info)) {

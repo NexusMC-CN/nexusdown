@@ -31,6 +31,7 @@ import { defaultKeymap } from '@codemirror/commands'
 import { EditorState } from '@codemirror/state'
 import { EditorView, keymap } from '@codemirror/view'
 
+import type { MathRenderer } from './features/math.js'
 import { nexusdown } from './index.js'
 
 export interface MountEditorOptions {
@@ -40,6 +41,13 @@ export interface MountEditorOptions {
   doc: string
   /** 文档变化时回调（对应 `v-model` 的回填）。 */
   onDocChange?: (value: string) => void
+  /**
+   * 数学渲染函数（可选）—— 注入后块级 ` ```math ` 围栏在编辑器里就显示成公式。
+   *
+   * 形状与渲染侧 `KatexLike` 一致，消费方可以把**同一个 katex 对象**喂给两侧。
+   * 不传时**不报错**：块级公式退回普通代码块（见 `features/math.ts`）。
+   */
+  mathRenderer?: MathRenderer
 }
 
 /**
@@ -69,8 +77,11 @@ export function mountEditor(options: MountEditorOptions): EditorView {
          * （`allowMultipleSelections` —— 命令的多光标安全靠它）→ 链接点击 →
          * Markdown 快捷键 → 撤销栈 → `drawSelection()`（**光标就是它画的**）
          * → 当前行高亮 → 基础语法着色 → baseTheme。
+         *
+         * `mathRenderer` 一路透传下去，最终进 math 功能的块级公式装饰。
+         * 不传时 `nexusdown()` 的行为与没有这个参数时**一字不变**。
          */
-        nexusdown(),
+        nexusdown({ mathRenderer: options.mathRenderer }),
 
         /*
          * `nexusdown()` **故意不含** `defaultKeymap`（它只带 `historyKeymap`

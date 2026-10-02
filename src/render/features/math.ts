@@ -117,8 +117,14 @@ export function katexRenderer(katex: KatexLike): MathKatexPlugin {
  *   默认 `Infinity`，一条 `\rule{100000em}{1em}` 就能把页面撑到几百万像素宽。
  * - `maxExpand: 1000` —— `\def` / `\edef` 宏展开次数上限，挡「宏递归展开」这类
  *   CPU DoS。KaTeX 默认就是 1000，这里**显式写出来**，免得日后有人以为没设。
+ *
+ * ★ **导出**是给编辑器侧的块级公式 widget 用的（`cm/features/math.ts`）——
+ * 编辑器里也要调 `renderToString`，而这些选项**每一项都是安全底线**。
+ * 抄一份到那边就会漂（一边补了 `maxSize`、另一边没有，而且两边都"看起来对"），
+ * 所以两边共用**同一个常量对象**。本模块没有运行时 import（全是 `import type`），
+ * 因此编辑器侧引入它不会把 markdown-it 拖进 CM 的产物。
  */
-const KATEX_OPTIONS = {
+export const KATEX_OPTIONS = {
   throwOnError: false,
   trust: false,
   strict: 'ignore',

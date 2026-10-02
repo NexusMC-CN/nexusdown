@@ -4,15 +4,19 @@
  * 由消费方在 `theme.css` 顶部 `@import`（见接线清单）——
  * ⚠️ `@import` 必须在 `:root {` **之前**，否则浏览器静默丢弃整条 `@import`。
  *
- * 只负责「行内公式 widget 长什么样」。机制（替换、原子区间、揭示态）在 `math.ts`。
+ * 两件事：
+ *
+ * - **行内公式**（`.nd-math`）：非揭示态显示 TeX 源码的胶囊（编辑器里不跑 KaTeX）。
+ * - **块级公式**（`.nd-math-block` + `.nd-math-open` / `.nd-math-hidden`）：
+ *   非揭示态由注入的渲染函数画出真公式。机制（替换、原子区间、揭示态）在 `math.ts`。
  */
 
 /*
  * 行内公式（非揭示态显示 TeX 源码的那个胶囊）。
  *
- * 用**数学衬线字体**把 `x^2` 衬出「这是公式」的感觉 —— 编辑器里不跑 KaTeX
- * （KaTeX 是可选依赖、widget 又是同步的，见 `math.ts` 的注释），所以只能靠
- * 字体 + 底色给出视觉区分。真正排版好的公式在**显示侧**（`render/features/math.ts`）。
+ * 用**数学衬线字体**把 `x^2` 衬出「这是公式」的感觉 —— 编辑器里行内不跑 KaTeX
+ * （见 `math.ts` 的注释），所以只能靠字体 + 底色给出视觉区分。
+ * 真正排版好的公式在**显示侧**（`render/features/math.ts`）。
  */
 .nd-math {
   /*
@@ -39,4 +43,82 @@
 /* 悬停时略加深，暗示「这里可以点进去编辑」。 */
 .nd-math:hover {
   background: var(--nd-math-bg-hover, rgb(0 0 0 / 7%));
+}
+
+/* =========================================================================
+ * 编辑器侧：块级公式（```math 围栏）
+ *
+ * 机制在 `math.ts` 的 `decorateMathFences`：开围栏行整行换成公式 widget，
+ * 内容行 + 闭围栏行藏内容并压成 0 高。这里只负责长什么样。
+ *
+ * 这套「行 padding + widget 负 margin 通到左右边缘」的账和 `embed.css` 的
+ * 占位卡是同一套，理由也一样（行是 border-box，content-box 比整行窄一个 pad）。
+ * ======================================================================= */
+
+/*
+ * 开围栏那一行 —— 只补 `padding-left`，好让公式用负 margin 通到行左边缘。
+ *
+ * ⚠️ 选择器必须带 `.cm-editor .cm-line` 前缀：CM6 自己的
+ * `.cm-line { padding: 0 2px 0 6px }` 是**简写**，同特异度下靠文档顺序赢，
+ * 不带前缀会被它重置掉（`.nd-embed-open` 踩过同一个坑）。
+ */
+.cm-editor .cm-line.nd-math-open {
+  padding-left: var(--nd-code-pad, 0.9em);
+  padding-right: 0;
+}
+
+/*
+ * 非开围栏的行（内容行 + 闭围栏）—— 压成 0 高。
+ *
+ * 只靠 `HIDE` 不够：`Decoration.replace` 藏的是行内内容、不含换行符，空行仍然
+ * 占一整行高度（同 `.nd-embed-hidden`）。
+ */
+.cm-editor .cm-line.nd-math-hidden {
+  height: 0;
+  min-height: 0;
+  padding: 0;
+  margin: 0;
+  overflow: hidden;
+  font-size: 0;
+  line-height: 0;
+}
+
+/*
+ * 公式本体。
+ *
+ * ⚠️ `inline-block`，**不能是 `flex` / `block`**：CM6 会在 `Decoration.replace`
+ * 的 widget **前后各插一个 `<img class="cm-widgetBuffer">`**（行内元素），
+ * 块级布局会让三者垂直堆叠成三行（同 `.nd-embed-card` / `.nd-code-header` 的坑）。
+ *
+ * ⚠️ 要**盖掉行内胶囊那套样式**（`.nd-math` 的数学衬线 + 斜体 + 底色）：
+ * 那是给「显示 TeX 源码」用的。真公式的字体/斜体由 KaTeX 自己管，外面再套一层
+ * 斜体反而会把 KaTeX 的直立符号（`\int` / `\sum` 之类）弄歪。
+ */
+.nd-math.nd-math-block {
+  display: inline-block;
+  box-sizing: border-box;
+  width: calc(100% + var(--nd-code-pad, 0.9em));
+  margin-left: calc(-1 * var(--nd-code-pad, 0.9em));
+  padding: 0.5em var(--nd-code-pad, 0.9em);
+  /* 顶对齐：inline 元素默认按基线对齐，会多出一截基线以下的空隙。 */
+  vertical-align: top;
+  /* 居中由 KaTeX 的 `.katex-display` 负责；这里给个兜底，降级成源码时也居中。 */
+  text-align: center;
+  background: none;
+  font-family: inherit;
+  font-style: normal;
+}
+
+/* 大公式悬停不该整块变色（行内胶囊那套 hover 只适合小段源码）。 */
+.nd-math.nd-math-block:hover {
+  background: none;
+}
+
+/* 渲染函数抛错时的降级形态：直接显示 TeX 源码，用等宽字体标出"这是原始代码"。 */
+.nd-math.nd-math-block.nd-math-source {
+  font-family: var(--nd-font-mono);
+  font-size: 0.9em;
+  color: var(--nd-text-2);
+  white-space: pre-wrap;
+  text-align: left;
 }

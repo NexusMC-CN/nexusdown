@@ -94,6 +94,26 @@ export function isEmbedInfo(info: string | null | undefined): boolean {
   return info.split(/\s+/)[0] === 'embed'
 }
 
+/**
+ * `info` 的第一段是不是 `math` —— **块级公式**的围栏（契约第 2 节）。
+ *
+ * 和 `isEmbedInfo` 是同一套判定，理由也一样：
+ *
+ * - **只认第一段**（` ```math title=x ` 也算 math），和渲染侧
+ *   `render/features/math.ts` 的 `language === 'math'` 逐字一致 ——
+ *   两边各写一遍迟早会漂（一边 `trim` 一边没 `trim`，于是同一条围栏
+ *   在一侧认得、另一侧认不得）。
+ * - **不在这里校验内容** —— 「是不是 math 围栏」和「公式写没写对」是两件事，
+ *   后者是 KaTeX 的事。
+ *
+ * ⚠️ **谁在用**：`features/embed.ts` 用它把 math 围栏**让出去**（不画成代码块），
+ * 真正的装饰在 `features/math.ts` 的 Document 扫描里。为什么是这个分工见那边文件头。
+ */
+export function isMathInfo(info: string | null | undefined): boolean {
+  if (!info) return false
+  return info.split(/\s+/)[0] === 'math'
+}
+
 export function decorateFencedCode(
   ranges: DecorationRanges,
   atomicRanges: DecorationRanges,

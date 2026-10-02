@@ -35,6 +35,13 @@
  * 也是从同一个 `nexusdown/cm` 来的 ✓。
  */
 import type { EditorView } from 'nexusdown/cm'
+/*
+ * ⚠️ **只 import type**（同上一行的 `EditorView`）—— `KatexLike` 是纯类型，
+ * 编译期就被擦掉，不会变成运行时 import，也就不会把"第二份 CM6 / markdown-it"
+ * 引回来。`nexusdown/render` 与 `nexusdown/cm` 共用同一个 `KatexLike` 定义，
+ * 保证这个 prop 的渲染函数能**原样**同时喂给编辑器和渲染器。
+ */
+import type { KatexLike } from 'nexusdown/render'
 import { onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
 
 import NexusdownToolbar from './Toolbar.vue'
@@ -52,6 +59,18 @@ import '../cm/theme.css'
 const props = defineProps<{
   /** 文档内容。配 `v-model` 用。 */
   modelValue: string
+  /**
+   * 数学渲染函数（可选）—— 注入后块级 ` ```math ` 围栏在编辑器里就显示成公式。
+   *
+   * 形状与渲染侧 `KatexLike` 一致，消费方可以把**同一个 katex 对象**同时喂给
+   * 编辑器和渲染器（见 `mount.ts` / `features/math.ts`）。不传时**不报错**：
+   * 块级公式退回普通代码块。
+   *
+   * ```vue
+   * <NexusdownEditor v-model="text" :math-renderer="katex" />
+   * ```
+   */
+  mathRenderer?: KatexLike
 }>()
 
 const emit = defineEmits<{
@@ -101,6 +120,7 @@ async function mount(): Promise<void> {
       parent: el,
       doc: props.modelValue,
       onDocChange: (value) => emit('update:modelValue', value),
+      mathRenderer: props.mathRenderer,
     })
   } catch (e) {
     /*
