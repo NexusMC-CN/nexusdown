@@ -187,6 +187,20 @@ export { renderCodeHeaderHtml, type CodeHeaderRenderOptions } from '../cm/widget
 export type { LinkCardMeta, LinkResolution, RenderData } from './feature.js'
 export { readRenderData } from './feature.js'
 /*
+ * ★ **嵌入功能的公开面** —— 消费方要用它们做"预解析"。
+ *
+ * 短链和 SEO 卡片在**渲染期解不了**（渲染是纯函数、不发网络请求）✗，
+ * 所以消费方得先自己解析，再通过 `renderMarkdown(src, { data: { links } })` 传进来 ✓。
+ *
+ * `isShortLink` 是**判定短链的唯一出处** ✓（`SHORT_LINK_HOSTS` 在 `features/embed.ts` 里）——
+ * 消费方**不要另抄一张域名表** ✗：那边加了平台、这边认不得，
+ * 就会出现"某些短链在预览里能出卡片、发出来不行" ✓。
+ *
+ * ⚠️ 这两个以前**没导出** ✗ —— 和 `katexRenderer` 是同一类缺口：
+ * 文档写了、代码没给，只有真的去接才会撞上（这次就是接短链解析时撞的 ✓）。
+ */
+export { isShortLink, parseEmbedUrl, type EmbedSpec, type EmbedProvider, type EmbedKind } from './features/embed.js'
+/*
  * ★ **KaTeX 的接线口。**
  *
  * 数学扩展**自己不 import katex**（那是 peer，1.3 MB，绝大多数是字体 ✓）——
