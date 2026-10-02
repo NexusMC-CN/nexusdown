@@ -1,0 +1,76 @@
+/**
+ * `table` 功能的视觉规则（编辑器侧）。
+ *
+ * ⚠️ 这个文件由 `theme.css` **统一 `@import`**（接线在那边，别在这里 import 任何东西）——
+ * 和 `decorate/*.ts` 不各自 import CSS 是同一个约定：CSS 只有一个入口，
+ * 消费方替换 `theme.css` 就能整体换肤。
+ *
+ * ## 这里的 HTML 是**渲染侧产出的**，不是我们拼的
+ *
+ * 表格内容走 `renderMarkdown`（`features/table.ts` 的 `TableWidget`），
+ * 所以结构就是渲染侧 `renderer.ts` 的 `applyTableRules` 那一套：
+ *
+ *     <table><tbody><tr><th><p>a</p></th>…</tr>…</tbody></table>
+ *
+ * 两个必须记住的后果：
+ *
+ * 1. **每个单元格里都套了一个 `<p>`** —— 那是渲染侧刻意的（和编辑器旧的 Tiptap
+ *    表格逐字一致）。不把它压扁的话，单元格上下会多出一整段的段落行距。
+ * 2. **没有 `<thead>`** —— 渲染侧把 `thead_open` 改写成 `<tbody>` 了
+ *    （表头是「第一行的 th」，不是一个 section）。所以别写 `thead` 选择器。
+ */
+
+/*
+ * widget 外壳。
+ *
+ * ⚠️ `padding` 左右要和 `.cm-line` 的 `0 2px 0 6px` 对齐，表格才和正文左边缘齐平
+ *    （block widget 是 `.cm-content` 的直接子节点，不在 `.cm-line` 里，拿不到那份内边距）。
+ *
+ * ⚠️ **上下留白只能用 `padding`，不能用 `margin`** —— CM6 对块级装饰的高度测量
+ *    不含垂直 margin，写了会算错高度（`@codemirror/view` 的 `Decoration` 文档明确要求
+ *    block 装饰「should not have vertical margins」）。
+ */
+.cm-editor .nd-table {
+  padding: 6px 2px 6px 6px;
+}
+
+.cm-editor .nd-table table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.95em;
+}
+
+.cm-editor .nd-table th,
+.cm-editor .nd-table td {
+  padding: 0.4em 0.6em;
+  border: 1px solid var(--nd-border, #e4e7ea);
+  text-align: left;
+  vertical-align: top;
+}
+
+/* 表头（渲染侧的 `<th>`，在第一行）。 */
+.cm-editor .nd-table th {
+  background: var(--nd-surface, #f6f7f8);
+  font-weight: 700;
+}
+
+/*
+ * 压掉单元格里的 `<p>` 行距（见文件头第 1 条）。
+ *
+ * `> p` 是**直接子节点**限定：单元格里如果是一段正文，markdown-it 不会多包一层
+ * `<p>`；但若单元格里写了列表，列表项里的 `<p>` 不该被这里影响。
+ */
+.cm-editor .nd-table th > p,
+.cm-editor .nd-table td > p {
+  margin: 0;
+}
+
+/*
+ * 降级态（渲染抛异常时的 `textContent` 源码）。按等宽 + 淡色显示，
+ * 让作者一眼看出「这里渲染挂了、先把源码给你」。
+ */
+.cm-editor .nd-table.nd-table-source {
+  white-space: pre-wrap;
+  font-family: var(--nd-font-mono, monospace);
+  color: var(--nd-text-3, #6b7280);
+}

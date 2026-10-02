@@ -48,6 +48,36 @@ export interface EditorFeature {
   nodes: readonly string[];
 
   /**
+   * 这个功能产出的是**块级替换**（`Decoration.replace({ block: true })`）。
+   *
+   * ## ⚠️ 为什么需要这个标记：CM6 禁止 ViewPlugin 提供块级装饰
+   *
+   * 实测（`@codemirror/view` 6.43.13）—— 从 ViewPlugin 的 `decorations` 里推一个
+   * `block: true` 的 replace，挂载时直接抛：
+   *
+   *     RangeError: Block decorations may not be specified via plugins
+   *
+   * 根因：CM6 用 `dynamicDecorationMap[i] = typeof d == "function"` 标记
+   * 「这个装饰集是**动态**的」（ViewPlugin 的 `decorations:` 会被包成
+   * `decorations.of(view => …)`，是个函数），动态装饰集**一律**禁止块级效果 ——
+   * 因为块级装饰会改垂直布局，而布局必须在 state 更新时就定下来。
+   *
+   * 跨行 `replace` 同样被禁（`Decorations that replace line breaks may not be
+   * specified via plugins`），所以「藏掉整块」这条路在 ViewPlugin 里**走不通** ✗。
+   *
+   * ## 于是骨架怎么处理它
+   *
+   * `plugin.ts` 把带这个标记的功能**分流**到 `EditorView.decorations.from(field)`
+   * 背后的 StateField（facet 值不是函数 → 允许块级 ✓），ViewPlugin 那边跳过它们。
+   * 功能作者什么都不用做，照常往 `ranges` 里 push 块级 replace 即可。
+   *
+   * ⚠️ 带这个标记的功能，`decorate` 里**别推行内 mark / 行级 line 装饰** ——
+   * 那些会被一起丢进 StateField（也能用，但会失去 ViewPlugin 的可见区裁剪，
+   * 大文档上白付全文遍历的钱）。
+   */
+  block?: boolean;
+
+  /**
    * 认领节点的装饰逻辑。签名与 `DecorateFn` 完全一致 ——
    * **只往两个数组里 push，不返回任何东西**。
    *

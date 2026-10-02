@@ -1,5 +1,21 @@
+/**
+ * Live Preview 骨架 —— 遍历语法树、按节点名分发、把装饰装进两个桶。
+ *
+ * ## 两条装饰通道（为什么不是一条）
+ *
+ * 绝大多数功能产出的是**行内 mark / 行级 line** 装饰，走 `ViewPlugin`（下面那个
+ * `NexusdownLivePreview`）：它能只遍历**可见区**，大文档上省下大量工作。
+ *
+ * 但带 `block: true` 的功能产出**块级替换**，CM6 **禁止 ViewPlugin 提供块级装饰**
+ * （挂载即抛 `RangeError: Block decorations may not be specified via plugins`）——
+ * 块级装饰会改垂直布局，而布局必须在 state 更新时就定下来。这类功能只能由
+ * `StateField` 经 `EditorView.decorations.from(field)` 提供（见 `blockDecorations`）。
+ *
+ * 分流点是 `splitFeatures`：没有块级功能时，本函数**原样返回那个 ViewPlugin**
+ * （不是包一层数组），行为与加这条通道之前一字不差。
+ */
 import { syntaxTree } from '@codemirror/language';
-import type { Extension } from '@codemirror/state';
+import { EditorState, StateField, type Extension } from '@codemirror/state';
 import {
   Decoration,
   type DecorationSet,
@@ -16,6 +32,7 @@ import type {
   DecorationRanges,
   LinkReferences,
   LivePreviewDecorators,
+  MarkdownNode,
   UrlPolicy,
 } from './types';
 
@@ -95,6 +112,18 @@ export interface LivePreviewPluginValue extends PluginValue {
  */
 export function nexusdownLivePreview(opts: LivePreviewOptions = {}): Extension {
   const features = opts.features ?? NO_FEATURES;
+  /*
+   * ★ **按「装饰能不能从 ViewPlugin 出来」把功能分成两拨。**
+   *
+   * 带 `block: true` 的功能产出块级替换，而 CM6 **禁止 ViewPlugin 提供块级装饰**
+   * （运行时抛 `Block decorations may not be specified via plugins`，见
+   * `feature.ts` 的 `EditorFeature.block`）。所以它们改由下面那个 StateField 提供。
+   *
+   * ⚠️ 没有块级功能时（绝大多数单测、以及只装行内功能的消费方）**原样返回
+   * 那个 ViewPlugin** —— 返回类型、插件实例的获取方式都和加这个通道之前一字不差，
+   * 不制造无谓的行为变化。
+   */
+  const { view: viewFeatures, block: blockFeatures } = splitFeatures(features);
 
   const decorators: LivePreviewDecorators = {
     heading: opts.decorators?.heading ?? NOOP_DECORATOR,
@@ -231,7 +260,7 @@ export function nexusdownLivePreview(opts: LivePreviewOptions = {}): Extension {
              * ⚠️ 命中后**不 return false**：认领父节点 ≠ 放弃子树，
              * 比如表格里还可能有行内标记。
              */
-            const feature = features.get(name);
+            const feature = viewFeatures.get(name);
             if (feature) {
               /*
                * ⚠️ **`context` 必须传下去。**
@@ -323,12 +352,121 @@ export function nexusdownLivePreview(opts: LivePreviewOptions = {}): Extension {
     }
   }
 
-  return ViewPlugin.fromClass(NexusdownLivePreview, {
+  const plugin = ViewPlugin.fromClass(NexusdownLivePreview, {
     decorations: (v) => v.decorations,
     // ★ 必须给 `atomicDecorations` 这个**独立集合**，不是 `decorations`。
     //   把 decorations 直接当 atomicRanges，揭示态的标记也会被当成原子块，
     //   光标就没法一个字符一个字符走进 `**` 里。
     provide: (p) =>
       EditorView.atomicRanges.of((view) => view.plugin(p)?.atomicDecorations ?? Decoration.none),
+  });
+
+  /*
+   * 没有块级功能 → **返回 ViewPlugin 本身**（不是包一层数组）：
+   * `view.plugin(nexusdownLivePreview(...))` 这种用法在测试里到处都是，
+   * 包成数组会让它们全部找不到插件实例。
+   */
+  if (blockFeatures.size === 0) return plugin;
+  return [blockDecorations(blockFeatures), plugin];
+}
+
+/**
+ * 把功能表按 `block` 标记分成两拨。没有块级功能时**原样返回同一个 Map** ——
+ * 不制造一个内容相同的新对象（避免给「这个功能表变了吗」这类引用比较添乱）。
+ */
+function splitFeatures(features: ReadonlyMap<string, EditorFeature>): {
+  view: ReadonlyMap<string, EditorFeature>;
+  block: ReadonlyMap<string, EditorFeature>;
+} {
+  const block = new Map<string, EditorFeature>();
+  for (const [name, feature] of features) {
+    if (feature.block) block.set(name, feature);
+  }
+  if (block.size === 0) return { view: features, block };
+  const view = new Map<string, EditorFeature>();
+  for (const [name, feature] of features) {
+    if (!feature.block) view.set(name, feature);
+  }
+  return { view, block };
+}
+
+/**
+ * **块级装饰通道** —— 一个 StateField，提供 `EditorView.decorations`。
+ *
+ * ## 为什么必须是 StateField（而不是 ViewPlugin）
+ *
+ * CM6 的 `dynamicDecorationMap[i] = typeof d == "function"`：ViewPlugin 的
+ * `decorations:` 会被包成函数 → 标记为动态 → **禁止块级效果**（挂载即抛
+ * `Block decorations may not be specified via plugins`）。StateField 经
+ * `EditorView.decorations.from(field)` 提供时，facet 值是**字段的当前值**
+ * （一个 `DecorationSet`，不是函数）→ 动态标记为假 → 块级装饰放行 ✓。
+ *
+ * ## 只跑块级功能，且按「语法树」缓存节点列表
+ *
+ * 这个字段**不碰**行内功能（那些还在 ViewPlugin 里，享受可见区裁剪）。它只在
+ * 全树里挑出块级功能认领的节点，逐个交给 `feature.decorate`。
+ *
+ * ⚠️ 缓存按**语法树对象**（不是 `doc`）：lezer 是**增量**解析的，同一个 doc 在
+ * 解析补全前后可能是**两棵树** —— 按 doc 缓存会把「树还没解析出表格」这个中间态
+ * 永久钉住。按树缓存则树一换就重算。
+ */
+function blockDecorations(
+  blockFeatures: ReadonlyMap<string, EditorFeature>,
+): Extension {
+  const cache = new WeakMap<object, MarkdownNode[]>();
+
+  function nodesFor(state: EditorState): MarkdownNode[] {
+    const tree = syntaxTree(state);
+    const hit = cache.get(tree);
+    if (hit) return hit;
+
+    const nodes: MarkdownNode[] = [];
+    tree.iterate({
+      enter: (ref) => {
+        if (!blockFeatures.has(ref.name)) return;
+        nodes.push(ref.node);
+        // 块级功能独占整棵子树 —— 表格里不可能再嵌一个块级功能。
+        return false;
+      },
+    });
+    cache.set(tree, nodes);
+    return nodes;
+  }
+
+  function build(state: EditorState): DecorationSet {
+    const nodes = nodesFor(state);
+    if (nodes.length === 0) return Decoration.none;
+
+    const ranges: DecorationRanges = [];
+    const atomicRanges: DecorationRanges = [];
+    const doc = state.doc;
+    const selection = state.selection;
+    for (const node of nodes) {
+      blockFeatures.get(node.name)?.decorate(ranges, atomicRanges, node, doc, selection);
+    }
+    // `true` = 自动排序，同 ViewPlugin 那边（块级区间跨度大，顺序不保证单调）。
+    return Decoration.set(ranges, true);
+  }
+
+  return StateField.define<DecorationSet>({
+    create: (state) => build(state),
+    update(deco, tr) {
+      /*
+       * 只在「文档变了 / 语法树换了 / 选区动了」时重算。
+       *
+       * ⚠️ **选区必须算进来** —— 揭示态（光标紧邻表格）就是靠选区驱动的
+       * （见 `features/table.ts` 的「紧邻即揭示」）。漏了它，光标走到表格门口
+       * 表格也不会换回源码，**而且零报错**。
+       */
+      if (
+        !tr.docChanged &&
+        syntaxTree(tr.startState) === syntaxTree(tr.state) &&
+        tr.startState.selection.eq(tr.state.selection)
+      ) {
+        return deco;
+      }
+      return build(tr.state);
+    },
+    provide: (field) => EditorView.decorations.from(field),
   });
 }

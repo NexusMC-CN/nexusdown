@@ -2,6 +2,7 @@ import { indexFeatures, type EditorFeature } from '../feature';
 import { emojiFeature } from './emoji';
 import { embedFeature } from './embed';
 import { createMathFeature, mathFeature, type MathRenderer } from './math';
+import { tableFeature } from './table';
 
 /**
  * 所有**编辑器侧**功能模块。
@@ -17,6 +18,7 @@ import { createMathFeature, mathFeature, type MathRenderer } from './math';
 export const EDITOR_FEATURES: readonly EditorFeature[] = [
   emojiFeature,
   mathFeature,
+  tableFeature,
   embedFeature,
 ];
 
@@ -42,5 +44,5 @@ export function createEditorFeatureMap(
   opts: { mathRenderer?: MathRenderer } = {},
 ): ReadonlyMap<string, EditorFeature> {
   if (!opts.mathRenderer) return EDITOR_FEATURE_BY_NODE;
-  return indexFeatures([emojiFeature, createMathFeature(opts.mathRenderer), embedFeature]);
+  return indexFeatures([emojiFeature, createMathFeature(opts.mathRenderer), tableFeature, embedFeature]);
 }
