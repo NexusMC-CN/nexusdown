@@ -2895,6 +2895,15 @@ function replayDemos(event: MouseEvent) {
 .demo-inline-math__caret {
   position: absolute;
   left: 100%;
+  /*
+   * ⚠️ **这 2px 是必须的** ✗ —— caret 是绝对定位贴在 `x` 右边（`left: 100%`），
+   * 而终态里 `2` 的 `margin-left` 会收到 0 → **两者落在同一个位置** ✓
+   * 设计上靠"caret 淡出"错开，但只要淡出还没走完，用户就会看到**字叠在一起** ✓
+   * （用户截图：「那个 `^` 都和 `2` 叠一起了」）。
+   *
+   * 留 2px：哪怕动画停在中间帧，两个字形也不会真正压上 ✓。
+   */
+  margin-left: 2px;
   top: 50%;
   transform: translateY(-50%);
   color: var(--nd-text-4);
@@ -2911,11 +2920,17 @@ function replayDemos(event: MouseEvent) {
     transform: translateY(0) scale(1);
     margin-left: 4px;
   }
-  /* 4 渲染：`^` 消失，`2` 缩小抬起、贴回 `x` */
+  /*
+   * 4 渲染：`^` 消失，`2` 缩小抬起、贴回 `x`。
+   *
+   * ⚠️ `margin-left` 收 **2px 而不是 0** —— 收成 0 的话，只要 caret 的淡出
+   * 还没走完，`^` 和 `2` 就会**落在同一像素上** ✓（用户截图里那个重叠）。
+   * 留 2px 的代价是终态 `x²` 有一丝缝 ✓，但换到"任何一帧都不重叠" ✓。
+   */
   66%,
   100% {
     transform: translateY(-5px) scale(0.72);
-    margin-left: 0;
+    margin-left: 2px;
   }
 }
 @keyframes demo-inline-math-caret {
@@ -2955,10 +2970,23 @@ function replayDemos(event: MouseEvent) {
   height: 44px;
   display: flex;
   align-items: center;
-  justify-content: center;
+  /*
+   * ⚠️ **不能 `justify-content: center`** ✗ —— 它是**块级**内容，
+   * 而上下两条围栏是**贴左**的（`left: 6px`）。
+   * 居中的话"围栏在左、公式在中"自相矛盾 ✓（用户：「应该靠左而不是居中」）。
+   *
+   * 既有演示里的 `center` 是给**行内**内容的（h1/h2/列表/引用/链接）——
+   * 那种情况下整行居中是对的 ✓。**块级**内容一律跟围栏对齐 ✓。
+   */
+  padding: 0 4px;
   overflow: hidden;
   font: 13px/1.5 system-ui, sans-serif;
   color: var(--nd-text);
+}
+
+/* 公式和围栏左对齐（围栏在 `left: 6px`，这里补上容器 4px 内边距的差） */
+.demo-block-math__formula {
+  margin-left: 2px;
 }
 .demo-block-math__formula {
   white-space: nowrap;
@@ -3015,7 +3043,8 @@ function replayDemos(event: MouseEvent) {
   height: 44px;
   display: flex;
   align-items: center;
-  justify-content: center;
+  /* 同上：块级内容跟围栏对齐，不居中 ✓ */
+  padding: 0 4px;
   overflow: hidden;
   font: 13px/1.5 system-ui, sans-serif;
   color: var(--nd-text);

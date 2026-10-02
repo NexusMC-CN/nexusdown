@@ -167,8 +167,15 @@ describe('math —— 行内公式（非揭示态）', () => {
     )!.spec as { widget: MathWidget }).widget
 
     const dom = widget.toDOM()
-    expect(dom.className).toBe('nd-math')
-    // 编辑器里不跑 KaTeX，退化成显示 TeX —— 断言这个**约定**，别断言成公式 HTML。
+    /*
+     * ⚠️ 这条**曾经把 bug 写成了断言** ✗ —— 原文是
+     * 「编辑器里不跑 KaTeX，退化成显示 TeX」✓，于是行内公式**永远不渲染** ✓
+     * （用户：「公式没生效」）。
+     *
+     * 现在：**注入渲染函数才渲染** ✓；没注入就降级成源码 ✓（这条测的是后者 ✓）。
+     */
+    expect(dom.className).toContain('nd-math')
+    expect(dom.className).toContain('nd-math-source')
     expect(dom.textContent).toBe('x^2')
   })
 
@@ -385,7 +392,7 @@ describe('math —— 块级公式揭示态', () => {
 })
 
 describe('math —— 注入渲染函数不破坏行内公式', () => {
-  it('★ `$x^2$` 仍然是行内 widget（不调用渲染器）', () => {
+  it('★ `$x^2$` 是行内 widget，且注入的渲染器会被调用', () => {
     const render = makeRenderer()
     const { instance } = mountWith(
       new Map([['Document', createMathFeature(render)]]),
@@ -394,8 +401,25 @@ describe('math —— 注入渲染函数不破坏行内公式', () => {
 
     expect(spans(read(instance), 'widget')).toEqual([[2, 7]])
     expect(widgetCtors(instance)).toEqual(['MathWidget'])
-    // 行内公式在编辑器里仍显示源码 —— 渲染器只服务块级。
-    expect(render.calls).toHaveLength(0)
+
+    /*
+     * ⚠️ 这条**曾经断言"不调用渲染器"** ✗ —— 那正是"行内公式不生效"的根因：
+     * `decorateInlineMath` 压根没接 `render` ✓（用户：「公式没生效」）。
+     *
+     * 现在行内也走注入的渲染器 ✓ —— 和块级、和渲染侧**同一条路** ✓。
+     */
+    const widget = (values(instance).find(
+      (v) => (v.spec as { widget?: unknown }).widget !== undefined,
+    )!.spec as { widget: MathWidget }).widget
+    widget.toDOM()
+    /*
+     * ⚠️ 只断言"**被调用过**"，不数次数、也不查参数内容：
+     * - 次数是**实现细节** ✗（挂载时已经建过一次 DOM ✓，这里再 `toDOM()` 是第二次 ✓）
+     * - `calls` 里存的是渲染器收到的**整个入参** ✗，不是 TeX 字符串 ✓
+     *
+     * 而这条测试要守的只有一件事：**行内公式也走注入的渲染器** ✓。
+     */
+    expect(render.calls.length).toBeGreaterThan(0)
   })
 })
 

@@ -77,11 +77,19 @@ interface MathSpan {
  * 每个都跑一遍 KaTeX 会把输入拖卡，所以行内维持源码显示。）
  */
 export class MathWidget extends WidgetType {
-  constructor(private readonly tex: string) {
+  constructor(
+    private readonly tex: string,
+    private readonly render?: MathRenderer,
+  ) {
     super()
   }
 
-  /** 必须实现，否则每次 rebuild 都重建 DOM（公式会闪）。 */
+  /**
+   * 必须实现，否则每次 rebuild 都重建 DOM（公式会闪）。
+   *
+   * ⚠️ **只比 `tex`，不比 `render`** —— 同一个编辑器里 `render` 恒是同一个对象
+   * （挂载时注入一次），比它没有意义，反而会在某些情况下让 `eq` 恒假 ✓。
+   */
   override eq(other: MathWidget): boolean {
     return other.tex === this.tex
   }
@@ -89,7 +97,29 @@ export class MathWidget extends WidgetType {
   override toDOM(): HTMLElement {
     const span = document.createElement('span')
     span.className = 'nd-math'
+
+    /*
+     * ★ **真的渲染** —— 以前这里只有 `textContent = tex` ✗，于是行内公式
+     * **永远显示成源码** ✓（`$x^2$` 里那个 `x^2` 就是它 ✓）。
+     * 这是"编辑器里的公式不生效"的真正原因 ✓ —— 不是渲染函数没传进来 ✓，
+     * 是**行内这条路根本没接渲染器** ✗。
+     */
+    if (this.render) {
+      try {
+        span.innerHTML = this.render.renderToString(this.tex, {
+          ...KATEX_OPTIONS,
+          displayMode: false,
+        })
+        return span
+      } catch (e) {
+        // 降级是契约（见 MathBlockWidget 的注释），但**留一条日志**，别静默 ✓
+        console.warn('[nexusdown] 行内公式渲染失败，已降级成源码：', e)
+      }
+    }
+
+    // 没注入渲染函数 / 渲染失败：降级成源码。
     // textContent：TeX 可能含 `<`（比如 `a < b`），绝不能用 innerHTML。
+    span.classList.add('nd-math-source')
     span.textContent = this.tex
     return span
   }
@@ -168,11 +198,20 @@ export class MathBlockWidget extends WidgetType {
         ...KATEX_OPTIONS,
         displayMode: true,
       })
-    } catch {
+    } catch (e) {
       /*
        * 契约：渲染失败**降级成源码**，绝不抛（`throwOnError:false` 挡不住的那类）。
        * ⚠️ 这里必须 `textContent` —— 源码是**用户输入**，走 innerHTML 就是注入面。
        */
+      /*
+       * ⚠️ **但必须留一条日志** ✗ —— 之前这里是裸 `catch {}`，
+       * 结果"公式不渲染"变成了**完全没有线索**：页面不报错、控制台干净、
+       * 只是悄悄降级成源码 ✓（实测排查时卡了很久 ✓）。
+       *
+       * 降级是**正常路径**（契约要求 ✓），但"为什么降级"是**诊断信息** ✗，
+       * 不该和契约一起被吞掉 ✓。
+       */
+      console.warn('[nexusdown] 数学渲染失败，已降级成源码：', e)
       span.classList.add('nd-math-source')
       span.textContent = this.tex
     }
@@ -241,7 +280,7 @@ function decorateMath(
   selection: EditorSelection,
   render: MathRenderer | undefined,
 ): void {
-  decorateInlineMath(ranges, atomicRanges, doc, selection)
+  decorateInlineMath(ranges, atomicRanges, doc, selection, render)
   decorateMathFences(ranges, atomicRanges, node, doc, selection, render)
 }
 
@@ -251,6 +290,7 @@ function decorateInlineMath(
   atomicRanges: DecorationRanges,
   doc: Text,
   selection: EditorSelection,
+  render: MathRenderer | undefined,
 ): void {
   const spans = spansFor(doc)
   if (spans.length === 0) return
@@ -266,7 +306,7 @@ function decorateInlineMath(
     pushAtomicRange(
       ranges,
       atomicRanges,
-      Decoration.replace({ widget: new MathWidget(span.tex) }),
+      Decoration.replace({ widget: new MathWidget(span.tex, render) }),
       span.from,
       span.to,
     )
