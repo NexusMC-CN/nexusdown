@@ -186,3 +186,27 @@ export { renderCodeHeaderHtml, type CodeHeaderRenderOptions } from '../cm/widget
 /* 外部数据通道的类型 —— 消费方实现抓取时要照这个填。 */
 export type { LinkCardMeta, LinkResolution, RenderData } from './feature.js'
 export { readRenderData } from './feature.js'
+/*
+ * ★ **KaTeX 的接线口。**
+ *
+ * 数学扩展**自己不 import katex**（那是 peer，1.3 MB，绝大多数是字体 ✓）——
+ * 由消费方装、再由消费方把渲染函数塞进来 ✓：
+ *
+ * ```ts
+ * import katex from 'katex'
+ * import 'katex/dist/katex.min.css'      // ⚠️ 字体 CSS 也必须引
+ * import { renderMarkdown, katexRenderer } from 'nexusdown/render'
+ *
+ * renderMarkdown(src, { plugins: [katexRenderer(katex)] })
+ * ```
+ *
+ * ⚠️ 这三行以前**跑不通** —— `katexRenderer` 只在 `features/math.ts` 里 export 了，
+ * **没转出到这一层** ✗。文档写了、代码没给，属于最难发现的那种缺口
+ * （TS 会报"没有这个导出"，但只有真的去接才会撞上 ✓）。
+ */
+export {
+  katexRenderer,
+  KATEX_RENDERER,
+  type KatexLike,
+  type MathKatexPlugin,
+} from './features/math.js'

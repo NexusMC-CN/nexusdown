@@ -2,8 +2,6 @@ import { indexFeatures, type EditorFeature } from '../feature';
 import { emojiFeature } from './emoji';
 import { embedFeature } from './embed';
 import { mathFeature } from './math';
-import { paragraphFeature } from './paragraph';
-import { tableFeature } from './table';
 
 /**
  * 所有**编辑器侧**功能模块。
@@ -14,11 +12,9 @@ import { tableFeature } from './table';
  * 所以顺序本身不影响正确性 —— 但按字母排方便查。
  */
 export const EDITOR_FEATURES: readonly EditorFeature[] = [
-  tableFeature,
   emojiFeature,
   mathFeature,
   embedFeature,
-  paragraphFeature,
 ];
 
 /**

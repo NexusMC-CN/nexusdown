@@ -39,8 +39,6 @@
 @import './features/embed.css';
 @import './features/emoji.css';
 @import './features/math.css';
-@import './features/paragraph.css';
-@import './features/table.css';
 
 :root {
   /* 文字层级 —— 对应站里的 --ink-1..4（正文 / 次级 / 辅助 / 最弱）。 */

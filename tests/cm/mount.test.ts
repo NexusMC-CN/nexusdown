@@ -51,10 +51,18 @@ describe('mountEditor', () => {
     el.remove()
   })
 
-  it('★ 装的是 nexusdown() 的扩展（表格有 nd-table 行 class）', () => {
+  it('★ 装的是 nexusdown() 的扩展（语法着色与装饰挂上了）', () => {
     const el = host()
-    const view = mountEditor({ parent: el, doc: '| a | b |\n| --- | --- |\n| 1 | 2 |' })
-    expect(el.querySelector('.nd-table')).toBeTruthy()
+    const view = mountEditor({ parent: el, doc: '```js\nconst a = 1\n```' })
+    /*
+     * 断言"扩展真的装上了"最稳的抓手是**围栏代码块的行 class** ——
+     * 它由 `nexusdown()` 里的装饰产出 ✓。
+     *
+     * ⚠️ 别拿 emoji 的短代码当抓手 ✗ —— emoji 是 **widget**，
+     * 而且有"光标在附近就揭示源码"的行为，`textContent` 里可能根本没有字形 ✓
+     * （踩过：断言 `:smile:` 变成 😄 会失败 ✓）。
+     */
+    expect(el.querySelector('.nd-code-block')).toBeTruthy()
     view.destroy()
     el.remove()
   })
