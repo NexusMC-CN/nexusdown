@@ -29,6 +29,19 @@
  * `@codemirror/view` 默认主题里的 `.cm-cursor`（同特异度靠文档顺序，加前缀更保险）。
  */
 
+/*
+ * ⚠️ **`@import` 必须在这里** —— 它要早于**任何规则**（含下面的 `:root`），
+ * 否则浏览器会**静默丢弃**整条 import（不报错、样式就是不生效）。
+ *
+ * 功能模块的样式各写在自己的 `features/<名字>.css` 里，主文件只负责 import ——
+ * 这样加新功能不用动这个文件的核心部分。
+ */
+@import './features/embed.css';
+@import './features/emoji.css';
+@import './features/math.css';
+@import './features/paragraph.css';
+@import './features/table.css';
+
 :root {
   /* 文字层级 —— 对应站里的 --ink-1..4（正文 / 次级 / 辅助 / 最弱）。 */
   --nd-text: var(--ink-1, #16181c);
@@ -56,6 +69,33 @@
 
   /* 当前行高亮的底色（`highlightActiveLine()` 打上 `.cm-activeLine`）。 */
   --nd-active-line: rgba(11, 107, 203, 0.07);
+  /* ---------------------------------------------------------------------
+   * 编辑器 UI 用的令牌（工具栏 / 浮层 / 面板）
+   *
+   * 一律**两级回退**：`var(--站令牌, 字面量)` —— 站点定义了自己的令牌就跟站点走，
+   * 没定义就用这里的默认值。**这是 nexusdown 的 UI 能"既独立又跟随主题"的全部机制**
+   * （见 `docs/dialect-extensions.md` 上方那段）。别把字面量写死在组件里。
+   * ------------------------------------------------------------------- */
+
+  --nd-surface-2: var(--surface-2, #eef0f2);
+  --nd-line: var(--line, #e9ecef);
+  --nd-brand-soft: var(--brand-soft, rgb(11 107 203 / 8%));
+  --nd-brand-soft-border: var(--brand-soft-border, rgb(11 107 203 / 24%));
+  --nd-brand-strong: var(--brand-strong, #0a5cae);
+
+  /* 圆角两档 —— `--nd-radius` 已存在（6px，代码块在用），这里另开两档给 UI 组件 */
+  --nd-radius-sm: var(--r-sm, 4px);
+  --nd-radius-md: var(--r-md, 8px);
+
+  /* 动效节奏。站点改 `--dur` / `--ease` 就能整体调快慢与手感 */
+  --nd-dur: var(--dur, 160ms);
+  --nd-dur-fast: var(--dur-fast, 100ms);
+  --nd-ease: var(--ease, cubic-bezier(0.4, 0, 0.2, 1));
+  --nd-ease-out: var(--ease-out, cubic-bezier(0, 0, 0.2, 1));
+
+  --nd-shadow-1: var(--shadow-1, 0 1px 2px rgb(0 0 0 / 6%));
+  --nd-shadow-2: var(--shadow-2, 0 4px 16px rgb(0 0 0 / 10%));
+
 }
 
 /**
@@ -207,16 +247,36 @@
   scrollbar-width: thin;
   scrollbar-color: var(--nd-scroll-thumb, rgb(0 0 0 / 16%)) transparent;
   /*
-   * ⚠️ 滚动条占位是**浏览器行为，消不掉**（`scrollbar-gutter` 只能控制
-   * "要不要预留"，不能让滚动条不占位；`overflow: overlay` 已废弃）。
+   * ⚠️⚠️ **必须是 `stable`，绝不能写 `stable both-edges`。**
    *
-   * 实测：`.cm-scroller` 560px 时 `.cm-content` 只有 550px，**右边差 10px** ——
-   * 代码块通到 `.cm-content` 边缘，所以看起来"右边少一块"。
+   * ## 为什么曾经写了 `both-edges`
    *
-   * `both-edges` 让**左右各预留一份**，两边对称。整体窄 10px，
-   * 但比"只有右边缺一块"好看得多 —— 用户截图里箭头指的就是那个不对称。
+   * 滚动条占位是**浏览器行为，消不掉**（`scrollbar-gutter` 只能控制"要不要预留"，
+   * 不能让滚动条不占位；`overflow: overlay` 已废弃）。实测 `.cm-scroller` 560px 时
+   * `.cm-content` 只有 550px，**右边差 10px** —— 代码块通到 `.cm-content` 边缘，
+   * 看起来"右边少一块"。当时为了**左右对称**，选了 `both-edges`。
+   *
+   * ## 为什么这是个严重的错误
+   *
+   * `both-edges` 在 scroller 的**左右两侧各预留 10px**。左侧那份会把
+   * `.cm-cursorLayer` 的**定位基准推右 10px**，而 CM6 计算光标坐标时用的基准
+   * **不认这个槽** —— 于是**光标永远偏右 10px**，而且**第 0 列就已经偏**（不是累积的）。
+   *
+   * 症状："光标和文字对不上，像隔了两个空格"（10px ≈ 2 个空格）。
+   * 真实 app（`/posts/new`）实测：
+   *
+   * | `scrollbar-gutter` | 光标偏右 | `.cm-content` left |
+   * | --- | --- | --- |
+   * | `stable both-edges` | **10px** ✗ | 197.5 |
+   * | `stable` | **0px** ✓ | 187.5 |
+   * | `auto` | **0px** ✓ | 187.5 |
+   *
+   * 代价是右边回到"只有右侧预留"的不对称 —— **但光标正确远比这点对称重要**。
+   *
+   * ⚠️ 顺带一个让这个 bug 极难定位的事实：预留宽度是**默认滚动条宽 10px**，
+   * 和下面 `::-webkit-scrollbar` 设的 6px **无关** —— 肉眼看不出多出来的是什么。
    */
-  scrollbar-gutter: stable both-edges;
+  scrollbar-gutter: stable;
 }
 
 /* WebKit / Blink（Edge、Chrome）—— 6px 是还能点得动的下限。 */
@@ -656,8 +716,29 @@
  * Widget
  * ------------------------------------------------------------------------- */
 
+/*
+ * ⚠️⚠️ **必须是 `inline-block`，不能是 `block`。**
+ *
+ * CM6 会在 `Decoration.replace` 的 widget **前后各插一个
+ * `<img class="cm-widgetBuffer">`**（行内元素）。widget 一旦是**块级**，
+ * 这三个元素就会**垂直堆叠成三行** —— 实测图片行 DOM 高 **63px（3×21）**，
+ * 而 CM6 的高度表还以为是 **42px（2×21）**：
+ *
+ * ```
+ * 行10 ![图一](a.png)   cm高=42   dom高=63   差=-21  ✗
+ * ```
+ *
+ * 高度表一错位，`coordsAtPos` 给出的 y 就和文字对不上 —— 表现是
+ * **"光标浮在文字上面/下面"**，而且**零报错**。
+ *
+ * `code-header.ts` 里记录过同一个坑（那里是 `.nd-code-header` 用了 `flex`，
+ * 实测 `.cm-line` 高 72px）。**凡是 `Decoration.replace` 的 widget 都适用。**
+ *
+ * `vertical-align: top` 是为了消掉 inline-block 默认基线对齐在图片下方留的缝。
+ */
 .nd-image-widget {
-  display: block;
+  display: inline-block;
+  vertical-align: top;
   max-width: 100%;
   height: auto;
   border-radius: var(--nd-radius);

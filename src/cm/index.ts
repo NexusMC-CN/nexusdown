@@ -18,6 +18,7 @@ import { decorateHeading } from './decorate/heading';
 import { decorateInline } from './decorate/inline';
 import { decorateLink, linkClickHandler } from './decorate/link';
 import { decorateListItem } from './decorate/list';
+import { EDITOR_FEATURE_BY_NODE } from './features/index';
 import { foldedBlocks } from './fold';
 import { nexusdownLivePreview } from './plugin';
 import { markdownKeymap } from './shortcuts';
@@ -128,6 +129,13 @@ export function nexusdown(opts: NexusdownOptions = {}): Extension {
       },
       urlPolicy,
       references,
+      /*
+       * ★ **功能模块**（`src/cm/features/`）。
+       *
+       * 加新元素 = 往 `EDITOR_FEATURES` 加一项，**不要改 `plugin.ts`** ——
+       * 骨架只认「节点名 → 功能」，不认识任何具体元素。
+       */
+      features: EDITOR_FEATURE_BY_NODE,
     }),
 
     // ---------------------------------------------------------------------
@@ -179,6 +187,56 @@ export function nexusdown(opts: NexusdownOptions = {}): Extension {
 export { nexusdownLivePreview, type LivePreviewOptions } from './plugin';
 export { baseTheme } from './theme';
 export { foldedBlocks, toggleFold } from './fold';
+/*
+ * ★ **建编辑器视图的唯一入口。**
+ *
+ * UI 层（`nexusdown/editor` 的 `.vue`）**不许自己 `new EditorView`** ——
+ * 它发的是原始源码，import 由消费方打包器解析；自己建对象就会拿到**另一份**
+ * CM6，然后 `Unrecognized extension value in extension set`。
+ * 详见 `mount.ts` 的文件头。
+ */
+export { mountEditor, setEditorValue, type MountEditorOptions } from './mount';
+/*
+ * ★ **CM6 原语，给 `nexusdown/editor` 用。**
+ *
+ * UI 层**不该自己 `import '@codemirror/view'`** —— 那样它会从**自己的解析路径**
+ * 拿到一份模块，而 `nexusdown()` 来自**另一条**解析路径。只要这两条路径有一处
+ * 不同（pnpm 的隔离布局、optional peer 没被链接、Vite 的预打包…），
+ * 拿到的就是**两个模块实例**，而 CM6 的 facet / StateField 按**模块标识**比较 ——
+ * 结果是 `Unrecognized extension value in extension set ([object Object])`，
+ * 或者更糟：**装饰静默失效**（不报错，就是不渲染）。
+ *
+ * 所以统一走这里：UI 要什么，问引擎要。**一条解析路径，一个实例。**
+ */
+export { EditorState } from '@codemirror/state';
+export { EditorView, keymap } from '@codemirror/view';
+export { defaultKeymap, redo, undo } from '@codemirror/commands';
+export { syntaxTree } from '@codemirror/language';
+/*
+ * 类型也转出去 —— 让 UI 层**连类型都不需要碰 `@codemirror/*`**。
+ *
+ * 不只是洁癖：`.vue` 是以原始源码发给消费方的，`import type` 虽然会被 TS 擦掉，
+ * 但**万一某个消费方的 transform 没擦**，它就变成运行时 import，
+ * 又把"第二份 CM6"引回来。
+ */
+export type { Command } from '@codemirror/view';
+/*
+ * Markdown 编辑命令 —— **工具栏和快捷键共用这一份**。
+ *
+ * 以前它们在应用里（每个消费者抄一遍），而 `shortcuts.ts` 里还有一份
+ * 逐字相同的 `toggle()`。判据：**改了它会导致编辑器行为不一致 → 属于 nexusdown。**
+ */
+export {
+  insertLink,
+  toggleBold,
+  toggleBulletList,
+  toggleHeading,
+  toggleInlineCode,
+  toggleItalic,
+  toggleOrderedList,
+  toggleQuote,
+  wrapCodeBlock,
+} from './commands';
 /*
  * 代码块标题栏的**纯逻辑**。
  *

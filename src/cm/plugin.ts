@@ -9,6 +9,7 @@ import {
   type ViewUpdate,
 } from '@codemirror/view';
 
+import type { EditorFeature } from './feature.js';
 import { foldedBlocks } from './fold.js';
 import type {
   DecorationBuild,
@@ -55,6 +56,7 @@ export const INLINE_NODES: ReadonlySet<string> = new Set([
 export const BLOCK_NODES: ReadonlySet<string> = new Set(['Image', 'HorizontalRule']);
 
 const NOOP_DECORATOR: LivePreviewDecorators['heading'] = () => {};
+const NO_FEATURES: ReadonlyMap<string, EditorFeature> = new Map();
 const NOOP_LINK_DECORATOR: LivePreviewDecorators['link'] = () => {};
 
 export interface LivePreviewOptions {
@@ -67,6 +69,13 @@ export interface LivePreviewOptions {
   urlPolicy?: UrlPolicy;
   /** 引用式链接（`[text][ref]`）索引；不传则由 link 装饰器从 doc 现算。 */
   references?: LinkReferences;
+  /**
+   * 功能模块：`节点名 → 认领它的功能`。
+   *
+   * 由装配层（`index.ts`）注入 `EDITOR_FEATURE_BY_NODE`；不传就是空表。
+   * 骨架**不认识任何具体元素**，所以可以脱离实现单测（同 `decorators`）。
+   */
+  features?: ReadonlyMap<string, EditorFeature>;
 }
 
 /** 插件实例的形状（测试里用它断言装饰数量）。 */
@@ -85,6 +94,8 @@ export interface LivePreviewPluginValue extends PluginValue {
  * `decorations` / `atomicDecorations` 两个桶**。每个元素长什么样不归它管。
  */
 export function nexusdownLivePreview(opts: LivePreviewOptions = {}): Extension {
+  const features = opts.features ?? NO_FEATURES;
+
   const decorators: LivePreviewDecorators = {
     heading: opts.decorators?.heading ?? NOOP_DECORATOR,
     inline: opts.decorators?.inline ?? NOOP_DECORATOR,
@@ -206,6 +217,40 @@ export function nexusdownLivePreview(opts: LivePreviewOptions = {}): Extension {
             // 所以在**分发前**才取一次 `.node`（只对命中的节点付费）。
             const node = ref.node;
             const name = node.name;
+
+            /*
+             * ★ **功能模块优先。**
+             *
+             * 新元素走 `features`（`src/cm/features/`），不再往下面那几张表里塞 ——
+             * 那几张表是骨架的一部分，每加一个元素就要动一次骨架，多人同时改必然冲突。
+             *
+             * 放最前面是**故意**的：功能可以认领内置节点。真冲突时
+             * `indexFeatures`（`feature.ts`）会在**启动时抛错**，不会悄悄覆盖 ——
+             * 悄悄覆盖的表现是"某个元素突然不渲染了"，极难查。
+             *
+             * ⚠️ 命中后**不 return false**：认领父节点 ≠ 放弃子树，
+             * 比如表格里还可能有行内标记。
+             */
+            const feature = features.get(name);
+            if (feature) {
+              /*
+               * ⚠️ **`context` 必须传下去。**
+               *
+               * 折叠状态只经 `context` 传入（见 `types.ts` 的 `DecorateContext`）。
+               * 少了它，**认领了 `FencedCode` 的功能会把整条代码块路径带坏** ——
+               * `folded` 恒为 `false`，点标题栏的折叠箭头**毫无反应且零报错**。
+               * （实测踩过：embed 认领 `FencedCode` 后所有代码块都不能折叠了。）
+               *
+               * 只有围栏需要文档级状态，所以只对它读 field —— 别让每个被认领的
+               * 节点都去 `field()` 一次。
+               */
+              const context =
+                name === 'FencedCode'
+                  ? { folded: view.state.field(foldedBlocks, false)?.has(node.from) ?? false }
+                  : undefined;
+              feature.decorate(ranges, atomicRanges, node, doc, selection, context);
+              return;
+            }
 
             if (HEADING_NODES.has(name)) {
               decorators.heading(ranges, atomicRanges, node, doc, selection);

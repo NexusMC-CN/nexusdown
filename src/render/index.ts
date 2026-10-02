@@ -63,6 +63,8 @@
  */
 import MarkdownIt from 'markdown-it'
 import type { MarkdownIt as MarkdownItInstance } from 'markdown-it'
+
+import type { RenderData } from './feature.js'
 import { wwwOnlyAutolinkPlugin } from './autolink.js'
 import { markPlugin } from './mark.js'
 import { applyNexusdownRenderer } from './renderer.js'
@@ -77,6 +79,15 @@ import { taskListPlugin } from './task-list.js'
 export type MarkdownItPlugin = (md: MarkdownItInstance) => void
 
 export interface RenderMarkdownOptions {
+  /**
+   * 消费方**预先取好**的外部数据（短链解析结果、SEO 卡片元数据）。
+   *
+   * 渲染是同步、无网络的，所以这些数据只能由消费方取 —— 而且**库也不该去取**
+   * （服务端抓用户给的任意 URL 就是 SSRF 面）。见 `RenderData` 的注释。
+   *
+   * 会作为 markdown-it 的 `env.data` 传下去，功能规则用 `readRenderData(env)` 读。
+   */
+  data?: RenderData;
   /**
    * Extra markdown-it plugins, applied **after** the Nexusdown defaults, so a
    * plugin can replace any rule this module installed.
@@ -160,7 +171,7 @@ function resolveParser(plugins: MarkdownItPlugin[] | undefined): MarkdownItInsta
  */
 export function renderMarkdown(markdown: string, options?: RenderMarkdownOptions): string {
   if (typeof markdown !== 'string' || markdown.trim() === '') return ''
-  return resolveParser(options?.plugins).render(markdown)
+  return resolveParser(options?.plugins).render(markdown, { data: options?.data })
 }
 
 /*
@@ -171,3 +182,7 @@ export function renderMarkdown(markdown: string, options?: RenderMarkdownOptions
  * 自己的卡片、或者做演示/预览，直接调它就能拿到和编辑器逐字一致的结构。
  */
 export { renderCodeHeaderHtml, type CodeHeaderRenderOptions } from '../cm/widgets/code-header-parts.js'
+
+/* 外部数据通道的类型 —— 消费方实现抓取时要照这个填。 */
+export type { LinkCardMeta, LinkResolution, RenderData } from './feature.js'
+export { readRenderData } from './feature.js'

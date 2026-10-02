@@ -1,0 +1,42 @@
+/**
+ * `math` 的编辑器侧视觉。
+ *
+ * 由消费方在 `theme.css` 顶部 `@import`（见接线清单）——
+ * ⚠️ `@import` 必须在 `:root {` **之前**，否则浏览器静默丢弃整条 `@import`。
+ *
+ * 只负责「行内公式 widget 长什么样」。机制（替换、原子区间、揭示态）在 `math.ts`。
+ */
+
+/*
+ * 行内公式（非揭示态显示 TeX 源码的那个胶囊）。
+ *
+ * 用**数学衬线字体**把 `x^2` 衬出「这是公式」的感觉 —— 编辑器里不跑 KaTeX
+ * （KaTeX 是可选依赖、widget 又是同步的，见 `math.ts` 的注释），所以只能靠
+ * 字体 + 底色给出视觉区分。真正排版好的公式在**显示侧**（`render/features/math.ts`）。
+ */
+.nd-math {
+  /*
+   * 数学字体优先。这几个都是常见系统的数学衬线字体，取不到就退到 Georgia ——
+   * 至少是衬线，和正文的无衬线拉开距离。
+   */
+  font-family:
+    'Latin Modern Math', 'STIX Two Math', 'Cambria Math', Georgia, 'Times New Roman', serif;
+  /* 数学变量惯例是斜体 */
+  font-style: italic;
+  /* 指数/下标（`^` `_`）保持竖直，斜体的 `^` 很难看 */
+  font-variant-numeric: lining-nums;
+  padding: 0 0.18em;
+  border-radius: 3px;
+  color: var(--nd-math-fg, var(--nd-text));
+  background: var(--nd-math-bg, rgb(0 0 0 / 4%));
+  /*
+   * 关掉连字：TeX 源码里的 `--` / `!=` 被字体连字吃掉会看不出原文
+   * （编辑器里要的是「能读懂的源码」，不是排版效果）。
+   */
+  font-variant-ligatures: none;
+}
+
+/* 悬停时略加深，暗示「这里可以点进去编辑」。 */
+.nd-math:hover {
+  background: var(--nd-math-bg-hover, rgb(0 0 0 / 7%));
+}

@@ -6,6 +6,20 @@
  *
  * ⚠️ 不要用 `block: true` 的 replace —— 那样方向键**永远进不去**，
  * 也就没法在图片前后插入文字（参考文档第 5 节的硬约束）。
+ *
+ * ## 动态图（GIF / APNG）与 `prefers-reduced-motion`
+ *
+ * ⚠️ **CSS 停不下 GIF / APNG 的动画。** `animation-play-state: paused` 只对
+ * CSS 动画生效，对 GIF / APNG 的**帧序列无效** —— 想暂停只能换静态图、或把帧
+ * 画到 `<canvas>` 上手动逐帧控制，那都需要 JS（本库不带运行时，SSR 也复杂）。
+ *
+ * 所以对 `prefers-reduced-motion: reduce` 的用户**只能提示、不能暂停**：
+ * 真要照顾它，得由消费方在 `theme.css` 里给动图加一个「点击播放」的角标之类。
+ * 本次**不做**暂停功能 —— 记在这里，免得后来人以为 CSS 漏写了。
+ *
+ * 白名单见 `src/cm/url.ts`：`data:image/(gif|png|jpeg|webp);`，和渲染侧
+ * markdown-it 的 `GOOD_DATA_RE` 逐字一致（`image/apng` / `image/svg+xml`
+ * 两边都**不放行**；APNG 要走 `<img>` 只能用 `http(s)://` 的地址）。
  */
 import { WidgetType } from '@codemirror/view'
 

@@ -21,6 +21,8 @@
  */
 import type { MarkdownIt, RendererRule } from 'markdown-it'
 import { renderCodeHeaderHtml } from '../cm/widgets/code-header-parts.js'
+import { RENDER_FEATURES } from './features/index.js'
+import type { RenderFeatureContext } from './feature.js'
 import { TASK_ITEM_META } from './task-list.js'
 
 const LF = 0x0a
@@ -118,6 +120,19 @@ export function applyNexusdownRenderer(md: MarkdownIt): void {
     `<pre><code>${escapeHtml(withoutTrailingNewline(tokens[idx]!.content))}</code></pre>`
 
   applyTableRules(rules)
+
+  /*
+   * ★ **功能模块**（`src/render/features/`）。
+   *
+   * 加新元素 = 往 `RENDER_FEATURES` 里加一项，**不要改这个文件** ——
+   * 同编辑器侧的 `EDITOR_FEATURES`。
+   *
+   * ⚠️ 这里只跑一次（解析器被 `resolveParser` 缓存复用），所以功能**不能**把外部数据
+   * （短链解析结果、SEO 卡片元数据）烤进规则里 —— 那是每次渲染都可能变的。
+   * 数据从 markdown-it 的 `env` 读，用 `readRenderData(env)`（见 `feature.ts`）。
+   */
+  const featureCtx: RenderFeatureContext = { md, rules, escapeHtml }
+  for (const feature of RENDER_FEATURES) feature.install(featureCtx)
 }
 
 /**

@@ -1,0 +1,225 @@
+/**
+ * `embed` 的视觉（B站 / 抖音 / 网易云）。
+ *
+ * 这个文件同时装**两个渲染者**的样式，和 `theme.css` 里的 `.nd-code-fence` 一样：
+ *
+ * - **编辑器侧**：`.nd-embed-open` / `.nd-embed-hidden` / `.nd-embed-card`
+ *   —— 非揭示态那张占位卡。机制（分流、替换、原子区间）在 `cm/features/embed.ts`。
+ * - **显示侧**：`.nd-embed` / `.nd-embed__*`
+ *   —— `render/features/embed.ts` 产出的 `<details>` + `<iframe>`。
+ *
+ * 由消费方在 `theme.css` 顶部 `@import`（见接线清单）。
+ * ⚠️ `@import` 必须在 `:root {` **之前**，否则 CSS 规定 `@import` 只能出现在
+ * 样式表最前面，晚于任何规则就会被**静默丢弃**（整条规则没了，且零报错）。
+ *
+ * 颜色一律走 `var(--nd-*, …)` 两级回退，理由见 `theme.css` 头部。
+ */
+
+/* =========================================================================
+ * 编辑器侧：占位卡
+ * ======================================================================= */
+
+/*
+ * 开围栏那一行 —— 只补 `padding-left`，好让卡片用负 margin 通到行左边缘。
+ *
+ * ⚠️ 选择器必须带 `.cm-editor .cm-line` 前缀：CM6 自己的
+ * `.cm-line { padding: 0 2px 0 6px }` 是**简写**，同特异度下靠文档顺序赢，
+ * 不带前缀会被它重置掉（`theme.css` 的 `.nd-code-block` 踩过同一个坑）。
+ */
+.cm-editor .cm-line.nd-embed-open {
+  padding-left: var(--nd-code-pad, 0.9em);
+  padding-right: 0;
+}
+
+/*
+ * 非开围栏的行（闭围栏 + 万一存在的正文）—— 压成 0 高。
+ *
+ * 只靠 `HIDE` 不够：`Decoration.replace` 藏的是行内内容、不含换行符，
+ * 空行仍然占一整行高度，卡片下面会多一条空白（同 `theme.css` 的 `.nd-code-folded`）。
+ */
+.cm-editor .cm-line.nd-embed-hidden {
+  height: 0;
+  min-height: 0;
+  padding: 0;
+  margin: 0;
+  overflow: hidden;
+  font-size: 0;
+  line-height: 0;
+}
+
+/*
+ * 占位卡本体。
+ *
+ * ⚠️ 必须是 `inline-flex`，**不能是 `flex`**。CM6 会在 `Decoration.replace` 的
+ * widget **前后各插一个 `<img class="cm-widgetBuffer">`**（行内元素）。用块级的
+ * `flex` 会让这三个元素垂直堆叠成三行，行高凭空翻三倍。
+ * （这条账在 `theme.css` 的 `.nd-code-header` 里推过一遍，是同一个原因。）
+ *
+ * ⚠️ `box-sizing: border-box` + `width: calc(100% + pad)` + `margin-left: -pad`
+ * 是「通到行左右边缘」的那套账：行是 border-box、有 `padding-left`，
+ * content-box 宽度比整行窄一个 pad；补一个 pad 再左移一个 pad，左右才都贴边。
+ */
+.nd-embed-card {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.7em;
+  box-sizing: border-box;
+  width: calc(100% + var(--nd-code-pad, 0.9em));
+  margin-left: calc(-1 * var(--nd-code-pad, 0.9em));
+  padding: 0.75em var(--nd-code-pad, 0.9em);
+  border: 1px solid var(--nd-border);
+  border-radius: var(--nd-radius);
+  background: var(--nd-surface);
+  color: var(--nd-text-2);
+  /* 顶对齐：inline 元素默认按基线对齐，会多出一截基线以下的空隙。 */
+  vertical-align: top;
+  line-height: 1.35;
+  /* 卡片是"假"的：点它是为了进揭示态，不该能选中里面的文字。 */
+  user-select: none;
+}
+
+.nd-embed-card__icon {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.5em;
+  height: 1.5em;
+  border-radius: 4px;
+  color: var(--nd-embed-icon-fg, #fff);
+  background: var(--nd-embed-icon-bg, var(--nd-brand));
+  font-size: 0.85em;
+  line-height: 1;
+}
+
+.nd-embed-card__label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.92em;
+}
+
+/* 提示推到最右，和左边的图标/标题分开。 */
+.nd-embed-card__hint {
+  flex: none;
+  margin-left: auto;
+  color: var(--nd-text-4);
+  font-size: 0.78em;
+}
+
+/* =========================================================================
+ * 显示侧：<details> 占位 + iframe
+ * ======================================================================= */
+
+.nd-embed {
+  margin: 1em 0;
+  border: 1px solid var(--nd-border);
+  border-radius: var(--nd-radius);
+  background: var(--nd-surface);
+  /* 圆角裁住 iframe / 占位的背景 */
+  overflow: hidden;
+}
+
+/*
+ * 点击展开的开关。
+ *
+ * ⚠️ 这是**纯 CSS 的 UI**：`<details>` 闭合时内容不渲染，点 `<summary>` 才展开。
+ * 但它**不构成「点击前不加载 iframe」的保证** —— 按规范 iframe 在插入文档时就
+ * 开始导航，与是否渲染无关。完整说明见 `render/features/embed.ts` 文件头。
+ */
+.nd-embed__gate {
+  display: block;
+}
+
+/*
+ * 占位条（`<summary>`）。
+ *
+ * ⚠️ `summary` 默认带一个三角 marker，而且默认 `display: list-item`。
+ * 两处都要关掉：`list-style: none` 管标准，`::-webkit-details-marker` 管 WebKit。
+ * 不关的话卡片左边会多一个小三角，和自定义的图标挤在一起。
+ */
+.nd-embed__placeholder {
+  display: flex;
+  align-items: center;
+  gap: 0.7em;
+  padding: 0.7em 0.9em;
+  color: var(--nd-text-2);
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+
+.nd-embed__placeholder::-webkit-details-marker {
+  display: none;
+}
+
+.nd-embed__placeholder:hover {
+  background: var(--nd-embed-hover-bg, rgb(0 0 0 / 4%));
+}
+
+/* 展开后占位条变成一条"收起"的提示 —— 视觉上退到次要位置。 */
+.nd-embed__gate[open] > .nd-embed__placeholder {
+  border-bottom: 1px solid var(--nd-border);
+  color: var(--nd-text-3);
+  font-size: 0.85em;
+}
+
+.nd-embed__icon {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.5em;
+  height: 1.5em;
+  border-radius: 4px;
+  color: var(--nd-embed-icon-fg, #fff);
+  background: var(--nd-embed-icon-bg, var(--nd-brand));
+  font-size: 0.85em;
+  line-height: 1;
+}
+
+.nd-embed__label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nd-embed__hint {
+  flex: none;
+  margin-left: auto;
+  color: var(--nd-text-4);
+  font-size: 0.78em;
+}
+
+.nd-embed__frame {
+  display: block;
+  width: 100%;
+  border: 0;
+  background: #000;
+}
+
+/*
+ * 视频类按 16:9 撑高。
+ *
+ * ⚠️ 这是**我们给的**尺寸，不是平台要求的：src 模板里只有抖音/网易云带 `height`
+ * 查询参数，而且那参数是给播放器**内部**用的，管不到 `<iframe>` 元素本身的高度。
+ * 所以 iframe 的高度必须由 CSS 定。
+ */
+.nd-embed--bilibili .nd-embed__frame,
+.nd-embed--douyin .nd-embed__frame {
+  aspect-ratio: 16 / 9;
+}
+
+/*
+ * 网易云的两种 kind 高度不同（契约模板里就是 66 / 430），
+ * 用 `data-nd-embed` 精确命中，避免把歌单和单曲搞成一样高。
+ */
+[data-nd-embed='netease:song'] .nd-embed__frame {
+  height: 66px;
+}
+
+[data-nd-embed='netease:playlist'] .nd-embed__frame {
+  height: 430px;
+}
