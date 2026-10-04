@@ -18,11 +18,23 @@
 | 转义 | 一律用渲染侧的 `ctx.escapeHtml`，不要自己写 |
 | 用户输入 | **只往文本位置插**，绝不拼进标签名/属性名 |
 
-**两条硬约束**（违反即架构事故）：
+**三条硬约束**（违反即架构事故）：
 
-1. **不做 `Decoration.replace({ block: true })`** —— 方向键会永远进不去。
-   块级视觉靠「藏掉行内字符 + 给行加 class + CSS 画」。
-2. **隐藏态的 `replace` 必须同时进 `atomicRanges`**，否则光标会停在隐藏区间中间。
+1. **隐藏态的 `replace` 必须同时进 `atomicRanges`**，否则光标会停在隐藏区间中间。
+2. **块级替换只能由 `StateField` 提供** ✓ —— 插件（`ViewPlugin`）提供会**抛**
+   `Block decorations may not be specified via plugins` ✗
+   （实测：插件的 `decorations` 会被包成函数、标记为动态，一律禁止块级效果）。
+   骨架已开好通道：功能标 `EditorFeature.block` ✓ → `plugin.ts` 的 `splitFeatures`
+   分流到 `blockDecorations` ✓。
+3. ★ **块级替换必须配「点开才揭示」** ✓ —— 块级区间**光标进不去** ✗
+   （连程序 `dispatch(cursor(from))` 都被夹到 `from - 1` ✓），
+   所以"揭示源码"只能靠停在**门口** ✓。但**门口是位置判据** ✗，
+   而**空行整行都等于门口** ✓ → 光标**路过**也会命中 ✗
+   （实测：公式上下是空行时，光标停在那一行 → **公式不渲染** ✗）。
+   所以：**点 widget → 设 `editingBlock`** ✓，靠**意图**判据揭示 ✓。
+
+> ⚠️ 这条**以前写的是「不做 `block: true`」** ✗ —— 那个结论已经被推翻了 ✓：
+> 表格和数学围栏都用了块级替换 ✓，靠上面第 3 条绕开了方向键问题 ✓。
 
 ---
 
@@ -214,3 +226,84 @@ https://example.com/post
 
 ⚠️ 另外加 `prefers-reduced-motion` 的暂停能力（CSS 做不到暂停 GIF，
 只能提示；真正的暂停要 JS，本次不做，只留注释说明）。
+
+---
+
+## 8. `mention` —— 提及（站内实体引用）
+
+**语法**：`@` + slug（可选 `#` + 子定位）。
+
+~~~~md
+这句话里提到 @nexus-optimizer 很好用      ← 行内提及（小胶囊）
+
+@nexus-optimizer                          ← 独占一段 → **大卡片**
+
+@nexus-optimizer#block-install            ← 带子定位（fragment）
+~~~~
+
+**「独占一段 → 卡片、在句中 → 行内」是从 `link-card` 抄的** ✓ ——
+它自己的规则就是「独占一段的链接 → 卡片」✓。**一个 token 两种形态** ✓，
+用户不用记两套语法 ✓，写作时"换个段落"就换形态 ✓。
+
+### 和另外两种「引用」的区别（重要）
+
+| | `>` 引用块 | `link-card` | **`mention`** |
+| --- | --- | --- | --- |
+| 指向什么 | 一段**文字** | **外站 URL** | **站内实体**（`resource` / `tutorial` / `post`） |
+| 数据从哪来 | 正文里就有 | 服务端抓 OG | **查库** |
+| 对象删了 | 无影响 | 链接可能 404 | **「已失效」墓碑** ✓（和 `p.ref.missing` 同一套） |
+| 数据库里留痕 | 没有 | **没有** | ★ **有** —— 落一条 `reference` |
+
+★ **最后一行是本质区别** ✓：`link-card` 抓完 OG 就完了 ✓，**库里什么也没留下** ✗；
+而提及落一条 **`reference`**（`relation: 'mentions'` ✓）✓ —— 于是
+**「谁引用了这个资源」「这个资源影响了哪些帖」** 才答得出来 ✓✓。
+
+**叫法**：`>` 保留「引用」（Markdown 标准叫法 ✓）；新的叫**「提及」** ✓ ——
+用项目自己的词 ✓（`backend-spec` 的 `relation` 里就有 `mentions` ✓）。
+
+### 边界（重要）
+
+| 谁 | 做什么 |
+| --- | --- |
+| **库** | 认 `@slug` ✓ → 从 `RenderData.mentions` 取解析结果 ✓ → 渲染胶囊/卡片；**取不到就降级成纯文本** ✓ |
+| **消费方** | 查库解析 slug ✓（**作者不用写显示名** ✓ —— 这是站内引用独有的优势 ✓）、**落 `reference`** ✓、墓碑 ✓ |
+
+⚠️ **slug 必须过正则**（`[a-z0-9][a-z0-9-]*` ✓）且 `@` 必须在**词边界** ✓ ——
+否则 `a@b.com` 这种邮箱会被误认 ✓。
+
+⚠️ **库不查库** ✓ —— 和 `link-card` 同一条：库只认文本、从 `RenderData` 取结果 ✓。
+
+### `RenderData` 契约
+
+```ts
+export interface RenderData {
+  links?: ReadonlyMap<string, LinkResolution>     // 已有 ✓
+  mentions?: ReadonlyMap<string, MentionResolution>  // 新增 ✓
+}
+
+/** key = 作者写的 slug（`@` 后面那串 ✓），不是显示名 ✓。 */
+export interface MentionResolution {
+  title: string                 // 显示名（查库得到 ✓）
+  href: string                  // 站内路径
+  kind: 'resource' | 'tutorial' | 'post'
+  summary?: string              // 卡片用
+  image?: string                // 卡片用（同样要过 URL 白名单 ✓）
+  byline?: string               // 作者 / 维护者
+  badges?: string[]             // 站内才有的角标（版本号 / 下载量 ✓）
+  missing?: boolean             // 目标已删 → 渲染成「已失效」墓碑 ✓
+}
+```
+
+### 渲染侧
+
+- **行内**：`<a class="nd-mention" href>` + 显示名（小胶囊 ✓）
+- **卡片**：`<a class="nd-mention-card" href>` + 图标 + 显示名 + 摘要 + 角标
+- **`missing: true`** → `<span class="nd-mention nd-mention--missing">已失效</span>` ✓
+  （**不能**渲染成链接 ✗ —— 点了就 404 ✓）
+
+### 编辑器侧
+
+- **行内**：换成行内 widget ✓（**要登记 atomic** ✓）
+- **卡片**：整段是一个 `Paragraph` ✓ → **不跨行** ✗ → **不需要块级通道** ✓✓
+  （这是刻意的 ✓：能不用块级就不用 ✓）
+- **揭示**：光标进到那一段就露出源码 ✓（行内 widget 用现有那套 ✓）
