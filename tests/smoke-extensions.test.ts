@@ -60,6 +60,24 @@ describe('渲染侧：注册表接对了没有', () => {
     expect(html).toContain('<a ')
   })
 
+  it('mention —— 独占一段 + 有解析结果 → 卡片（注册表接对了）', () => {
+    const html = renderMarkdown('@nexus-optimizer', {
+      data: {
+        mentions: new Map([
+          ['nexus-optimizer', { title: 'Nexus 优化器', href: '/resources/nexus-optimizer', kind: 'resource' as const }],
+        ]),
+      },
+    })
+    expect(html).toContain('nd-mention-card')
+    expect(html).toContain('Nexus 优化器')
+  })
+
+  it('mention —— 没有解析结果时**降级成纯文本**（不经过胶囊代码）', () => {
+    const html = renderMarkdown('提到 @ghost 一句')
+    expect(html).not.toContain('nd-mention')
+    expect(html).toContain('@ghost')
+  })
+
   it('math —— 没有注入 KaTeX 时**降级成源码**，不抛错', () => {
     expect(() => renderMarkdown('$x^2$')).not.toThrow()
     // 没装 KaTeX 就该原样显示，绝不能变成空白或崩掉

@@ -39,6 +39,7 @@
 @import './features/embed.css';
 @import './features/emoji.css';
 @import './features/math.css';
+@import './features/mention.css';
 @import './features/table.css';
 
 :root {

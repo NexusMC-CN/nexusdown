@@ -184,7 +184,7 @@ export function renderMarkdown(markdown: string, options?: RenderMarkdownOptions
 export { renderCodeHeaderHtml, type CodeHeaderRenderOptions } from '../cm/widgets/code-header-parts.js'
 
 /* 外部数据通道的类型 —— 消费方实现抓取时要照这个填。 */
-export type { LinkCardMeta, LinkResolution, RenderData } from './feature.js'
+export type { LinkCardMeta, LinkResolution, MentionResolution, RenderData } from './feature.js'
 export { readRenderData } from './feature.js'
 /*
  * ★ **嵌入功能的公开面** —— 消费方要用它们做"预解析"。

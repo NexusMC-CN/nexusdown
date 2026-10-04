@@ -84,6 +84,15 @@ export function readRenderData(env: unknown): RenderData | undefined {
 export interface RenderData {
   /** 原始链接文本 → 解析结果。 */
   links?: ReadonlyMap<string, LinkResolution>
+
+  /**
+   * `@` 后面的 slug（**不含 `#fragment`**）→ 解析结果。
+   *
+   * 和 `links` 同一条边界：**库不查库**。站内实体（资源 / 教程 / 帖）的解析
+   * 是消费方的事（查数据库、落 `reference` 关系、墓碑），渲染期只做字符串匹配。
+   * 取不到就**降级成纯文本**，不报错。
+   */
+  mentions?: ReadonlyMap<string, MentionResolution>
 }
 
 /** 一条链接的解析结果。两个字段都可选：解析失败时留空，功能自己降级。 */
@@ -108,4 +117,30 @@ export interface LinkCardMeta {
   image?: string
   /** 站点名（`og:site_name`），没有就用 URL 的 hostname。 */
   site?: string
+}
+
+/**
+ * 一条**站内提及**的解析结果（契约 §8）。
+ *
+ * key 是**作者写的 slug**（`@` 后面那串、不含 `#fragment`），不是显示名 ——
+ * 站内引用独有的好处：作者只写 `@nexus-optimizer`，显示名由查库得到。
+ *
+ * ⚠️ 字段照契约抄，别自己加/改：两侧和消费方都按这个形状对齐。
+ */
+export interface MentionResolution {
+  /** 显示名（查库得到）。 */
+  title: string
+  /** 站内路径。 */
+  href: string
+  kind: 'resource' | 'tutorial' | 'post'
+  /** 卡片用。 */
+  summary?: string
+  /** 卡片用。**必须过 URL 白名单**（同 `LinkCardMeta.image`）。 */
+  image?: string
+  /** 作者 / 维护者。 */
+  byline?: string
+  /** 站内才有的角标（版本号 / 下载量）。 */
+  badges?: string[]
+  /** 目标已删 → 渲染成「已失效」墓碑，**不渲染成链接**。 */
+  missing?: boolean
 }

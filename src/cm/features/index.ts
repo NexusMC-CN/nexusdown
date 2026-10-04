@@ -2,6 +2,7 @@ import { indexFeatures, type EditorFeature } from '../feature';
 import { emojiFeature } from './emoji';
 import { embedFeature } from './embed';
 import { createMathFeature, mathFeature, type MathRenderer } from './math';
+import { mentionFeature } from './mention';
 import { tableFeature } from './table';
 
 /**
@@ -20,6 +21,7 @@ export const EDITOR_FEATURES: readonly EditorFeature[] = [
   mathFeature,
   tableFeature,
   embedFeature,
+  mentionFeature,
 ];
 
 /**
@@ -44,5 +46,5 @@ export function createEditorFeatureMap(
   opts: { mathRenderer?: MathRenderer } = {},
 ): ReadonlyMap<string, EditorFeature> {
   if (!opts.mathRenderer) return EDITOR_FEATURE_BY_NODE;
-  return indexFeatures([emojiFeature, createMathFeature(opts.mathRenderer), tableFeature, embedFeature]);
+  return indexFeatures([emojiFeature, createMathFeature(opts.mathRenderer), tableFeature, embedFeature, mentionFeature]);
 }

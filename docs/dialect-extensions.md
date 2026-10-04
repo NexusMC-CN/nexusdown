@@ -281,7 +281,14 @@ export interface RenderData {
   mentions?: ReadonlyMap<string, MentionResolution>  // 新增 ✓
 }
 
-/** key = 作者写的 slug（`@` 后面那串 ✓），不是显示名 ✓。 */
+/**
+ * key = **作者写的 slug，不含 `#fragment`** ✓（`@a/b#x` → key 是 `a/b` ✓）。
+ *
+ * ⚠️ **这条以前没写死，是真歧义** ✗ —— `#fragment` 是**子定位** ✓
+ * （"引用某个视频的第 30 秒" ✓），指向的还是**同一个实体** ✓，
+ * 所以 key 用实体、fragment 拼到 `href` 尾部 ✓。
+ * 消费方按 `slug#fragment` 建表的话会**取不到** ✓。
+ */
 export interface MentionResolution {
   title: string                 // 显示名（查库得到 ✓）
   href: string                  // 站内路径
@@ -307,3 +314,13 @@ export interface MentionResolution {
 - **卡片**：整段是一个 `Paragraph` ✓ → **不跨行** ✗ → **不需要块级通道** ✓✓
   （这是刻意的 ✓：能不用块级就不用 ✓）
 - **揭示**：光标进到那一段就露出源码 ✓（行内 widget 用现有那套 ✓）
+
+### ⚠️ 已知覆盖差异（编辑器侧只认段落）
+
+编辑器侧认领 `Paragraph` ✓（`Document` 被 `math` 占了 ✗，`indexFeatures` 会抛 ✓），
+而**标题 / 表格单元格不是 `Paragraph`** ✗ —— 所以那里的提及**编辑器里不渲染** ✓，
+但**渲染侧会** ✓（`rules.text` 扫全文 ✓）。
+
+**这是刻意接受的** ✓：两边覆盖范围不同 ✓，但**同一处文本的判定一致** ✓
+（共用 `src/shared/mention.ts` 的 `scanMentions` ✓）。要对齐得让 mention 认领标题节点 ✓
+并代理 `decorateHeading` ✓ —— 耦合太深 ✓，暂不做 ✓。
