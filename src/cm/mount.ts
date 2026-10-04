@@ -104,6 +104,21 @@ export function mountEditor(options: MountEditorOptions): EditorView {
         EditorView.updateListener.of((u) => {
           if (u.docChanged) options.onDocChange?.(u.state.doc.toString())
         }),
+
+        /*
+         * ★ **组字结束时，补上组字期间欠下的那次同步** ✓。
+         *
+         * 组字期间 `setEditorValue` 会**主动让路**（见那里的注释 ✓），
+         * 但"让路"不能变成"丢掉" ✗ —— 外部真的改了内容时（比如切草稿 ✓），
+         * 组字一结束就该补上 ✓。
+         */
+        EditorView.domEventHandlers({
+          compositionend: (_e, view) => {
+            // 交给微任务：让 CM6 先把 composition 的收尾做完 ✓
+            queueMicrotask(() => flushPendingSync(view))
+            return false
+          },
+        }),
       ],
     }),
     parent: options.parent,
@@ -120,5 +135,54 @@ export function mountEditor(options: MountEditorOptions): EditorView {
  */
 export function setEditorValue(view: EditorView, value: string): void {
   if (view.state.doc.toString() === value) return
+
+  /*
+   * ⚠️⚠️ **输入法正在组字时，绝对不能 dispatch** ✗✗
+   *
+   * 中文/日文输入时浏览器会进入 composition 状态 ✓，此时**拼音还没进文档** ✗，
+   * 但**已经在 DOM 里了** ✓（CM6 就是这么设计的，不然会打断输入法 ✓）。
+   *
+   * 这时候一旦 dispatch：
+   * - composition 被打断 ✓
+   * - 光标被重新映射 ✓ → **跳到别处** ✓（实测：用户在第一行打字 ✓，
+   *   字跑到了文档末尾的新行 ✓）
+   *
+   * 所以组字期间**只记下"欠一次同步"** ✓，等 `compositionend` 再补 ✓
+   * （见下面的 `compositionend` 监听 ✓）。
+   */
+  if (view.composing) {
+    pendingSync = value
+    return
+  }
+
+  /*
+   * ⚠️ **留一条日志** ✗ —— 这条路径本该**几乎不触发**（正常打字时父组件的值
+   * 和文档是同一个 ✓）。一旦它在打字过程中出现 ✓，就说明"外部值"和"文档"
+   * 对不上了 ✓ —— 那是**另一类 bug** ✓，不该被静默吞掉 ✓。
+   */
+  console.warn('[nexusdown] 外部值覆盖编辑器内容（光标会被重映射）：', {
+    原: view.state.doc.toString().slice(0, 40),
+    新: value.slice(0, 40),
+  })
   view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: value } })
+}
+
+/**
+ * 组字期间欠下的那次同步。
+ *
+ * `null` = 没有欠 ✓（和"欠一次空字符串"要区分开 ✗ —— 用户可能真的清空了 ✓）。
+ */
+let pendingSync: string | null = null
+
+/**
+ * 补上组字期间欠下的同步。
+ *
+ * ⚠️ 必须等 `compositionend` **之后**再补 ✓ —— 组字一结束，文档就完整了 ✓，
+ * 这时候比对才有意义 ✓（组字中途比对一定不相等 ✗）。
+ */
+export function flushPendingSync(view: EditorView): void {
+  if (pendingSync === null) return
+  const value = pendingSync
+  pendingSync = null
+  setEditorValue(view, value)
 }
