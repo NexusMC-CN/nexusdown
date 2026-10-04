@@ -224,3 +224,22 @@ export {
   type KatexLike,
   type MathKatexPlugin,
 } from './features/math.js'
+
+/*
+ * ★ **`mention` 的扫描器 —— 消费方也要用同一份。**
+ *
+ * 提及要**落库**（`reference` 表，`relation: 'mentions'`）—— 而"哪些文本算提及"
+ * 必须和**渲染时**用的判定**完全一致** ✗：落库用一套正则、渲染用另一套的话，
+ * 会出现「库里记了、页面上没渲染」或者反过来。
+ *
+ * 所以扫描器**必须转出到这一层**，消费方从 `nexusdown/render` 取 ——
+ * 和 `katexRenderer` / `isShortLink` 是同一种「文档写了、得真的导出」的缺口
+ * （那两处都踩过）。
+ *
+ * ```ts
+ * import { scanMentions } from 'nexusdown/render'
+ * for (const span of scanMentions(body)) { span.slug / span.fragment / span.from / span.to }
+ * ```
+ */
+export { scanMentions, type MentionSpan } from '../shared/mention.js'
+
