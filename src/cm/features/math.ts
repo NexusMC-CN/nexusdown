@@ -38,18 +38,41 @@
  * ⚠️ 为什么不直接在 widget 里 `import('katex')`：CM6 widget 的 `toDOM()` 是**同步**的，
  * `import()` 拿不到；而且那会让 KaTeX 变成硬依赖、进主包。同渲染侧的取舍。
  *
+ * ## 块级围栏走**块级通道**（`block: true`），和表格同一条路
+ *
+ * ⚠️ 这里曾经写着「**不能** `Decoration.replace({ block: true })`（方向键永远进不去）」✗，
+ * 于是围栏用「开围栏行换行内 widget + 其余行 `HIDE` 藏内容 + `.nd-math-hidden`
+ * 把行压成 `height: 0`」硬凑出「一整块」的观感 ✗。**那套会把 CM6 的高度表搞坏** ✗：
+ * 高度表是按行测量的，`height: 0` 的行让 tile 数学对不上 → 真浏览器里直接抛
+ * `No tile at position N` / `Decorations that replace line breaks may not be specified
+ * via plugins`（实测，jsdom 测不出来 —— 高度表只在真实布局下存在）。
+ *
+ * 现在改成和 `table.ts` **同一条路**（那套已经跑通）：
+ *
+ * - 功能标 `block: true` → 骨架（`plugin.ts` 的 `splitFeatures`）把它分流到 StateField
+ *   （**块级装饰只能由 StateField 提供**，ViewPlugin 提供会抛 `Block decorations may not
+ *   be specified via plugins`）；
+ * - **一个** `Decoration.replace({ block: true, widget })` 覆盖**整段**围栏
+ *   （开围栏行首 → 闭围栏行尾）；
+ * - **揭示态**：选区碰到围栏任意一行、**或**光标紧邻（`from - 1` / `to + 1`）→ 什么都不推。
+ *   「紧邻即揭示」是关键 —— 块级区间光标进不去，门口是**唯一**能触达的位置，
+ *   一到门口就换回源码，键盘用户照样能编辑；
+ * - 点 widget → 光标落到 `from - 1`（见 `MathBlockWidget`）。
+ *
  * ## 三条硬约束
  *
  * - widget 必须实现 `eq`（否则每次 rebuild 重建 DOM）；
- * - 非揭示态的 `replace` 必须**同时**登记进 `atomicRanges`（`pushAtomicRange`）；
- * - **不能** `Decoration.replace({ block: true })`（方向键永远进不去）。
+ * - **行内**公式的隐藏态 `replace` 必须登记进 `atomicRanges`（`pushAtomicRange`）；
+ *   块级 replace 不用 —— 光标本来就进不去（同 `table.ts`）。
+ * - 块级 `replace` **必须**落在整行边界（行首/行尾），见 `decorateMathFences`。
  */
-import type { EditorSelection, Line, Text } from '@codemirror/state'
+import { EditorSelection, type Line, type Text } from '@codemirror/state'
+import type { EditorView } from '@codemirror/view'
 import { Decoration, WidgetType } from '@codemirror/view'
 
 import { KATEX_OPTIONS, type KatexLike } from '../../render/features/math.js'
 import { decorateFencedCode, isMathInfo, readFenceInfo } from '../decorate/fence.js'
-import { HIDE, MUTED_MARK, pushAtomicRange } from '../decorate/shared.js'
+import { MUTED_MARK, pushAtomicRange } from '../decorate/shared.js'
 import type { EditorFeature } from '../feature.js'
 import type { DecorationRanges, MarkdownNode } from '../types.js'
 import { selectionTouchesLineRange } from '../util/selection.js'
@@ -156,19 +179,20 @@ export type MathRenderer = KatexLike
  * DOM 结构（`.nd-math nd-math-block` 是**和渲染侧同一套类名**，方便消费方统一换肤）：
  *
  * ```html
- * <span class="nd-math nd-math-block">…KaTeX 的输出…</span>
+ * <div class="nd-math nd-math-block">…KaTeX 的输出…</div>
  * ```
  *
- * ⚠️ 为什么是 `<span>` 而不是渲染侧那种 `<div>`：这个 widget 是**行内替换**
- * （`Decoration.replace`，见 `decorateMathFences`），必须待在行内流里。
- * 用块级元素会让 CM6 插在 widget 前后的 `cm-widgetBuffer` 和它垂直堆叠成三行
- * （同 `theme.css` 里 `.nd-code-header` / `.nd-embed-card` 踩过的坑）。
- * 「看起来像一整块」由 CSS 的 `width: calc(100% + pad)` + 负 margin 负责。
+ * ⚠️ **是 `<div>`（块级）**，因为它是 `block: true` 的整块替换 —— widget 直接挂在
+ * `.cm-content` 下、不在 `.cm-line` 里（同 `TableWidget` 的 `.nd-table`）。
+ * 这也和渲染侧产出的 `<div class="nd-math nd-math-block">` 一致。
+ * （以前它是行内替换、必须是 `<span>` 才能待在行内流里 —— 那套连同 `height: 0` 一起删了。）
  */
 export class MathBlockWidget extends WidgetType {
   constructor(
     private readonly tex: string,
     private readonly render: MathRenderer,
+    /** 围栏块首行行首的位置。点 widget 时把光标放到 `from - 1`（见文件头「紧邻即揭示」）。 */
+    private readonly from: number,
   ) {
     super()
   }
@@ -176,17 +200,20 @@ export class MathBlockWidget extends WidgetType {
   /**
    * ⚠️ 必须实现，否则每次 rebuild 都重建 DOM（公式会闪）。
    *
-   * **只比 `tex`，不比 `render`**：同一个编辑器里 `render` 是同一个对象
-   * （`nexusdown()` 一次性注入），比引用没有意义；而消费方若习惯性地每次
-   * 现造一个包装函数，比引用反而会让 widget 永远不等、每帧重建。
+   * 比 `tex` **和** `from`：`tex` 变了公式要重画；`from` 变了 `mousedown` 要落到新位置，
+   * 也必须重建。
+   *
+   * **不比 `render`**：同一个编辑器里 `render` 是同一个对象（`nexusdown()` 一次性注入），
+   * 比引用没有意义；而消费方若习惯性地每次现造一个包装函数，比引用反而会让 widget
+   * 永远不等、每帧重建。
    */
   override eq(other: MathBlockWidget): boolean {
-    return other.tex === this.tex
+    return other.tex === this.tex && other.from === this.from
   }
 
-  override toDOM(): HTMLElement {
-    const span = document.createElement('span')
-    span.className = 'nd-math nd-math-block'
+  override toDOM(view: EditorView): HTMLElement {
+    const div = document.createElement('div')
+    div.className = 'nd-math nd-math-block'
     try {
       /*
        * KaTeX 在 `trust:false` 下的输出是**自包含且安全**的，直接内联
@@ -194,7 +221,7 @@ export class MathBlockWidget extends WidgetType {
        * 的地方：内容是消费方注入的渲染器产出的，不是用户输入；再转义会把公式里的
        * `<` 显示成 `&lt;`。
        */
-      span.innerHTML = this.render.renderToString(this.tex, {
+      div.innerHTML = this.render.renderToString(this.tex, {
         ...KATEX_OPTIONS,
         displayMode: true,
       })
@@ -202,41 +229,43 @@ export class MathBlockWidget extends WidgetType {
       /*
        * 契约：渲染失败**降级成源码**，绝不抛（`throwOnError:false` 挡不住的那类）。
        * ⚠️ 这里必须 `textContent` —— 源码是**用户输入**，走 innerHTML 就是注入面。
-       */
-      /*
-       * ⚠️ **但必须留一条日志** ✗ —— 之前这里是裸 `catch {}`，
-       * 结果"公式不渲染"变成了**完全没有线索**：页面不报错、控制台干净、
-       * 只是悄悄降级成源码 ✓（实测排查时卡了很久 ✓）。
-       *
-       * 降级是**正常路径**（契约要求 ✓），但"为什么降级"是**诊断信息** ✗，
-       * 不该和契约一起被吞掉 ✓。
+       * ⚠️ 但**必须留一条日志**：静默降级会让「公式不渲染」变得毫无线索
+       * （实测排查时卡了很久）。
        */
       console.warn('[nexusdown] 数学渲染失败，已降级成源码：', e)
-      span.classList.add('nd-math-source')
-      span.textContent = this.tex
+      div.classList.add('nd-math-source')
+      div.textContent = this.tex
     }
-    return span
+
+    /*
+     * 点击揭示（同 `TableWidget`）。
+     *
+     * ⚠️ `preventDefault()` 是**必须的**，不是防御性代码：CM6 的 `eventBelongsToEditor`
+     * 会先看 `event.defaultPrevented`，prevent 过就直接放行、不再自己处理鼠标。
+     * 少了它，CM6 会抢走这次点击、把光标放到别处，揭示逻辑等于没写。
+     *
+     * ⚠️ `Math.max(0, …)`：围栏**就在文档开头**时 `from === 0`，`from - 1` 是 `-1`
+     * —— 直接 dispatch 会抛 `Selection points outside of document`。夹到 0 落在
+     * 围栏首行行首，属于「在围栏里」，一样揭示。
+     */
+    div.addEventListener('mousedown', (e) => {
+      e.preventDefault()
+      view.dispatch({ selection: EditorSelection.cursor(Math.max(0, this.from - 1)) })
+    })
+
+    return div
   }
 
-  /** 返回 `false` = 事件交给 CM：点公式 → 光标落进围栏 → 转揭示态显示源码。 */
+  /**
+   * 返回 `false` = 事件交给 CM 的默认处理。
+   *
+   * 真正的「别让 CM 抢点击」靠 `mousedown` 里的 `preventDefault()`（见上）。
+   * 这里返回 `false` 而不是 `true`，是为了**不拦掉别的交互**，只精确接管那一次 `mousedown`。
+   */
   override ignoreEvent(_event: Event): boolean {
     return false
   }
 }
-
-/**
- * 开围栏那一行的行级装饰 —— 只补 `padding-left`，好让公式 widget 用负 margin
- * 通到行左右边缘（和 `.nd-embed-open` / `.nd-code-header` 是同一套账）。
- */
-const MATH_LINE_OPEN = Decoration.line({ class: 'nd-math-open' })
-
-/**
- * 非开围栏的行（内容行 + 闭围栏）—— 内容藏掉后把**行盒也压成 0 高**。
- *
- * ⚠️ 只 `HIDE` 不够：`Decoration.replace` 藏的是行内内容、不含换行符，空行仍占
- * 一整行高度（同 `embed.ts` 的 `LINE_HIDDEN`、`fence.ts` 的 `LINE_FOLDED`）。
- */
-const MATH_LINE_HIDDEN = Decoration.line({ class: 'nd-math-hidden' })
 
 /**
  * 全文扫描的缓存。
@@ -263,6 +292,15 @@ export function createMathFeature(render?: MathRenderer): EditorFeature {
      * （`indexFeatures` 会抛错）。见文件头。
      */
     nodes: ['Document'],
+    /*
+     * ★ 块级功能：围栏产出一个 `block: true` 的跨行 replace，只能由 StateField 提供
+     * （ViewPlugin 提供会抛 `Block decorations may not be specified via plugins`）。
+     * 见文件头「块级围栏走块级通道」。
+     *
+     * ⚠️ 本功能**同时**推行内公式的装饰（认领 `Document` 是全文扫描的代价）。
+     * 那些行内 replace 的原子区间由块级通道一并提供（见 `plugin.ts` 的 `blockDecorations`）。
+     */
+    block: true,
     decorate(ranges, atomicRanges, node, doc, selection) {
       decorateMath(ranges, atomicRanges, node, doc, selection, render)
     },
@@ -319,8 +357,8 @@ function decorateInlineMath(
  * 从 `Document` 节点走一遍树找 `FencedCode`（为什么不能自己认领 `FencedCode`
  * 见文件头「块级公式」）。对每个 math 围栏：
  *
- * - **注入了渲染函数** → 开围栏行换成 `MathBlockWidget`，其余行藏掉压高；
- *   光标/选区碰到围栏时**保留源码**（不然用户改不了）。
+ * - **注入了渲染函数** → **一个** `block: true` 的跨行 replace 覆盖**整段围栏**
+ *   （开围栏行首 → 闭围栏行尾），揭示态不推任何装饰。
  * - **没注入** → 交给 `decorateFencedCode` 画成**普通代码块**。直接复用，
  *   绝不在这里另抄一份代码块的画法（抄一份迟早和 `fence.ts` 漂开）。
  */
@@ -340,38 +378,59 @@ function decorateMathFences(
       continue
     }
 
-    // 揭示态（光标/选区碰到围栏任意一行）：保留源码，让作者能改 TeX。
-    // ⚠️ 必须在推任何 replace 之前返回，否则会把光标要编辑的源码藏掉。
-    if (selectionTouchesLineRange(doc, selection, fence.from, fence.to)) continue
-
     const open = firstChildNamed(fence, 'CodeMark')
     if (!open) continue
     const openLine = doc.lineAt(open.from)
 
-    // 开围栏行 → 公式 widget（整行行内替换；**不是** block widget —— 那会让方向键进不去）。
-    ranges.push(MATH_LINE_OPEN.range(openLine.from))
-    if (openLine.to > openLine.from) {
-      pushAtomicRange(
-        ranges,
-        atomicRanges,
-        Decoration.replace({ widget: new MathBlockWidget(mathSource(doc, fence, openLine), render) }),
-        openLine.from,
-        openLine.to,
-      )
-    }
-
-    // 内容行 + 闭围栏行 → 藏内容 + 压行高。
-    // `fence.to` 是**排他**的：正好落在下一行行首时，不减 1 会多算一行（同 fence.ts）。
+    /*
+     * 块级 replace **必须**落在整行边界（CM6 要求）——
+     * `openLine.from` 是**结构性**的行首保证（围栏前最多 3 个前导空格也算在行内）。
+     * `fence.to` 是**排他**的：正好落在下一行行首时，不减 1 会多算一行（同 `fence.ts`）。
+     */
+    const from = openLine.from
     const lastPos = fence.to > fence.from ? fence.to - 1 : fence.to
-    const endLine = doc.lineAt(lastPos)
-    for (let n = openLine.number + 1; n <= endLine.number; n++) {
-      const line = doc.line(n)
-      ranges.push(MATH_LINE_HIDDEN.range(line.from))
-      if (line.to > line.from) {
-        pushAtomicRange(ranges, atomicRanges, HIDE, line.from, line.to)
-      }
-    }
+    const to = doc.lineAt(lastPos).to
+    if (to <= from) continue
+
+    // 揭示态 → **什么都不推**，源码原样（用户要能改）。⚠️ 必须在推 replace 之前返回，
+    // 否则会把光标要编辑的源码藏掉。
+    if (isMathFenceRevealed(doc, selection, from, to)) continue
+
+    // 整段围栏 → 一个块级公式 widget。
+    // 块级 replace 不登记 atomicRanges —— 光标本来就被 CM6 挡在区间外（同 `table.ts`）。
+    ranges.push(
+      Decoration.replace({
+        block: true,
+        widget: new MathBlockWidget(mathSource(doc, fence, openLine), render, from),
+      }).range(from, to),
+    )
   }
+}
+
+/**
+ * 揭示判据 —— **和 `table.ts` 的 `isTableRevealed` 同一套**（见那边文件头「紧邻即揭示」）。
+ *
+ * 两个条件任一成立就揭示：
+ *
+ * 1. **选区碰到围栏任意一行** —— 复用 `selectionTouchesLineRange`，多光标安全。
+ * 2. **光标紧邻** `from - 1` / `to + 1` —— ⚠️ 这一条**不能省**。块级区间光标进不去，
+ *    门口是**唯一**能触达的位置；少了它键盘用户永远进不了围栏
+ *    （`selectionTouchesLineRange` 不会把 `from - 1` 算进来 —— 那是**上一行**）。
+ *
+ * 用 `range.head` 而不是 `range.from` / `range.to`：紧邻描述的是**光标**（移动端），
+ * 而选区只要碰到围栏行就已被条件 1 覆盖。
+ */
+function isMathFenceRevealed(
+  doc: Text,
+  selection: EditorSelection,
+  from: number,
+  to: number,
+): boolean {
+  if (selectionTouchesLineRange(doc, selection, from, to)) return true
+  for (const range of selection.ranges) {
+    if (range.head === from - 1 || range.head === to + 1) return true
+  }
+  return false
 }
 
 /**

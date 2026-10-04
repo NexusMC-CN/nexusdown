@@ -18,8 +18,8 @@
  * 既断言「传了正确的 tex 与安全选项」，又断言「没注入 → 降级成代码块、不报错」。
  */
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown'
-import { EditorState, type Extension } from '@codemirror/state'
-import { EditorView, ViewPlugin, type Decoration } from '@codemirror/view'
+import { EditorState, type Extension, type Range } from '@codemirror/state'
+import { Decoration, EditorView, type DecorationSet } from '@codemirror/view'
 import { afterEach, describe, expect, it } from 'vitest'
 
 import { embedFeature } from '../../src/cm/features/embed.js'
@@ -31,10 +31,7 @@ import {
   type MathRenderer,
 } from '../../src/cm/features/math.js'
 import type { EditorFeature } from '../../src/cm/feature.js'
-import {
-  nexusdownLivePreview,
-  type LivePreviewPluginValue,
-} from '../../src/cm/plugin.js'
+import { nexusdownLivePreview } from '../../src/cm/plugin.js'
 
 type Kind = 'line' | 'mark' | 'replace' | 'widget'
 
@@ -57,7 +54,15 @@ function mount(doc: string, cursor: number = doc.length) {
   return mountWith(new Map([['Document', mathFeature]]), doc, cursor)
 }
 
-/** 挂一个真编辑器，把给定的功能表注入骨架。 */
+/**
+ * 挂一个真编辑器，把给定的功能表注入骨架。
+ *
+ * ⚠️ `math` 现在是**块级功能**（`block: true`），装饰由 StateField 提供 ——
+ * CM6 禁止 ViewPlugin 提供块级装饰，所以 `view.plugin(...)` 上**读不到它们**
+ * （见 `plugin.ts`）。只能从 `EditorView.decorations` / `EditorView.atomicRanges`
+ * 两个 facet 里把 StateField 那份捞回来。返回的 `instance` 是个**读取器**，
+ * 每次访问都现取，所以 dispatch 之后再读也是最新的。
+ */
 function mountWith(
   features: ReadonlyMap<string, EditorFeature>,
   doc: string,
@@ -79,15 +84,54 @@ function mountWith(
   const view = new EditorView({ state, parent })
   views.push(view)
 
-  const instance = view.plugin(plugin as unknown as ViewPlugin<LivePreviewPluginValue>)
-  if (!instance) throw new Error('插件没有挂上')
+  const instance = {
+    get decorations() {
+      return facetDecorations(view)
+    },
+    get atomicDecorations() {
+      return facetAtomicRanges(view)
+    },
+  }
   return { view, instance }
 }
 
+/**
+ * 把 `EditorView.decorations` 里所有来源合并成一个集合。
+ *
+ * 两个形态都要吃：StateField 经 `.from()` 提供时是**一个 DecorationSet**，
+ * ViewPlugin 提供时是**一个 `(view) => DecorationSet` 函数** —— 而 `math` 现在是块级
+ * （StateField），别的功能（embed / link…）还在 ViewPlugin 里，两者要一起看。
+ */
+function facetDecorations(view: EditorView): DecorationSet {
+  const ranges: Range<Decoration>[] = []
+  for (const value of view.state.facet(EditorView.decorations)) {
+    const set = typeof value === 'function' ? value(view) : value
+    set.between(0, 1e9, (from, to, deco) => {
+      ranges.push(deco.range(from, to))
+    })
+  }
+  return Decoration.set(ranges, true)
+}
+
+/** 原子区间 facet 的值是 `(view) => RangeSet`，逐个调用再合并。 */
+function facetAtomicRanges(view: EditorView): DecorationSet {
+  const ranges: Range<Decoration>[] = []
+  for (const provider of view.state.facet(EditorView.atomicRanges)) {
+    provider(view).between(0, 1e9, (from, to, deco) => {
+      ranges.push(deco.range(from, to))
+    })
+  }
+  return Decoration.set(ranges, true)
+}
+
+interface DecoSource {
+  readonly decorations: DecorationSet
+}
+
 /** 读回当前全部装饰，按种类标注（与 `table.test.ts` 同一套判据）。 */
-function read(instance: LivePreviewPluginValue): Deco[] {
+function read(source: DecoSource): Deco[] {
   const out: Deco[] = []
-  instance.decorations.between(0, 1e9, (from, to, value) => {
+  source.decorations.between(0, 1e9, (from, to, value) => {
     const spec = value.spec as { class?: string; widget?: unknown }
     const kind: Kind =
       spec.widget !== undefined
@@ -103,17 +147,17 @@ function read(instance: LivePreviewPluginValue): Deco[] {
 }
 
 /** 装饰值本身（断言 widget 字段 / block 标记用）。 */
-function values(instance: LivePreviewPluginValue): Decoration[] {
+function values(source: DecoSource): Decoration[] {
   const out: Decoration[] = []
-  instance.decorations.between(0, 1e9, (_f, _t, value) => {
+  source.decorations.between(0, 1e9, (_f, _t, value) => {
     out.push(value)
   })
   return out
 }
 
 /** widget 的构造器名（区分公式 widget / 代码块标题栏 / 行内公式 widget）。 */
-function widgetCtors(instance: LivePreviewPluginValue): string[] {
-  return values(instance)
+function widgetCtors(source: DecoSource): string[] {
+  return values(source)
     .map((v) => (v.spec as { widget?: object }).widget?.constructor.name)
     .filter((name): name is string => name !== undefined)
 }
@@ -255,51 +299,47 @@ describe('math —— 不该被当成公式的写法', () => {
  *
  * `MATH_DOC` 的坐标：
  *   开围栏行 ` ```math ` [0,7)；内容行 `x^2` [8,11)；闭围栏行 ` ``` ` [12,15)。
+ *   整段围栏 = [0,15)（开围栏行首 → 闭围栏行尾）。
  * 光标默认落在末行（`尾部`），所以是非揭示态基线。
+ *
+ * `MATH_DOC_PADDED` 前面垫了两行，好测「紧邻门口」——`MATH_DOC` 的围栏在文档开头，
+ * `from - 1` 是 `-1`，测不到。
  * ======================================================================== */
 const MATH_DOC = '```math\nx^2\n```\n\n尾部'
+/** 围栏 [4,19)；`from - 1 = 3`、`to + 1 = 20`。 */
+const MATH_DOC_PADDED = '前言\n\n```math\nx^2\n```\n\n尾部'
 
 describe('math —— 块级公式（注入了渲染函数）', () => {
-  it('★ 开围栏行换成公式 widget，内容行 + 闭围栏行藏掉并压行高', () => {
-    const { instance } = mountWith(
+  it('★ 整段围栏 → 一个 block:true 的跨行 replace（走块级通道，不是行内 widget + 压高）', () => {
+    const { view, instance } = mountWith(
       new Map([['Document', createMathFeature(makeRenderer())]]),
       MATH_DOC,
     )
+    const ds = read(instance)
 
-    // 开围栏行整行换成公式 widget。
-    expect(spans(read(instance), 'widget')).toEqual([[0, 7]])
-    // 内容行与闭围栏行的行内内容藏掉。
-    expect(spans(read(instance), 'replace')).toEqual([
-      [8, 11],
-      [12, 15],
-    ])
-    // 行级装饰：开围栏行给 padding，其余两行压高。
-    expect(
-      read(instance)
-        .filter((d) => d.kind === 'line')
-        .map((d) => [d.from, d.cls]),
-    ).toEqual([
-      [0, 'nd-math-open'],
-      [8, 'nd-math-hidden'],
-      [12, 'nd-math-hidden'],
-    ])
+    // 只有一条装饰：整段围栏的块级 replace。
+    expect(ds).toHaveLength(1)
+    const deco = ds[0]!
+    expect(deco.kind).toBe('widget')
+    expect([deco.from, deco.to]).toEqual([0, 15])
+    expect(view.state.doc.sliceString(deco.from, deco.to)).toBe('```math\nx^2\n```')
+
+    // ★ 核心断言：它是 **block**，而且带 MathBlockWidget。
+    const spec = values(instance)[0]!.spec as { block?: boolean; widget?: unknown }
+    expect(spec.block).toBe(true)
+    expect(spec.widget).toBeInstanceOf(MathBlockWidget)
+
+    // 跨行：首行行号 ≠ 末行行号（这正是「ViewPlugin 提供不了、必须走 StateField」的原因）。
+    expect(view.state.doc.lineAt(deco.from).number).toBe(1)
+    expect(view.state.doc.lineAt(deco.to - 1).number).toBe(3)
   })
 
-  it('★ 隐藏态的 replace 全部登记为原子区间（否则光标会停在隐藏区间中间）', () => {
+  it('★ 块级 replace 不登记原子区间（光标本来就被 CM6 挡在区间外，同 table）', () => {
     const { instance } = mountWith(
       new Map([['Document', createMathFeature(makeRenderer())]]),
       MATH_DOC,
     )
-
-    const atomic: number[][] = []
-    instance.atomicDecorations.between(0, 1e9, (from, to) => {
-      atomic.push([from, to])
-    })
-    expect(atomic).toEqual([
-      [0, 7],
-      [8, 11],
-      [12, 15],
-    ])
+    expect(instance.atomicDecorations.size).toBe(0)
   })
 
   it('★ 渲染函数收到的是围栏内容（不含两侧围栏行），且传 displayMode=true 与安全选项', () => {
@@ -315,24 +355,28 @@ describe('math —— 块级公式（注入了渲染函数）', () => {
     expect(render.calls[0]!.options!.maxSize).toBe(50)
   })
 
-  it('widget 的 DOM 是 `.nd-math.nd-math-block`，里面内联渲染器的输出', () => {
-    const { instance } = mountWith(
+  it('widget 的 DOM 是块级 `<div class="nd-math nd-math-block">`，里面内联渲染器的输出', () => {
+    const { view, instance } = mountWith(
       new Map([['Document', createMathFeature(makeRenderer())]]),
       MATH_DOC,
     )
     const deco = values(instance).find(
       (v) => (v.spec as { widget?: object }).widget?.constructor.name === 'MathBlockWidget',
     )!
-    const dom = (deco.spec as { widget: MathBlockWidget }).widget.toDOM()
+    const dom = (deco.spec as { widget: MathBlockWidget }).widget.toDOM(view)
 
+    // ★ 块级替换的 widget 必须是块级元素（和渲染侧产出的 `<div>` 一致）。
+    expect(dom.tagName).toBe('DIV')
     expect(dom.className).toBe('nd-math nd-math-block')
     expect(dom.querySelector('.katex-stub')?.getAttribute('data-display')).toBe('true')
   })
 
-  it('★ `MathBlockWidget.eq`：同 TeX 相等、不同 TeX 不等（少了它每次 rebuild 都会闪）', () => {
+  it('★ `MathBlockWidget.eq`：同 TeX + 同 from 相等；TeX 或 from 变了不等', () => {
     const render = makeRenderer()
-    expect(new MathBlockWidget('x^2', render).eq(new MathBlockWidget('x^2', render))).toBe(true)
-    expect(new MathBlockWidget('x^2', render).eq(new MathBlockWidget('y^2', render))).toBe(false)
+    expect(new MathBlockWidget('x^2', render, 0).eq(new MathBlockWidget('x^2', render, 0))).toBe(true)
+    expect(new MathBlockWidget('x^2', render, 0).eq(new MathBlockWidget('y^2', render, 0))).toBe(false)
+    // `from` 变了（文档前面插了东西）→ mousedown 要落到新位置 → 必须重建。
+    expect(new MathBlockWidget('x^2', render, 0).eq(new MathBlockWidget('x^2', render, 5))).toBe(false)
   })
 
   it('渲染函数抛错 → 降级成源码文本，不抛（契约：不要抛）', () => {
@@ -341,14 +385,14 @@ describe('math —— 块级公式（注入了渲染函数）', () => {
         throw new Error('boom')
       },
     }
-    const { instance } = mountWith(
+    const { view, instance } = mountWith(
       new Map([['Document', createMathFeature(boom)]]),
       MATH_DOC,
     )
     const deco = values(instance).find(
       (v) => (v.spec as { widget?: object }).widget?.constructor.name === 'MathBlockWidget',
     )!
-    const dom = (deco.spec as { widget: MathBlockWidget }).widget.toDOM()
+    const dom = (deco.spec as { widget: MathBlockWidget }).widget.toDOM(view)
 
     expect(dom.classList.contains('nd-math-source')).toBe(true)
     // 源码是用户输入 → 只能 textContent，绝不能变成 HTML。
@@ -369,7 +413,7 @@ describe('math —— 块级公式（没注入渲染函数）', () => {
 })
 
 describe('math —— 块级公式揭示态', () => {
-  it('★ 光标落在围栏里 → 保留源码，不产生任何装饰', () => {
+  it('★ 光标落在围栏里 → 不推任何装饰（源码原样）', () => {
     // anchor 9 落在内容行 `x^2` 上。
     const { instance } = mountWith(
       new Map([['Document', createMathFeature(makeRenderer())]]),
@@ -387,6 +431,48 @@ describe('math —— 块级公式揭示态', () => {
       MATH_DOC,
       13,
     )
+    expect(read(instance)).toHaveLength(0)
+  })
+
+  it('★ 光标紧邻 `from - 1` → 揭示（块级区间进不去，门口是唯一能触达的位置）', () => {
+    const { instance } = mountWith(
+      new Map([['Document', createMathFeature(makeRenderer())]]),
+      MATH_DOC_PADDED,
+      3,
+    )
+    expect(read(instance)).toHaveLength(0)
+  })
+
+  it('★ 光标紧邻 `to + 1` → 揭示', () => {
+    const { instance } = mountWith(
+      new Map([['Document', createMathFeature(makeRenderer())]]),
+      MATH_DOC_PADDED,
+      20,
+    )
+    expect(read(instance)).toHaveLength(0)
+  })
+
+  it('★ 光标停在门口**之外**（上一行末尾）→ 仍然渲染成公式（紧邻才揭示）', () => {
+    const { instance } = mountWith(
+      new Map([['Document', createMathFeature(makeRenderer())]]),
+      MATH_DOC_PADDED,
+      2,
+    )
+    expect(spans(read(instance), 'widget')).toEqual([[4, 19]])
+  })
+
+  it('★ 点 widget → 光标落到 `from - 1`（门口），围栏换回源码', () => {
+    const { view, instance } = mountWith(
+      new Map([['Document', createMathFeature(makeRenderer())]]),
+      MATH_DOC_PADDED,
+    )
+    expect(read(instance)).toHaveLength(1)
+
+    view.dom.querySelector('.nd-math-block')!.dispatchEvent(
+      new MouseEvent('mousedown', { bubbles: true, cancelable: true }),
+    )
+
+    expect(view.state.selection.main.head).toBe(3)
     expect(read(instance)).toHaveLength(0)
   })
 })

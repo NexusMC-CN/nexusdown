@@ -390,6 +390,12 @@ function splitFeatures(features: ReadonlyMap<string, EditorFeature>): {
   return { view, block };
 }
 
+/** 块级通道一次构建的两份产物：要渲染的装饰 + 其中隐藏态对应的原子区间。 */
+interface BlockDecorations {
+  decorations: DecorationSet;
+  atomic: DecorationSet;
+}
+
 /**
  * **块级装饰通道** —— 一个 StateField，提供 `EditorView.decorations`。
  *
@@ -409,6 +415,19 @@ function splitFeatures(features: ReadonlyMap<string, EditorFeature>): {
  * ⚠️ 缓存按**语法树对象**（不是 `doc`）：lezer 是**增量**解析的，同一个 doc 在
  * 解析补全前后可能是**两棵树** —— 按 doc 缓存会把「树还没解析出表格」这个中间态
  * 永久钉住。按树缓存则树一换就重算。
+ *
+ * ## ⚠️ 这个通道**也必须**提供 `atomicRanges`（不只是 `decorations`）
+ *
+ * 起初这里只 provide 了 `decorations`，`atomicRanges` 收下就扔了 —— 当时的假设是
+ * 「块级功能只推块级 replace，而块级区间光标本来就进不去，不需要原子区间」。
+ *
+ * **那个假设不成立** ✓：一个功能可以**同时**是块级的、又推行内 replace。`math` 就是
+ * 例子 —— 它认领 `Document`（为了全文扫围栏），所以整份功能（含**行内** `$…$` 的
+ * 隐藏态 replace）都被分流进这个字段。行内 replace **必须**登记原子区间，否则光标会
+ * 停在隐藏区间的中间（表现为「按一下方向键没动」，见 `decorate/shared.ts`）。
+ *
+ * 所以字段的值改成 `{ decorations, atomic }` 两份一起提供。`table` 不推原子区间，
+ * 于是它的那份恒为空 —— 行为一字不变。
  */
 function blockDecorations(
   blockFeatures: ReadonlyMap<string, EditorFeature>,
@@ -433,9 +452,9 @@ function blockDecorations(
     return nodes;
   }
 
-  function build(state: EditorState): DecorationSet {
+  function build(state: EditorState): BlockDecorations {
     const nodes = nodesFor(state);
-    if (nodes.length === 0) return Decoration.none;
+    if (nodes.length === 0) return { decorations: Decoration.none, atomic: Decoration.none };
 
     const ranges: DecorationRanges = [];
     const atomicRanges: DecorationRanges = [];
@@ -444,18 +463,21 @@ function blockDecorations(
     for (const node of nodes) {
       blockFeatures.get(node.name)?.decorate(ranges, atomicRanges, node, doc, selection);
     }
-    // `true` = 自动排序，同 ViewPlugin 那边（块级区间跨度大，顺序不保证单调）。
-    return Decoration.set(ranges, true);
+    return {
+      // `true` = 自动排序，同 ViewPlugin 那边（块级区间跨度大，顺序不保证单调）。
+      decorations: Decoration.set(ranges, true),
+      atomic: Decoration.set(atomicRanges, true),
+    };
   }
 
-  return StateField.define<DecorationSet>({
+  const field = StateField.define<BlockDecorations>({
     create: (state) => build(state),
     update(deco, tr) {
       /*
        * 只在「文档变了 / 语法树换了 / 选区动了」时重算。
        *
-       * ⚠️ **选区必须算进来** —— 揭示态（光标紧邻表格）就是靠选区驱动的
-       * （见 `features/table.ts` 的「紧邻即揭示」）。漏了它，光标走到表格门口
+       * ⚠️ **选区必须算进来** —— 揭示态（光标紧邻表格 / 围栏）就是靠选区驱动的
+       * （见 `features/table.ts` 的「紧邻即揭示」）。漏了它，光标走到门口
        * 表格也不会换回源码，**而且零报错**。
        */
       if (
@@ -467,6 +489,17 @@ function blockDecorations(
       }
       return build(tr.state);
     },
-    provide: (field) => EditorView.decorations.from(field),
+    provide: (f) => [
+      EditorView.decorations.from(f, (value) => value.decorations),
+      /*
+       * 原子区间经 facet 的**函数形态**提供（`atomicRanges` 的 facet 值就是
+       * `(view) => RangeSet`）。每次布局时读一遍字段当前值，所以两份产物永远同源同步。
+       */
+      EditorView.atomicRanges.of(
+        (view) => view.state.field(f, false)?.atomic ?? Decoration.none,
+      ),
+    ],
   });
+
+  return field;
 }
