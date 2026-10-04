@@ -90,6 +90,13 @@ export interface EditorFeature {
     doc: Text,
     selection: EditorSelection,
     context?: DecorateContext,
+    /*
+     * 用户**点开**了哪个块级装饰（`editingBlock` 的值 ✓）—— 只有块级功能用得到 ✓。
+     *
+     * 为什么单独一个参数而不是塞进 `DecorateContext`：`context` 是**视图层**构造的
+     * （带 `folded` 等 ✓），而这个是**状态层**的 ✓；混在一起会让"谁负责填它"变得含糊 ✓。
+     */
+    blockEditing?: number | null,
   ) => void;
 }
 

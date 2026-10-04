@@ -15,7 +15,7 @@
  * （不是包一层数组），行为与加这条通道之前一字不差。
  */
 import { syntaxTree } from '@codemirror/language';
-import { EditorState, StateField, type Extension } from '@codemirror/state';
+import { EditorState, StateEffect, StateField, type Extension } from '@codemirror/state';
 import {
   Decoration,
   type DecorationSet,
@@ -367,7 +367,14 @@ export function nexusdownLivePreview(opts: LivePreviewOptions = {}): Extension {
    * 包成数组会让它们全部找不到插件实例。
    */
   if (blockFeatures.size === 0) return plugin;
-  return [blockDecorations(blockFeatures), plugin];
+  /*
+   * ⚠️ **`editingBlock` 必须一起挂上** ✗ —— `blockDecorations` 的 build 里要
+   * `state.field(editingBlock)` ✓，字段不在 state 里的话**它会抛**
+   * （"Field is not present in this state" ✓）——
+   * 实测：漏挂时**连 history / drawSelection 这些基础设施测试都会红** ✓，
+   * 因为整个 state 建不起来 ✓。
+   */
+  return [editingBlock, blockDecorations(blockFeatures), plugin];
 }
 
 /**
@@ -429,6 +436,54 @@ interface BlockDecorations {
  * 所以字段的值改成 `{ decorations, atomic }` 两份一起提供。`table` 不推原子区间，
  * 于是它的那份恒为空 —— 行为一字不变。
  */
+/**
+ * 用户**点开**了哪个块级装饰（存那个块的 `from`）。
+ *
+ * ## 为什么需要它
+ *
+ * 块级 `Decoration.replace` 的区间**光标进不去** ✗（连程序 dispatch 都被夹到 `from - 1` ✓），
+ * 所以"揭示源码"只能靠**停在门口** ✓ —— 而门口是**位置**判据 ✗：
+ * **空行只有一个位置** ✓，整行都等于 `from - 1` ✓ → 光标**路过**也命中 ✓
+ * → **公式/表格莫名其妙不渲染** ✗（用户实测 ✓）。
+ *
+ * 位置分不清"路过"和"要编辑" ✗ —— 所以另外记一份**意图** ✓：
+ * **点击 widget** 就设上这个标记 ✓，标记在时**才**揭示 ✓。
+ *
+ * ⚠️ 和 `foldedBlocks`（`fold.ts`）是同一种机制 ✓ —— 都是"用户意图"型的 StateField ✓。
+ *
+ * ⚠️ **本字段不产出任何装饰** ✓ —— 它只存一个数字 ✓。
+ * 块级装饰只能由 `blockDecorations` 那个 StateField 提供 ✓（见它的注释 ✓）。
+ */
+export const setEditingBlock = StateEffect.define<number | null>();
+
+export const editingBlock = StateField.define<number | null>({
+  create: () => null,
+
+  update(value, tr) {
+    for (const e of tr.effects) if (e.is(setEditingBlock)) return e.value;
+    if (value === null) return null;
+
+    /*
+     * 文档变了 → 区间会移位 ✓，标记也要跟着走 ✓
+     * （用户在门口打字，字插在围栏**前面** ✓，`from` 会往后移 ✓）。
+     */
+    const from = tr.changes.mapPos(value, 1);
+
+    /*
+     * 选区**离开门口**就清除 ✓ —— 注意"门口"要算上 `from - 1` 和 `to + 1` ✗：
+     * 用户点进来之后光标就停在 `from - 1` ✓，清除条件里不含它的话
+     * **一点进来就会被立刻清掉** ✓。
+     *
+     * `to` 这里用 `tr.newDoc.length` 兜底 ✓ —— 标记只需要保证"光标还在附近" ✓，
+     * 不必精确知道围栏多长 ✓（`from` 就是那个块的起点 ✓，往下走几行自然就超了 ✓）。
+     */
+    const near = tr.state.selection.ranges.some(
+      (r) => r.head >= from - 1 && r.head <= from + 1,
+    );
+    return near ? from : null;
+  },
+});
+
 function blockDecorations(
   blockFeatures: ReadonlyMap<string, EditorFeature>,
 ): Extension {
@@ -460,8 +515,17 @@ function blockDecorations(
     const atomicRanges: DecorationRanges = [];
     const doc = state.doc;
     const selection = state.selection;
+    /*
+     * ★ 用户点开了哪个块（见 `editingBlock`）—— 传给功能 ✓，
+     * 让它们把"位置判据"和"意图判据"合起来用 ✓。
+     */
+    const editing = state.field(editingBlock);
     for (const node of nodes) {
-      blockFeatures.get(node.name)?.decorate(ranges, atomicRanges, node, doc, selection);
+      blockFeatures.get(node.name)?.decorate(
+        ranges, atomicRanges, node, doc, selection,
+        undefined, // context：块级功能不需要视图层的 folded ✓
+        editing,
+      );
     }
     return {
       // `true` = 自动排序，同 ViewPlugin 那边（块级区间跨度大，顺序不保证单调）。

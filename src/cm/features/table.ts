@@ -58,9 +58,10 @@ import type { EditorView } from '@codemirror/view'
 import { Decoration, WidgetType } from '@codemirror/view'
 
 import { renderMarkdown } from '../../render/index.js'
+import { setEditingBlock } from '../plugin.js';
 import type { EditorFeature } from '../feature.js'
 import type { DecorationRanges, MarkdownNode } from '../types.js'
-import { selectionTouchesLineRange } from '../util/selection.js'
+import { selectionHoversBlock, selectionTouchesLineRange } from '../util/selection.js'
 
 /**
  * 表格 widget（非揭示态）—— 整块 `| a | b |\n| - | - |\n...` 换成一张真 `<table>`。
@@ -163,7 +164,15 @@ export class TableWidget extends WidgetType {
      */
     wrap.addEventListener('mousedown', (e) => {
       e.preventDefault()
-      view.dispatch({ selection: EditorSelection.cursor(Math.max(0, this.from - 1)) })
+      view.dispatch({
+        selection: EditorSelection.cursor(Math.max(0, this.from - 1)),
+        /*
+         * ★ **记下"用户点开了这个块"** ✓ —— 光把光标放到门口不够 ✗：
+         * 门口是**位置**判据 ✓，而**空行整行都等于门口** ✓
+         * → 会被当成"路过" ✓ → 块莫名其妙不渲染 ✓（用户实测 ✓）。
+         */
+        effects: setEditingBlock.of(this.from),
+      })
     })
 
     return wrap
@@ -189,8 +198,8 @@ export const tableFeature: EditorFeature = {
    * 见文件头「走的是块级通道」）。
    */
   block: true,
-  decorate(ranges, _atomicRanges, node, doc, selection) {
-    decorateTable(ranges, node, doc, selection)
+  decorate(ranges, _atomicRanges, node, doc, selection, _context, blockEditing) {
+    decorateTable(ranges, node, doc, selection, blockEditing ?? null)
   },
 }
 
@@ -199,6 +208,7 @@ function decorateTable(
   node: MarkdownNode,
   doc: Text,
   selection: EditorSelection,
+  blockEditing: number | null,
 ): void {
   /*
    * 块级 replace **必须**落在行首/行尾（CM6 要求整行）——
@@ -211,7 +221,7 @@ function decorateTable(
   if (to <= from) return
 
   // 揭示态 → **什么都不推**，源码原样（用户要能改）。
-  if (isTableRevealed(doc, selection, from, to)) return
+  if (isTableRevealed(doc, selection, from, to, blockEditing)) return
 
   ranges.push(
     Decoration.replace({
@@ -241,10 +251,15 @@ function isTableRevealed(
   selection: EditorSelection,
   from: number,
   to: number,
+  blockEditing: number | null,
 ): boolean {
+  /* ★ 意图判据优先 —— 见 `math.ts` 的同名判据（那里写了完整来龙去脉 ✓）。 */
+  if (blockEditing === from) return true
   if (selectionTouchesLineRange(doc, selection, from, to)) return true
-  for (const range of selection.ranges) {
-    if (range.head === from - 1 || range.head === to + 1) return true
-  }
-  return false
+  /*
+   * ⚠️ 「紧邻」**必须带上"那一行非空"** ✗ —— 光看位置的话，**空行整行都是 `from - 1`** ✓，
+   * 光标路过就命中 ✓ → 公式/表格莫名其妙不渲染 ✓（用户实测 ✓）。
+   * 见 `selectionHoversBlock` 的注释（那里写了完整来龙去脉 ✓）。
+   */
+  return selectionHoversBlock(doc, selection, from, to)
 }

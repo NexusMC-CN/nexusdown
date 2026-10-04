@@ -434,20 +434,45 @@ describe('math —— 块级公式揭示态', () => {
     expect(read(instance)).toHaveLength(0)
   })
 
-  it('★ 光标紧邻 `from - 1` → 揭示（块级区间进不去，门口是唯一能触达的位置）', () => {
+  /*
+   * ★★ **这一条是本次修复的核心回归** ✗ ——
+   * 光标停在**空**的相邻行上（`from - 1` 正好是它唯一的位置 ✓）**不能**揭示 ✗。
+   *
+   * 用户实测（2026-10-04）：文档是 `空 / ```math / 公式 / ``` / 空` 五行的时侯，
+   * 光标停在第 1 或第 5 行（都是空行）→ **公式不渲染** ✗；写一个字之后又渲染了 ✓
+   * （那一行变长 ✓ → `from` 移动 ✓ → 不再是紧邻 ✓）。
+   *
+   * 所以「紧邻」必须带上"那一行**非空**" ✓ —— 光看位置，空行整行都是门口 ✓。
+   */
+  it('★ 光标停在**空**的相邻行（`from - 1`）→ **不揭示**（空行整行都是门口，分不清路过）', () => {
     const { instance } = mountWith(
       new Map([['Document', createMathFeature(makeRenderer())]]),
       MATH_DOC_PADDED,
       3,
     )
-    expect(read(instance)).toHaveLength(0)
+    expect(spans(read(instance), 'widget')).toEqual([[4, 19]])
   })
 
-  it('★ 光标紧邻 `to + 1` → 揭示', () => {
+  it('★ 光标停在**空**的相邻行（`to + 1`）→ **不揭示**', () => {
     const { instance } = mountWith(
       new Map([['Document', createMathFeature(makeRenderer())]]),
       MATH_DOC_PADDED,
       20,
+    )
+    expect(spans(read(instance), 'widget')).toEqual([[4, 19]])
+  })
+
+  /*
+   * ★ **意图判据**：点开过（`editingBlock`）就一直揭示 ✓，直到走开 ✓。
+   *
+   * 这是"点击编辑"能成立的前提 ✓ —— 块级区间光标进不去 ✗，
+   * 光靠"停在门口"分不清路过和要编辑 ✗（上面两条就是证据 ✓）。
+   */
+  it('★ 光标停在**有内容**的相邻行末尾 → 揭示（这时用户就是要在这儿打字）', () => {
+    const { instance } = mountWith(
+      new Map([['Document', createMathFeature(makeRenderer())]]),
+      '前言\n上邻\n```math\nx^2\n```\n下邻\n尾部',
+      5, // `上邻` 的行尾 = 围栏的门口 ✓，而那一行**有内容** ✓
     )
     expect(read(instance)).toHaveLength(0)
   })

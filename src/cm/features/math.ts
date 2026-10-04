@@ -71,11 +71,12 @@ import type { EditorView } from '@codemirror/view'
 import { Decoration, WidgetType } from '@codemirror/view'
 
 import { KATEX_OPTIONS, type KatexLike } from '../../render/features/math.js'
+import { setEditingBlock } from '../plugin.js';
 import { decorateFencedCode, isMathInfo, readFenceInfo } from '../decorate/fence.js'
 import { MUTED_MARK, pushAtomicRange } from '../decorate/shared.js'
 import type { EditorFeature } from '../feature.js'
 import type { DecorationRanges, MarkdownNode } from '../types.js'
-import { selectionTouchesLineRange } from '../util/selection.js'
+import { selectionHoversBlock, selectionTouchesLineRange } from '../util/selection.js'
 import { firstChildNamed, lastChildNamed } from '../util/tree.js'
 
 /** 一段行内公式在文档里的位置。 */
@@ -250,7 +251,15 @@ export class MathBlockWidget extends WidgetType {
      */
     div.addEventListener('mousedown', (e) => {
       e.preventDefault()
-      view.dispatch({ selection: EditorSelection.cursor(Math.max(0, this.from - 1)) })
+      view.dispatch({
+        selection: EditorSelection.cursor(Math.max(0, this.from - 1)),
+        /*
+         * ★ **记下"用户点开了这个块"** ✓ —— 光把光标放到门口不够 ✗：
+         * 门口是**位置**判据 ✓，而**空行整行都等于门口** ✓
+         * → 会被当成"路过" ✓ → 块莫名其妙不渲染 ✓（用户实测 ✓）。
+         */
+        effects: setEditingBlock.of(this.from),
+      })
     })
 
     return div
@@ -301,8 +310,8 @@ export function createMathFeature(render?: MathRenderer): EditorFeature {
      * 那些行内 replace 的原子区间由块级通道一并提供（见 `plugin.ts` 的 `blockDecorations`）。
      */
     block: true,
-    decorate(ranges, atomicRanges, node, doc, selection) {
-      decorateMath(ranges, atomicRanges, node, doc, selection, render)
+    decorate(ranges, atomicRanges, node, doc, selection, _context, blockEditing) {
+      decorateMath(ranges, atomicRanges, node, doc, selection, render, blockEditing ?? null)
     },
   }
 }
@@ -317,9 +326,10 @@ function decorateMath(
   doc: Text,
   selection: EditorSelection,
   render: MathRenderer | undefined,
+  blockEditing: number | null,
 ): void {
   decorateInlineMath(ranges, atomicRanges, doc, selection, render)
-  decorateMathFences(ranges, atomicRanges, node, doc, selection, render)
+  decorateMathFences(ranges, atomicRanges, node, doc, selection, render, blockEditing)
 }
 
 /** 行内 `$…$`：全文扫描 + 揭示态处理。 */
@@ -369,6 +379,7 @@ function decorateMathFences(
   doc: Text,
   selection: EditorSelection,
   render: MathRenderer | undefined,
+  blockEditing: number | null,
 ): void {
   for (const fence of mathFencesFor(doc, node)) {
     // 没有渲染函数 → 退回普通代码块（本次改动前的样子）。`decorateFencedCode`
@@ -394,7 +405,7 @@ function decorateMathFences(
 
     // 揭示态 → **什么都不推**，源码原样（用户要能改）。⚠️ 必须在推 replace 之前返回，
     // 否则会把光标要编辑的源码藏掉。
-    if (isMathFenceRevealed(doc, selection, from, to)) continue
+    if (isMathFenceRevealed(doc, selection, from, to, blockEditing)) continue
 
     // 整段围栏 → 一个块级公式 widget。
     // 块级 replace 不登记 atomicRanges —— 光标本来就被 CM6 挡在区间外（同 `table.ts`）。
@@ -425,12 +436,22 @@ function isMathFenceRevealed(
   selection: EditorSelection,
   from: number,
   to: number,
+  blockEditing: number | null,
 ): boolean {
+  /*
+   * ★ **意图判据优先** ✓ —— 用户点开过这个围栏（`editingBlock` ✓）就一直揭示 ✓，
+   * 直到他走开 ✓。这是"点击编辑"能成立的前提 ✓：
+   * 块级区间光标进不去 ✗，光靠"停在门口"分不清"路过"和"要编辑" ✗
+   * （空行整行都是 `from - 1` ✓ → 路过也命中 ✓ → 公式莫名其妙不渲染 ✓）。
+   */
+  if (blockEditing === from) return true
   if (selectionTouchesLineRange(doc, selection, from, to)) return true
-  for (const range of selection.ranges) {
-    if (range.head === from - 1 || range.head === to + 1) return true
-  }
-  return false
+  /*
+   * ⚠️ 「紧邻」**必须带上"那一行非空"** ✗ —— 光看位置的话，**空行整行都是 `from - 1`** ✓，
+   * 光标路过就命中 ✓ → 公式/表格莫名其妙不渲染 ✓（用户实测 ✓）。
+   * 见 `selectionHoversBlock` 的注释（那里写了完整来龙去脉 ✓）。
+   */
+  return selectionHoversBlock(doc, selection, from, to)
 }
 
 /**

@@ -96,18 +96,17 @@ describe('table —— 纯函数层：装饰区间与种类', () => {
     expect(c.ranges).toHaveLength(0)
   })
 
-  it('★ 光标紧邻 `from - 1` → 揭示（这是整个方案能成立的关键）', () => {
-    // 块级区间光标**进不去**，门口是唯一能触达的位置 —— 少了这一条，
-    // 键盘用户永远走不进表格（`selectionTouchesLineRange` 不会把上一行算进来）。
-    const c = collectTable(DOC, FROM - 1)
-
-    expect(c.ranges).toHaveLength(0)
-  })
-
-  it('★ 光标紧邻 `to + 1` → 揭示', () => {
-    const c = collectTable(DOC, TO + 1)
-
-    expect(c.ranges).toHaveLength(0)
+  /* ★ 空行整行都是门口 → 光看位置分不清"路过"和"要编辑" ✗（见 math.test.ts 同名两条）。 */
+  it('★ 光标停在**空**的相邻行（`from - 1` / `to + 1`）→ **照常渲染成表格**', () => {
+    /*
+     * ⚠️ 用户实测（2026-10-04）：表格/公式上下是**空行**时 ✓，
+     * 光标停在那一行（空行**整行**都是门口 ✓）→ **块莫名其妙不渲染** ✗。
+     * 修复后：空行上路过**不再**算"要编辑" ✓ —— 这条就是那个回归 ✓。
+     */
+    for (const cursor of [FROM - 1, TO + 1]) {
+      const { parent } = mount(DOC, cursor)
+      expect(parent.querySelector('.nd-table')).not.toBeNull()
+    }
   })
 
   it('选区跨进表格也算揭示（多行选区必须揭示被跨越的行）', () => {
@@ -220,16 +219,30 @@ describe('table —— 集成层：真编辑器里渲染成 <table>', () => {
     expect(parent.querySelector('.nd-table')).not.toBeNull()
   })
 
-  it('★ 光标紧邻 `from - 1` / `to + 1` → 源码露出（门口也算揭示）', () => {
+  it('★ 光标停在门口（空行）→ **照常渲染**；点开才揭示', () => {
     const { view, parent } = mount(DOC)
 
+    /*
+     * ⚠️ 旧断言在这里是"源码露出" ✗ —— 那正是用户报的 bug ✓：
+     * 文档上下是空行时，光标停在那一行（空行整行都是门口 ✓）就**块不渲染** ✗。
+     */
     view.dispatch({ selection: { anchor: FROM - 1 } })
-    expect(parent.querySelector('.nd-table')).toBeNull()
-
-    view.dispatch({ selection: { anchor: DOC.length } })
     expect(parent.querySelector('.nd-table')).not.toBeNull()
 
     view.dispatch({ selection: { anchor: TO + 1 } })
+    expect(parent.querySelector('.nd-table')).not.toBeNull()
+
+    view.dispatch({ selection: { anchor: DOC.length } })
+    expect(parent.querySelector('.nd-table')).not.toBeNull()
+  })
+
+  it('★ **点开**表格才揭示源码（意图判据 —— 位置分不清路过和要编辑）', () => {
+    const { parent } = mount(DOC)
+    const widget = parent.querySelector('.nd-table') as HTMLElement | null
+    expect(widget).not.toBeNull()
+
+    // 点击 = 用户明确说要编辑 ✓ → 露出源码 ✓
+    widget!.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
     expect(parent.querySelector('.nd-table')).toBeNull()
   })
 
