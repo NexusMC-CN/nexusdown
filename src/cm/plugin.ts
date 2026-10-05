@@ -499,8 +499,22 @@ function blockDecorations(
       enter: (ref) => {
         if (!blockFeatures.has(ref.name)) return;
         nodes.push(ref.node);
-        // 块级功能独占整棵子树 —— 表格里不可能再嵌一个块级功能。
-        return false;
+        /*
+         * ⚠️⚠️ **根节点绝对不能剪** ✗✗ —— 这是踩过的坑：
+         *
+         * 原注释写的是「块级功能独占整棵子树 —— 表格里不可能再嵌一个块级功能」✓，
+         * 那话对 **`Table`** 成立 ✓，但 **`Document` 是根** ✗ ——
+         * 剪掉它等于**整棵树都没了** ✓。
+         *
+         * 而 `math` 认领的正是 `Document` ✓（它要全文扫围栏 ✓），
+         * 于是：**只要 `math` 在（它永远在 ✗）→ 表格、提及……全都收不到节点** ✓✓
+         * 实测症状：**表格从来不渲染** ✗ + **提及卡片也不渲染** ✗，
+         * 而单独测表格（不挂 math ✓）是好的 ✓ —— **两个功能一起死，原因在根上** ✓。
+         *
+         * 所以：**只有非根节点才剪** ✓。根的子节点继续走 ✓ ——
+         * `Document` 下面的 `Table` / `Paragraph` 才收得到 ✓。
+         */
+        return ref.name === 'Document';
       },
     });
     cache.set(tree, nodes);
