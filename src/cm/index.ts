@@ -11,6 +11,7 @@ import { tags } from '@lezer/highlight';
 import { EditorState, type Extension } from '@codemirror/state';
 import { EditorView, drawSelection, highlightActiveLine, keymap } from '@codemirror/view';
 
+import type { MentionCandidate } from './commands';
 import { decorateBlock } from './decorate/block';
 import { decorateBlockquote } from './decorate/blockquote';
 import { decorateFencedCode } from './decorate/fence';
@@ -22,6 +23,7 @@ import { createEditorFeatureMap } from './features/index';
 import type { MathRenderer } from './features/math';
 import type { MentionResolutions } from './features/mention';
 import { foldedBlocks } from './fold';
+import { mentionCompletion } from './mention-complete';
 import { nexusdownLivePreview } from './plugin';
 import { markdownKeymap } from './shortcuts';
 import { baseTheme } from './theme';
@@ -123,6 +125,17 @@ export interface NexusdownOptions {
    * 是消费方的事。
    */
   mentions?: MentionResolutions;
+  /**
+   * **提及候选**（可选）—— 在正文里打 `@` 时，光标旁边弹出的候选列表用**这份**数据。
+   *
+   * ★ 和工具栏「提及」选择器（`Toolbar.vue` 的 `openMention`）是**同一个来源**：
+   * 消费方把同一个函数同时喂给两处，所以按钮里搜得到的资源，打 `@` 也一定搜得到。
+   *
+   * ⚠️ 必须能**异步**（返回 Promise）：候选要查库 / 发请求，而库不查库。
+   * 不传时**不挂自动补全**（编辑器行为与加它之前一字不变）——
+   * 工具栏那个入口仍然在，只是降级成"落一个 `@`"（见 `Toolbar.vue`）。
+   */
+  mentionCandidates?: () => Promise<MentionCandidate[]>;
 }
 
 /**
@@ -147,7 +160,7 @@ export interface NexusdownOptions {
  * CM6 的 `historyField` 是 StateField，同一份 field 只生效一次。
  */
 export function nexusdown(opts: NexusdownOptions = {}): Extension {
-  const { codeLanguages, defaultCodeLanguage, urlPolicy, references, mathRenderer, mentions } = opts;
+  const { codeLanguages, defaultCodeLanguage, urlPolicy, references, mathRenderer, mentions, mentionCandidates } = opts;
 
   return [
     // ⚠️ 必须用 `base: markdownLanguage`（GFM）。
@@ -181,6 +194,17 @@ export function nexusdown(opts: NexusdownOptions = {}): Extension {
        */
       features: createEditorFeatureMap({ mathRenderer, mentions }),
     }),
+
+    /*
+     * ★ **提及的自动补全**（打 `@` 就地弹候选）—— 和上面那条装饰通道无关，
+     * 是 `autocompletion()` 提供的一个**扩展**（工具提示 + 回车/方向键），
+     * 所以它不在 `features/` 里，由这里直接挂。
+     *
+     * ⚠️ **没注入 `mentionCandidates` 时它返回 `[]`** —— 连 `autocompletion()`
+     * 都不装。那不只是"没有候选"：装了会多出 `Ctrl-Space` / `Alt-\`` 这些按键，
+     * 以及一套空转的补全状态。不传就一点痕迹都不留。
+     */
+    mentionCompletion({ candidates: mentionCandidates }),
 
     // ---------------------------------------------------------------------
     // 必需基础设施（顺序有意义）
@@ -229,6 +253,11 @@ export function nexusdown(opts: NexusdownOptions = {}): Extension {
 }
 
 export { nexusdownLivePreview, type LivePreviewOptions } from './plugin';
+/*
+ * 提及自动补全扩展。`nexusdown()` 已经按 `mentionCandidates` 自动挂上了，
+ * 单独导出是给"自己组装视图"的消费方用（同 `nexusdownLivePreview`）。
+ */
+export { mentionCompletion, type MentionCompletionOptions } from './mention-complete';
 export { baseTheme } from './theme';
 export { foldedBlocks, toggleFold } from './fold';
 /*

@@ -76,6 +76,47 @@ function isSlugCode(code: number): boolean {
 }
 
 /**
+ * **光标处正在输入的提及前缀** —— 自动补全（`src/cm/mention-complete.ts`）用它
+ * 判断「要不要弹候选、拿什么当查询串」。
+ *
+ * ## 为什么它和 `scanMentions` 必须共用判定
+ *
+ * 补全的触发条件**就是**扫描器的成立条件：扫描器不认的东西（`a@b.com` 的 `@b`、
+ * `@-foo`、`@foo#bar` 里的 `#bar`）补全也不该弹。两处各写一遍正则，
+ * 迟早漂成「扫描器不认、补全却弹」或者反过来 —— 而这正是本库要消灭的那类不一致。
+ * 所以字符类（`isSlugCode` / `isSlugStart`）和词边界（`isWordCode`）**只有这里一份**，
+ * `mentionPrefixAt` 直接复用它们。
+ *
+ * ## 与 `scanMentions` 的唯一差别：**允许空 slug**
+ *
+ * 扫描器要求 `@` 后面**已经**有一个合法 slug 首字符才算提及 —— 那是"写完了"。
+ * 这里允许 `slug === ''`（光标刚好落在 `@` 后面）—— 那是"正在写"，
+ * 用户刚打完 `@` 就该看到全部候选。除此之外两者的判定逐字一致。
+ *
+ * @param text 要扫的文本（调用方一般只给**光标所在行**的 `行首 → 光标` 片段，
+ *   slug 不含换行，所以前缀一定落在这一行里）。
+ * @param end 光标的偏移（相对 `text`）。
+ * @returns `from` = `@` 的位置；`slug` = `@` 与光标之间那串（可能为空）。
+ *   不构成提及前缀时返回 `null`。
+ */
+export function mentionPrefixAt(text: string, end: number): { from: number; slug: string } | null {
+  // 往回扫 slug 字符（`-` 也算 —— 它出现在 slug 中间是合法的）。
+  let start = end
+  while (start > 0 && isSlugCode(text.charCodeAt(start - 1))) start--
+
+  const at = start - 1
+  if (text.charCodeAt(at) !== AT) return null
+  // 词边界：`@` 前必须是串首或非词字符。`a@b.com` 在这里被挡下（同扫描器）。
+  if (at > 0 && isWordCode(text.charCodeAt(at - 1))) return null
+
+  const slug = text.slice(start, end)
+  // 有内容时要符合 slug 首字符规则（`@-foo` 不算）；空 slug 放行（刚打完 `@`）。
+  if (slug.length > 0 && !isSlugStart(slug.charCodeAt(0))) return null
+
+  return { from: at, slug }
+}
+
+/**
  * 扫出 `text` 里所有提及，按出现顺序返回。**不做任何解析 / 查表** ——
  * 拿到结果之后怎么办（渲染胶囊、查库、降级）由调用方决定。
  *

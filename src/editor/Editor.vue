@@ -154,6 +154,12 @@ async function mount(): Promise<void> {
       onDocChange: (value) => emit('update:modelValue', value),
       mathRenderer: props.mathRenderer,
       mentions: props.mentions,
+      /*
+       * ★ **同一个 `mentionCandidates` 同时喂给两条入口** —— 补全扩展（打 `@` 就地弹）
+       * 和工具栏的「提及」选择器。所以按钮里搜得到的资源，打 `@` 也一定搜得到。
+       * 这里只是**透传**一个消费方给的函数，不创建任何 CM6 对象（见文件头）。
+       */
+      mentionCandidates: props.mentionCandidates,
     })
   } catch (e) {
     /*
