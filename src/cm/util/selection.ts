@@ -29,3 +29,45 @@ export function selectionTouchesLineRange(
   }
   return false;
 }
+
+/**
+ * 光标是不是停在**块级装饰的门口**（`from - 1` / `to + 1`）。
+ *
+ * ## 为什么需要它
+ *
+ * 块级 `Decoration.replace` 的区间**光标进不去** ✗ —— 实测连程序
+ * `dispatch({ selection: cursor(from) })` 都会被 CM6 夹到 `from - 1` ✓。
+ * 所以「门口」是用户**唯一**能触达的位置 ✓，揭示判据必须有它 ✓，
+ * 不然键盘用户永远进不了围栏/表格 ✓。
+ *
+ * ## ⚠️ 为什么还要判「那一行非空」
+ *
+ * 光看位置是**不够**的 ✗ —— **空行只有一个位置** ✓，整行都等于 `from - 1` ✓，
+ * 于是光标**路过**那里也会命中 ✓ → **公式/表格莫名其妙不渲染** ✗。
+ *
+ * 用户实测（2026-10-04）：文档是 `空 / ```math / 公式 / ``` / 空` 五行的时侯，
+ * 光标停在第 1 或第 5 行（都是空行）→ **公式不渲染** ✗；
+ * **写一个字之后又渲染了** ✓（那一行变长 ✓ → `from` 移动 ✓ → 不再是紧邻 ✓）。
+ *
+ * 加上「非空」这个条件之后：
+ * - **空行**上路过 → **不揭示** ✓（本次修的就是它 ✓）
+ * - **有内容的行**，光标停在**行尾**（`from - 1` 就是上一行的行尾 ✓）→ 揭示 ✓
+ *   —— 这时候用户基本就是"想在这儿打字" ✓，揭示是合理的 ✓
+ *
+ * ⚠️ **残留情况**：相邻行**有内容**时，光标停在它的**行尾**仍会揭示 ✓ ——
+ * 想让"路过"和"要编辑"完全分开，需要记住用户的**意图**（点击设标记 ✓），
+ * 那是更大的一步 ✓；这条判据先把"空行必然命中"这个最刺眼的去掉 ✓。
+ */
+export function selectionHoversBlock(
+  doc: Text,
+  selection: EditorSelection,
+  from: number,
+  to: number,
+): boolean {
+  for (const range of selection.ranges) {
+    const head = range.head
+    if (head === from - 1 && from > 0 && doc.lineAt(head).length > 0) return true
+    if (head === to + 1 && head <= doc.length && doc.lineAt(head).length > 0) return true
+  }
+  return false
+}

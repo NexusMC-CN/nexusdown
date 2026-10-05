@@ -2,7 +2,9 @@
  * 围栏代码块的单元测试。
  *
  * 断言重点（参考文档 4.5 节）：
- * - 围栏**按整行藏**，`Decoration.replace` 一个都不跨行；
+ * - 围栏**按整行藏**，`Decoration.replace` 一个都不跨行
+ *   （⚠️ 全项目唯一的跨行 replace 是 `features/table.ts` 的 block 替换，
+ *   豁免理由见下面那条用例）；
  * - **背景加在每一行上**（含两行围栏）—— 整个块是**一张连续的卡片**，
  *   首尾行各自圆外角、上下各留一段灰边（视觉上就是卡片的内边距）；
  * - 未闭合围栏只有一个 `CodeMark`，只藏一次（不能重复推同一区间）。
@@ -51,6 +53,8 @@ function collectFence(doc: string, cursor = doc.length): Collected {
 interface DecoSpec {
   class?: string
   widget?: unknown
+  /** `block: true` 的整块替换（只有 table 功能产出，见「没有任何 replace 跨行」）。 */
+  block?: boolean
 }
 
 const specOf = (value: Decoration): DecoSpec => value.spec as DecoSpec
@@ -119,10 +123,29 @@ describe('decorateFencedCode —— 围栏按行藏 + 卡片式背景', () => {
     expect(c.ranges.filter((r) => specOf(r.value).class === 'nd-code-fence')).toHaveLength(0)
   })
 
-  it('没有任何 replace 跨行', () => {
+  it('没有任何 replace 跨行（**唯一的豁免是 table 的 block replace**）', () => {
     const c = collectFence(DOC)
 
     for (const r of [...c.ranges, ...c.atomicRanges]) {
+      /*
+       * ★ **豁免：`block: true` 的整块替换。**
+       *
+       * 全项目只有 `features/table.ts` 产出这种装饰（把 3 行表格换成一张 `<table>`）。
+       * 它**故意**跨行 —— 整块渲染本来就得跨行，这正是这个功能的全部意义。
+       *
+       * ⚠️ 为什么这个例外是**安全的**（而普通 replace 跨行不安全）：
+       * 跨行 replace 会让那一整块**永远无法编辑** ✗ —— 光标进不去替换区间。
+       * 但 table 配了「**紧邻即揭示**」：光标一到 `from - 1` / `to + 1`
+       * （区间的紧邻两侧）就把 widget 换回源码，光标随即能走进去 ✓。
+       * 所以「进不去」被绕开了 —— 光标不需要进去，**停在门口就够了** ✓。
+       * 详见 `src/cm/features/table.ts` 文件头，以及 `tests/cm/table.test.ts`。
+       *
+       * ⚠️ 这里**不是**放宽判据：`decorateFencedCode` 自己一个 block 装饰都不产，
+       * 这条豁免在本文档里是空操作 —— 写出来只是为了让「不许跨行」这条规矩
+       * 有一个**显式的、有理由的**例外，而不是某天被人无声破坏。
+       */
+      if (specOf(r.value).block === true) continue
+
       const startLine = c.doc.lineAt(r.from).number
       const endLine = c.doc.lineAt(Math.max(r.from, r.to - 1)).number
       expect(endLine).toBe(startLine)

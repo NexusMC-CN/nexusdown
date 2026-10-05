@@ -29,6 +29,23 @@
  * `@codemirror/view` 默认主题里的 `.cm-cursor`（同特异度靠文档顺序，加前缀更保险）。
  */
 
+/*
+ * ⚠️ **`@import` 必须在这里** —— 它要早于**任何规则**（含下面的 `:root`），
+ * 否则浏览器会**静默丢弃**整条 import（不报错、样式就是不生效）。
+ *
+ * 功能模块的样式各写在自己的 `features/<名字>.css` 里，主文件只负责 import ——
+ * 这样加新功能不用动这个文件的核心部分。
+ *
+ * ⚠️ `dialect.css` 是例外：它装的是**两侧共用**的样式（编辑器 widget 和渲染器
+ * 产出同一套类名），所以放在 `src/shared/`、并且**也是 `nexusdown/dialect.css`
+ * 这个渲染侧入口指向的文件**。见那个文件的文件头。
+ */
+@import '../shared/dialect.css';
+@import './features/embed.css';
+@import './features/emoji.css';
+@import './features/math.css';
+@import './features/table.css';
+
 :root {
   /* 文字层级 —— 对应站里的 --ink-1..4（正文 / 次级 / 辅助 / 最弱）。 */
   --nd-text: var(--ink-1, #16181c);
@@ -56,6 +73,33 @@
 
   /* 当前行高亮的底色（`highlightActiveLine()` 打上 `.cm-activeLine`）。 */
   --nd-active-line: rgba(11, 107, 203, 0.07);
+  /* ---------------------------------------------------------------------
+   * 编辑器 UI 用的令牌（工具栏 / 浮层 / 面板）
+   *
+   * 一律**两级回退**：`var(--站令牌, 字面量)` —— 站点定义了自己的令牌就跟站点走，
+   * 没定义就用这里的默认值。**这是 nexusdown 的 UI 能"既独立又跟随主题"的全部机制**
+   * （见 `docs/dialect-extensions.md` 上方那段）。别把字面量写死在组件里。
+   * ------------------------------------------------------------------- */
+
+  --nd-surface-2: var(--surface-2, #eef0f2);
+  --nd-line: var(--line, #e9ecef);
+  --nd-brand-soft: var(--brand-soft, rgb(11 107 203 / 8%));
+  --nd-brand-soft-border: var(--brand-soft-border, rgb(11 107 203 / 24%));
+  --nd-brand-strong: var(--brand-strong, #0a5cae);
+
+  /* 圆角两档 —— `--nd-radius` 已存在（6px，代码块在用），这里另开两档给 UI 组件 */
+  --nd-radius-sm: var(--r-sm, 4px);
+  --nd-radius-md: var(--r-md, 8px);
+
+  /* 动效节奏。站点改 `--dur` / `--ease` 就能整体调快慢与手感 */
+  --nd-dur: var(--dur, 160ms);
+  --nd-dur-fast: var(--dur-fast, 100ms);
+  --nd-ease: var(--ease, cubic-bezier(0.4, 0, 0.2, 1));
+  --nd-ease-out: var(--ease-out, cubic-bezier(0, 0, 0.2, 1));
+
+  --nd-shadow-1: var(--shadow-1, 0 1px 2px rgb(0 0 0 / 6%));
+  --nd-shadow-2: var(--shadow-2, 0 4px 16px rgb(0 0 0 / 10%));
+
 }
 
 /**
@@ -676,8 +720,29 @@
  * Widget
  * ------------------------------------------------------------------------- */
 
+/*
+ * ⚠️⚠️ **必须是 `inline-block`，不能是 `block`。**
+ *
+ * CM6 会在 `Decoration.replace` 的 widget **前后各插一个
+ * `<img class="cm-widgetBuffer">`**（行内元素）。widget 一旦是**块级**，
+ * 这三个元素就会**垂直堆叠成三行** —— 实测图片行 DOM 高 **63px（3×21）**，
+ * 而 CM6 的高度表还以为是 **42px（2×21）**：
+ *
+ * ```
+ * 行10 ![图一](a.png)   cm高=42   dom高=63   差=-21  ✗
+ * ```
+ *
+ * 高度表一错位，`coordsAtPos` 给出的 y 就和文字对不上 —— 表现是
+ * **"光标浮在文字上面/下面"**，而且**零报错**。
+ *
+ * `code-header.ts` 里记录过同一个坑（那里是 `.nd-code-header` 用了 `flex`，
+ * 实测 `.cm-line` 高 72px）。**凡是 `Decoration.replace` 的 widget 都适用。**
+ *
+ * `vertical-align: top` 是为了消掉 inline-block 默认基线对齐在图片下方留的缝。
+ */
 .nd-image-widget {
-  display: block;
+  display: inline-block;
+  vertical-align: top;
   max-width: 100%;
   height: auto;
   border-radius: var(--nd-radius);

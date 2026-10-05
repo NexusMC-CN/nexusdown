@@ -62,6 +62,58 @@ function lineDecoration(index: number, count: number): Decoration {
   return LINE_PLAIN
 }
 
+/**
+ * 开围栏的 `info` string（反引号之后到行尾，已 `trim`）。
+ *
+ * ★ 这段逻辑本来内联在 `decorateFencedCode` 里（折叠态、展开态各写了一遍）。
+ * 抽成导出函数是**给 embed 功能一个可复用的入口**：`features/embed.ts` 认领了
+ * `FencedCode` 之后要自己判断「这个围栏是不是 embed」，就必须用**和标题栏
+ * 完全相同**的方式取 `info` —— 两边各写一遍迟早会漂移（一边 `trim` 一边没 `trim`，
+ * 于是 ` ```embed ... ` 在一侧认得、另一侧认不得）。
+ *
+ * ⚠️ 返回的是**整行** `info`（` ```ts a.ts ` → `ts a.ts`），调用方自己决定怎么切。
+ * 理论上 `FencedCode` 一定以 `CodeMark` 开头，取不到时返回 `null`（防御）。
+ */
+export function readFenceInfo(doc: Text, node: MarkdownNode): string | null {
+  const open = firstChildNamed(node, 'CodeMark')
+  if (!open) return null
+  const line = doc.lineAt(open.from)
+  return doc.sliceString(open.to, line.to).trim()
+}
+
+/**
+ * `info` 的第一段是不是 `embed` —— embed 功能用它做**分流判断**。
+ *
+ * ⚠️ 这里**只认第一段**，不校验 provider/kind/id。校验是
+ * `render/features/embed.ts` 里 `parseEmbedFence` 的事（那张 provider 表是两侧
+ * 共用的单一来源）。分成两步是因为「是不是 embed」和「embed 写得对不对」是两件事：
+ * 前者决定「走哪条装饰路径」，后者决定「要不要降级成普通代码块」。
+ */
+export function isEmbedInfo(info: string | null | undefined): boolean {
+  if (!info) return false
+  return info.split(/\s+/)[0] === 'embed'
+}
+
+/**
+ * `info` 的第一段是不是 `math` —— **块级公式**的围栏（契约第 2 节）。
+ *
+ * 和 `isEmbedInfo` 是同一套判定，理由也一样：
+ *
+ * - **只认第一段**（` ```math title=x ` 也算 math），和渲染侧
+ *   `render/features/math.ts` 的 `language === 'math'` 逐字一致 ——
+ *   两边各写一遍迟早会漂（一边 `trim` 一边没 `trim`，于是同一条围栏
+ *   在一侧认得、另一侧认不得）。
+ * - **不在这里校验内容** —— 「是不是 math 围栏」和「公式写没写对」是两件事，
+ *   后者是 KaTeX 的事。
+ *
+ * ⚠️ **谁在用**：`features/embed.ts` 用它把 math 围栏**让出去**（不画成代码块），
+ * 真正的装饰在 `features/math.ts` 的 Document 扫描里。为什么是这个分工见那边文件头。
+ */
+export function isMathInfo(info: string | null | undefined): boolean {
+  if (!info) return false
+  return info.split(/\s+/)[0] === 'math'
+}
+
 export function decorateFencedCode(
   ranges: DecorationRanges,
   atomicRanges: DecorationRanges,
@@ -99,7 +151,7 @@ export function decorateFencedCode(
     if (open) {
       const openLine = doc.lineAt(open.from)
       if (openLine.to > openLine.from) {
-        const info = doc.sliceString(open.to, openLine.to).trim()
+        const info = readFenceInfo(doc, node) ?? ''
         pushAtomicRange(
           ranges,
           atomicRanges,
@@ -136,7 +188,7 @@ export function decorateFencedCode(
     const openLine = doc.lineAt(open.from)
     if (openLine.to > openLine.from) {
       // 语言名 = 反引号之后到行尾的内容（` ```yaml ` → `yaml`；` ``` yaml ` 也 → `yaml`）。
-      const info = doc.sliceString(open.to, openLine.to).trim()
+      const info = readFenceInfo(doc, node) ?? ''
       pushAtomicRange(
         ranges,
         atomicRanges,

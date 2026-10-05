@@ -63,6 +63,8 @@
  */
 import MarkdownIt from 'markdown-it'
 import type { MarkdownIt as MarkdownItInstance } from 'markdown-it'
+
+import type { RenderData } from './feature.js'
 import { wwwOnlyAutolinkPlugin } from './autolink.js'
 import { markPlugin } from './mark.js'
 import { applyNexusdownRenderer } from './renderer.js'
@@ -77,6 +79,15 @@ import { taskListPlugin } from './task-list.js'
 export type MarkdownItPlugin = (md: MarkdownItInstance) => void
 
 export interface RenderMarkdownOptions {
+  /**
+   * 消费方**预先取好**的外部数据（短链解析结果、SEO 卡片元数据）。
+   *
+   * 渲染是同步、无网络的，所以这些数据只能由消费方取 —— 而且**库也不该去取**
+   * （服务端抓用户给的任意 URL 就是 SSRF 面）。见 `RenderData` 的注释。
+   *
+   * 会作为 markdown-it 的 `env.data` 传下去，功能规则用 `readRenderData(env)` 读。
+   */
+  data?: RenderData;
   /**
    * Extra markdown-it plugins, applied **after** the Nexusdown defaults, so a
    * plugin can replace any rule this module installed.
@@ -160,7 +171,7 @@ function resolveParser(plugins: MarkdownItPlugin[] | undefined): MarkdownItInsta
  */
 export function renderMarkdown(markdown: string, options?: RenderMarkdownOptions): string {
   if (typeof markdown !== 'string' || markdown.trim() === '') return ''
-  return resolveParser(options?.plugins).render(markdown)
+  return resolveParser(options?.plugins).render(markdown, { data: options?.data })
 }
 
 /*
@@ -171,3 +182,64 @@ export function renderMarkdown(markdown: string, options?: RenderMarkdownOptions
  * 自己的卡片、或者做演示/预览，直接调它就能拿到和编辑器逐字一致的结构。
  */
 export { renderCodeHeaderHtml, type CodeHeaderRenderOptions } from '../cm/widgets/code-header-parts.js'
+
+/* 外部数据通道的类型 —— 消费方实现抓取时要照这个填。 */
+export type { LinkCardMeta, LinkResolution, MentionResolution, RenderData } from './feature.js'
+export { readRenderData } from './feature.js'
+/*
+ * ★ **嵌入功能的公开面** —— 消费方要用它们做"预解析"。
+ *
+ * 短链和 SEO 卡片在**渲染期解不了**（渲染是纯函数、不发网络请求）✗，
+ * 所以消费方得先自己解析，再通过 `renderMarkdown(src, { data: { links } })` 传进来 ✓。
+ *
+ * `isShortLink` 是**判定短链的唯一出处** ✓（`SHORT_LINK_HOSTS` 在 `features/embed.ts` 里）——
+ * 消费方**不要另抄一张域名表** ✗：那边加了平台、这边认不得，
+ * 就会出现"某些短链在预览里能出卡片、发出来不行" ✓。
+ *
+ * ⚠️ 这两个以前**没导出** ✗ —— 和 `katexRenderer` 是同一类缺口：
+ * 文档写了、代码没给，只有真的去接才会撞上（这次就是接短链解析时撞的 ✓）。
+ */
+export { isShortLink, parseEmbedUrl, type EmbedSpec, type EmbedProvider, type EmbedKind } from './features/embed.js'
+/*
+ * ★ **KaTeX 的接线口。**
+ *
+ * 数学扩展**自己不 import katex**（那是 peer，1.3 MB，绝大多数是字体 ✓）——
+ * 由消费方装、再由消费方把渲染函数塞进来 ✓：
+ *
+ * ```ts
+ * import katex from 'katex'
+ * import 'katex/dist/katex.min.css'      // ⚠️ 字体 CSS 也必须引
+ * import { renderMarkdown, katexRenderer } from 'nexusdown/render'
+ *
+ * renderMarkdown(src, { plugins: [katexRenderer(katex)] })
+ * ```
+ *
+ * ⚠️ 这三行以前**跑不通** —— `katexRenderer` 只在 `features/math.ts` 里 export 了，
+ * **没转出到这一层** ✗。文档写了、代码没给，属于最难发现的那种缺口
+ * （TS 会报"没有这个导出"，但只有真的去接才会撞上 ✓）。
+ */
+export {
+  katexRenderer,
+  KATEX_RENDERER,
+  type KatexLike,
+  type MathKatexPlugin,
+} from './features/math.js'
+
+/*
+ * ★ **`mention` 的扫描器 —— 消费方也要用同一份。**
+ *
+ * 提及要**落库**（`reference` 表，`relation: 'mentions'`）—— 而"哪些文本算提及"
+ * 必须和**渲染时**用的判定**完全一致** ✗：落库用一套正则、渲染用另一套的话，
+ * 会出现「库里记了、页面上没渲染」或者反过来。
+ *
+ * 所以扫描器**必须转出到这一层**，消费方从 `nexusdown/render` 取 ——
+ * 和 `katexRenderer` / `isShortLink` 是同一种「文档写了、得真的导出」的缺口
+ * （那两处都踩过）。
+ *
+ * ```ts
+ * import { scanMentions } from 'nexusdown/render'
+ * for (const span of scanMentions(body)) { span.slug / span.fragment / span.from / span.to }
+ * ```
+ */
+export { scanMentions, type MentionSpan } from '../shared/mention.js'
+

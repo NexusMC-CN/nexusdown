@@ -106,9 +106,22 @@ const isLine = (r: Range<Decoration>, cls: string): boolean =>
 const spans = (rs: readonly Range<Decoration>[]): number[][] => rs.map((r) => [r.from, r.to])
 const hrefOf = (r: Range<Decoration>): string | undefined => specOf(r.value).attributes?.['data-href']
 
-/** 每个 replace / mark 都必须落在**同一行**内（`Decoration.replace` 不能跨行）。 */
+/**
+ * 每个 replace / mark 都必须落在**同一行**内（`Decoration.replace` 不能跨行）。
+ *
+ * ★ **唯一的豁免是 `block: true` 的整块替换** —— 全项目只有 `features/table.ts`
+ * 产出它（3 行表格 → 一张 `<table>`），而它**故意**跨行：整块渲染本来就得跨行。
+ *
+ * ⚠️ 这个例外为什么安全：跨行 replace 会让整块**永远无法编辑** ✗（光标进不去
+ * 替换区间）。table 配了「**紧邻即揭示**」—— 光标一到 `from - 1` / `to + 1`
+ * 就换回源码，光标随即能走进去 ✓。详见 `src/cm/features/table.ts` 文件头。
+ *
+ * ⚠️ `decorateLink` 自己一个 block 装饰都不产，所以这条豁免在这里是空操作 ——
+ * 写出来是为了让「不许跨行」这条规矩有一个**显式的、有理由的**例外。
+ */
 function expectNoCrossLineReplace(c: Collected): void {
   for (const r of [...c.ranges, ...c.atomicRanges]) {
+    if ((r.value.spec as { block?: boolean }).block === true) continue
     const startLine = c.doc.lineAt(r.from).number
     const endLine = c.doc.lineAt(Math.max(r.from, r.to - 1)).number
     expect(endLine).toBe(startLine)

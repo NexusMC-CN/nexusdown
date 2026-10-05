@@ -1,5 +1,21 @@
+/**
+ * Live Preview 骨架 —— 遍历语法树、按节点名分发、把装饰装进两个桶。
+ *
+ * ## 两条装饰通道（为什么不是一条）
+ *
+ * 绝大多数功能产出的是**行内 mark / 行级 line** 装饰，走 `ViewPlugin`（下面那个
+ * `NexusdownLivePreview`）：它能只遍历**可见区**，大文档上省下大量工作。
+ *
+ * 但带 `block: true` 的功能产出**块级替换**，CM6 **禁止 ViewPlugin 提供块级装饰**
+ * （挂载即抛 `RangeError: Block decorations may not be specified via plugins`）——
+ * 块级装饰会改垂直布局，而布局必须在 state 更新时就定下来。这类功能只能由
+ * `StateField` 经 `EditorView.decorations.from(field)` 提供（见 `blockDecorations`）。
+ *
+ * 分流点是 `splitFeatures`：没有块级功能时，本函数**原样返回那个 ViewPlugin**
+ * （不是包一层数组），行为与加这条通道之前一字不差。
+ */
 import { syntaxTree } from '@codemirror/language';
-import type { Extension } from '@codemirror/state';
+import { EditorState, StateEffect, StateField, type Extension } from '@codemirror/state';
 import {
   Decoration,
   type DecorationSet,
@@ -9,12 +25,14 @@ import {
   type ViewUpdate,
 } from '@codemirror/view';
 
+import type { EditorFeature } from './feature.js';
 import { foldedBlocks } from './fold.js';
 import type {
   DecorationBuild,
   DecorationRanges,
   LinkReferences,
   LivePreviewDecorators,
+  MarkdownNode,
   UrlPolicy,
 } from './types';
 
@@ -55,6 +73,7 @@ export const INLINE_NODES: ReadonlySet<string> = new Set([
 export const BLOCK_NODES: ReadonlySet<string> = new Set(['Image', 'HorizontalRule']);
 
 const NOOP_DECORATOR: LivePreviewDecorators['heading'] = () => {};
+const NO_FEATURES: ReadonlyMap<string, EditorFeature> = new Map();
 const NOOP_LINK_DECORATOR: LivePreviewDecorators['link'] = () => {};
 
 export interface LivePreviewOptions {
@@ -67,6 +86,13 @@ export interface LivePreviewOptions {
   urlPolicy?: UrlPolicy;
   /** 引用式链接（`[text][ref]`）索引；不传则由 link 装饰器从 doc 现算。 */
   references?: LinkReferences;
+  /**
+   * 功能模块：`节点名 → 认领它的功能`。
+   *
+   * 由装配层（`index.ts`）注入 `EDITOR_FEATURE_BY_NODE`；不传就是空表。
+   * 骨架**不认识任何具体元素**，所以可以脱离实现单测（同 `decorators`）。
+   */
+  features?: ReadonlyMap<string, EditorFeature>;
 }
 
 /** 插件实例的形状（测试里用它断言装饰数量）。 */
@@ -85,6 +111,20 @@ export interface LivePreviewPluginValue extends PluginValue {
  * `decorations` / `atomicDecorations` 两个桶**。每个元素长什么样不归它管。
  */
 export function nexusdownLivePreview(opts: LivePreviewOptions = {}): Extension {
+  const features = opts.features ?? NO_FEATURES;
+  /*
+   * ★ **按「装饰能不能从 ViewPlugin 出来」把功能分成两拨。**
+   *
+   * 带 `block: true` 的功能产出块级替换，而 CM6 **禁止 ViewPlugin 提供块级装饰**
+   * （运行时抛 `Block decorations may not be specified via plugins`，见
+   * `feature.ts` 的 `EditorFeature.block`）。所以它们改由下面那个 StateField 提供。
+   *
+   * ⚠️ 没有块级功能时（绝大多数单测、以及只装行内功能的消费方）**原样返回
+   * 那个 ViewPlugin** —— 返回类型、插件实例的获取方式都和加这个通道之前一字不差，
+   * 不制造无谓的行为变化。
+   */
+  const { view: viewFeatures, block: blockFeatures } = splitFeatures(features);
+
   const decorators: LivePreviewDecorators = {
     heading: opts.decorators?.heading ?? NOOP_DECORATOR,
     inline: opts.decorators?.inline ?? NOOP_DECORATOR,
@@ -207,6 +247,40 @@ export function nexusdownLivePreview(opts: LivePreviewOptions = {}): Extension {
             const node = ref.node;
             const name = node.name;
 
+            /*
+             * ★ **功能模块优先。**
+             *
+             * 新元素走 `features`（`src/cm/features/`），不再往下面那几张表里塞 ——
+             * 那几张表是骨架的一部分，每加一个元素就要动一次骨架，多人同时改必然冲突。
+             *
+             * 放最前面是**故意**的：功能可以认领内置节点。真冲突时
+             * `indexFeatures`（`feature.ts`）会在**启动时抛错**，不会悄悄覆盖 ——
+             * 悄悄覆盖的表现是"某个元素突然不渲染了"，极难查。
+             *
+             * ⚠️ 命中后**不 return false**：认领父节点 ≠ 放弃子树，
+             * 比如表格里还可能有行内标记。
+             */
+            const feature = viewFeatures.get(name);
+            if (feature) {
+              /*
+               * ⚠️ **`context` 必须传下去。**
+               *
+               * 折叠状态只经 `context` 传入（见 `types.ts` 的 `DecorateContext`）。
+               * 少了它，**认领了 `FencedCode` 的功能会把整条代码块路径带坏** ——
+               * `folded` 恒为 `false`，点标题栏的折叠箭头**毫无反应且零报错**。
+               * （实测踩过：embed 认领 `FencedCode` 后所有代码块都不能折叠了。）
+               *
+               * 只有围栏需要文档级状态，所以只对它读 field —— 别让每个被认领的
+               * 节点都去 `field()` 一次。
+               */
+              const context =
+                name === 'FencedCode'
+                  ? { folded: view.state.field(foldedBlocks, false)?.has(node.from) ?? false }
+                  : undefined;
+              feature.decorate(ranges, atomicRanges, node, doc, selection, context);
+              return;
+            }
+
             if (HEADING_NODES.has(name)) {
               decorators.heading(ranges, atomicRanges, node, doc, selection);
               // ★ 坑 ②：不 return false —— 继续下降，标题里的 `**粗体**` 才会被处理。
@@ -278,7 +352,7 @@ export function nexusdownLivePreview(opts: LivePreviewOptions = {}): Extension {
     }
   }
 
-  return ViewPlugin.fromClass(NexusdownLivePreview, {
+  const plugin = ViewPlugin.fromClass(NexusdownLivePreview, {
     decorations: (v) => v.decorations,
     // ★ 必须给 `atomicDecorations` 这个**独立集合**，不是 `decorations`。
     //   把 decorations 直接当 atomicRanges，揭示态的标记也会被当成原子块，
@@ -286,4 +360,224 @@ export function nexusdownLivePreview(opts: LivePreviewOptions = {}): Extension {
     provide: (p) =>
       EditorView.atomicRanges.of((view) => view.plugin(p)?.atomicDecorations ?? Decoration.none),
   });
+
+  /*
+   * 没有块级功能 → **返回 ViewPlugin 本身**（不是包一层数组）：
+   * `view.plugin(nexusdownLivePreview(...))` 这种用法在测试里到处都是，
+   * 包成数组会让它们全部找不到插件实例。
+   */
+  if (blockFeatures.size === 0) return plugin;
+  /*
+   * ⚠️ **`editingBlock` 必须一起挂上** ✗ —— `blockDecorations` 的 build 里要
+   * `state.field(editingBlock)` ✓，字段不在 state 里的话**它会抛**
+   * （"Field is not present in this state" ✓）——
+   * 实测：漏挂时**连 history / drawSelection 这些基础设施测试都会红** ✓，
+   * 因为整个 state 建不起来 ✓。
+   */
+  return [editingBlock, blockDecorations(blockFeatures), plugin];
+}
+
+/**
+ * 把功能表按 `block` 标记分成两拨。没有块级功能时**原样返回同一个 Map** ——
+ * 不制造一个内容相同的新对象（避免给「这个功能表变了吗」这类引用比较添乱）。
+ */
+function splitFeatures(features: ReadonlyMap<string, EditorFeature>): {
+  view: ReadonlyMap<string, EditorFeature>;
+  block: ReadonlyMap<string, EditorFeature>;
+} {
+  const block = new Map<string, EditorFeature>();
+  for (const [name, feature] of features) {
+    if (feature.block) block.set(name, feature);
+  }
+  if (block.size === 0) return { view: features, block };
+  const view = new Map<string, EditorFeature>();
+  for (const [name, feature] of features) {
+    if (!feature.block) view.set(name, feature);
+  }
+  return { view, block };
+}
+
+/** 块级通道一次构建的两份产物：要渲染的装饰 + 其中隐藏态对应的原子区间。 */
+interface BlockDecorations {
+  decorations: DecorationSet;
+  atomic: DecorationSet;
+}
+
+/**
+ * **块级装饰通道** —— 一个 StateField，提供 `EditorView.decorations`。
+ *
+ * ## 为什么必须是 StateField（而不是 ViewPlugin）
+ *
+ * CM6 的 `dynamicDecorationMap[i] = typeof d == "function"`：ViewPlugin 的
+ * `decorations:` 会被包成函数 → 标记为动态 → **禁止块级效果**（挂载即抛
+ * `Block decorations may not be specified via plugins`）。StateField 经
+ * `EditorView.decorations.from(field)` 提供时，facet 值是**字段的当前值**
+ * （一个 `DecorationSet`，不是函数）→ 动态标记为假 → 块级装饰放行 ✓。
+ *
+ * ## 只跑块级功能，且按「语法树」缓存节点列表
+ *
+ * 这个字段**不碰**行内功能（那些还在 ViewPlugin 里，享受可见区裁剪）。它只在
+ * 全树里挑出块级功能认领的节点，逐个交给 `feature.decorate`。
+ *
+ * ⚠️ 缓存按**语法树对象**（不是 `doc`）：lezer 是**增量**解析的，同一个 doc 在
+ * 解析补全前后可能是**两棵树** —— 按 doc 缓存会把「树还没解析出表格」这个中间态
+ * 永久钉住。按树缓存则树一换就重算。
+ *
+ * ## ⚠️ 这个通道**也必须**提供 `atomicRanges`（不只是 `decorations`）
+ *
+ * 起初这里只 provide 了 `decorations`，`atomicRanges` 收下就扔了 —— 当时的假设是
+ * 「块级功能只推块级 replace，而块级区间光标本来就进不去，不需要原子区间」。
+ *
+ * **那个假设不成立** ✓：一个功能可以**同时**是块级的、又推行内 replace。`math` 就是
+ * 例子 —— 它认领 `Document`（为了全文扫围栏），所以整份功能（含**行内** `$…$` 的
+ * 隐藏态 replace）都被分流进这个字段。行内 replace **必须**登记原子区间，否则光标会
+ * 停在隐藏区间的中间（表现为「按一下方向键没动」，见 `decorate/shared.ts`）。
+ *
+ * 所以字段的值改成 `{ decorations, atomic }` 两份一起提供。`table` 不推原子区间，
+ * 于是它的那份恒为空 —— 行为一字不变。
+ */
+/**
+ * 用户**点开**了哪个块级装饰（存那个块的 `from`）。
+ *
+ * ## 为什么需要它
+ *
+ * 块级 `Decoration.replace` 的区间**光标进不去** ✗（连程序 dispatch 都被夹到 `from - 1` ✓），
+ * 所以"揭示源码"只能靠**停在门口** ✓ —— 而门口是**位置**判据 ✗：
+ * **空行只有一个位置** ✓，整行都等于 `from - 1` ✓ → 光标**路过**也命中 ✓
+ * → **公式/表格莫名其妙不渲染** ✗（用户实测 ✓）。
+ *
+ * 位置分不清"路过"和"要编辑" ✗ —— 所以另外记一份**意图** ✓：
+ * **点击 widget** 就设上这个标记 ✓，标记在时**才**揭示 ✓。
+ *
+ * ⚠️ 和 `foldedBlocks`（`fold.ts`）是同一种机制 ✓ —— 都是"用户意图"型的 StateField ✓。
+ *
+ * ⚠️ **本字段不产出任何装饰** ✓ —— 它只存一个数字 ✓。
+ * 块级装饰只能由 `blockDecorations` 那个 StateField 提供 ✓（见它的注释 ✓）。
+ */
+export const setEditingBlock = StateEffect.define<number | null>();
+
+export const editingBlock = StateField.define<number | null>({
+  create: () => null,
+
+  update(value, tr) {
+    for (const e of tr.effects) if (e.is(setEditingBlock)) return e.value;
+    if (value === null) return null;
+
+    /*
+     * 文档变了 → 区间会移位 ✓，标记也要跟着走 ✓
+     * （用户在门口打字，字插在围栏**前面** ✓，`from` 会往后移 ✓）。
+     */
+    const from = tr.changes.mapPos(value, 1);
+
+    /*
+     * 选区**离开门口**就清除 ✓ —— 注意"门口"要算上 `from - 1` 和 `to + 1` ✗：
+     * 用户点进来之后光标就停在 `from - 1` ✓，清除条件里不含它的话
+     * **一点进来就会被立刻清掉** ✓。
+     *
+     * `to` 这里用 `tr.newDoc.length` 兜底 ✓ —— 标记只需要保证"光标还在附近" ✓，
+     * 不必精确知道围栏多长 ✓（`from` 就是那个块的起点 ✓，往下走几行自然就超了 ✓）。
+     */
+    const near = tr.state.selection.ranges.some(
+      (r) => r.head >= from - 1 && r.head <= from + 1,
+    );
+    return near ? from : null;
+  },
+});
+
+function blockDecorations(
+  blockFeatures: ReadonlyMap<string, EditorFeature>,
+): Extension {
+  const cache = new WeakMap<object, MarkdownNode[]>();
+
+  function nodesFor(state: EditorState): MarkdownNode[] {
+    const tree = syntaxTree(state);
+    const hit = cache.get(tree);
+    if (hit) return hit;
+
+    const nodes: MarkdownNode[] = [];
+    tree.iterate({
+      enter: (ref) => {
+        if (!blockFeatures.has(ref.name)) return;
+        nodes.push(ref.node);
+        /*
+         * ⚠️⚠️ **根节点绝对不能剪** ✗✗ —— 这是踩过的坑：
+         *
+         * 原注释写的是「块级功能独占整棵子树 —— 表格里不可能再嵌一个块级功能」✓，
+         * 那话对 **`Table`** 成立 ✓，但 **`Document` 是根** ✗ ——
+         * 剪掉它等于**整棵树都没了** ✓。
+         *
+         * 而 `math` 认领的正是 `Document` ✓（它要全文扫围栏 ✓），
+         * 于是：**只要 `math` 在（它永远在 ✗）→ 表格、提及……全都收不到节点** ✓✓
+         * 实测症状：**表格从来不渲染** ✗ + **提及卡片也不渲染** ✗，
+         * 而单独测表格（不挂 math ✓）是好的 ✓ —— **两个功能一起死，原因在根上** ✓。
+         *
+         * 所以：**只有非根节点才剪** ✓。根的子节点继续走 ✓ ——
+         * `Document` 下面的 `Table` / `Paragraph` 才收得到 ✓。
+         */
+        return ref.name === 'Document';
+      },
+    });
+    cache.set(tree, nodes);
+    return nodes;
+  }
+
+  function build(state: EditorState): BlockDecorations {
+    const nodes = nodesFor(state);
+    if (nodes.length === 0) return { decorations: Decoration.none, atomic: Decoration.none };
+
+    const ranges: DecorationRanges = [];
+    const atomicRanges: DecorationRanges = [];
+    const doc = state.doc;
+    const selection = state.selection;
+    /*
+     * ★ 用户点开了哪个块（见 `editingBlock`）—— 传给功能 ✓，
+     * 让它们把"位置判据"和"意图判据"合起来用 ✓。
+     */
+    const editing = state.field(editingBlock);
+    for (const node of nodes) {
+      blockFeatures.get(node.name)?.decorate(
+        ranges, atomicRanges, node, doc, selection,
+        undefined, // context：块级功能不需要视图层的 folded ✓
+        editing,
+      );
+    }
+    return {
+      // `true` = 自动排序，同 ViewPlugin 那边（块级区间跨度大，顺序不保证单调）。
+      decorations: Decoration.set(ranges, true),
+      atomic: Decoration.set(atomicRanges, true),
+    };
+  }
+
+  const field = StateField.define<BlockDecorations>({
+    create: (state) => build(state),
+    update(deco, tr) {
+      /*
+       * 只在「文档变了 / 语法树换了 / 选区动了」时重算。
+       *
+       * ⚠️ **选区必须算进来** —— 揭示态（光标紧邻表格 / 围栏）就是靠选区驱动的
+       * （见 `features/table.ts` 的「紧邻即揭示」）。漏了它，光标走到门口
+       * 表格也不会换回源码，**而且零报错**。
+       */
+      if (
+        !tr.docChanged &&
+        syntaxTree(tr.startState) === syntaxTree(tr.state) &&
+        tr.startState.selection.eq(tr.state.selection)
+      ) {
+        return deco;
+      }
+      return build(tr.state);
+    },
+    provide: (f) => [
+      EditorView.decorations.from(f, (value) => value.decorations),
+      /*
+       * 原子区间经 facet 的**函数形态**提供（`atomicRanges` 的 facet 值就是
+       * `(view) => RangeSet`）。每次布局时读一遍字段当前值，所以两份产物永远同源同步。
+       */
+      EditorView.atomicRanges.of(
+        (view) => view.state.field(f, false)?.atomic ?? Decoration.none,
+      ),
+    ],
+  });
+
+  return field;
 }

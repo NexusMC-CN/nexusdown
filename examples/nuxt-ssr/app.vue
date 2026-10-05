@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import NexusdownEditor from 'nexusdown/vue'
-import 'nexusdown/style.css'
+import { NexusdownEditor } from 'nexusdown/editor'
 
 const value = ref('# Nuxt SSR\n\nThis editor is rendered by Nuxt before hydration.')
 </script>
@@ -12,9 +11,7 @@ const value = ref('# Nuxt SSR\n\nThis editor is rendered by Nuxt before hydratio
     <p>The editor is rendered by Nuxt SSR and becomes interactive in the browser.</p>
     <NexusdownEditor
       v-model="value"
-      content-type="markdown"
-      height="420px"
-      sync-scroll
+      style="--nd-editor-height: 420px"
     />
     <pre aria-label="当前 Markdown 内容">{{ value }}</pre>
   </main>

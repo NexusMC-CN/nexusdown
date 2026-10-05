@@ -1,0 +1,111 @@
+/**
+ * `math` 的编辑器侧视觉。
+ *
+ * 由消费方在 `theme.css` 顶部 `@import`（见接线清单）——
+ * ⚠️ `@import` 必须在 `:root {` **之前**，否则浏览器静默丢弃整条 `@import`。
+ *
+ * 两件事：
+ *
+ * - **行内公式**（`.nd-math`）：非揭示态显示 TeX 源码的胶囊（编辑器里不跑 KaTeX）。
+ * - **块级公式**（`.nd-math.nd-math-block`）：非揭示态由注入的渲染函数画出真公式，
+ *   整段围栏被一个块级 replace 换掉。机制（块级通道、揭示态）在 `math.ts`。
+ */
+
+/*
+ * 行内公式（非揭示态显示 TeX 源码的那个胶囊）。
+ *
+ * 用**数学衬线字体**把 `x^2` 衬出「这是公式」的感觉 —— 编辑器里行内不跑 KaTeX
+ * （见 `math.ts` 的注释），所以只能靠字体 + 底色给出视觉区分。
+ * 真正排版好的公式在**显示侧**（`render/features/math.ts`）。
+ */
+.nd-math {
+  /*
+   * 数学字体优先。这几个都是常见系统的数学衬线字体，取不到就退到 Georgia ——
+   * 至少是衬线，和正文的无衬线拉开距离。
+   */
+  font-family:
+    'Latin Modern Math', 'STIX Two Math', 'Cambria Math', Georgia, 'Times New Roman', serif;
+  /* 数学变量惯例是斜体 */
+  font-style: italic;
+  /* 指数/下标（`^` `_`）保持竖直，斜体的 `^` 很难看 */
+  font-variant-numeric: lining-nums;
+  padding: 0 0.18em;
+  border-radius: 3px;
+  color: var(--nd-math-fg, var(--nd-text));
+  background: var(--nd-math-bg, rgb(0 0 0 / 4%));
+  /*
+   * 关掉连字：TeX 源码里的 `--` / `!=` 被字体连字吃掉会看不出原文
+   * （编辑器里要的是「能读懂的源码」，不是排版效果）。
+   */
+  font-variant-ligatures: none;
+}
+
+/* 悬停时略加深，暗示「这里可以点进去编辑」。 */
+.nd-math:hover {
+  background: var(--nd-math-bg-hover, rgb(0 0 0 / 7%));
+}
+
+/* =========================================================================
+ * 编辑器侧：块级公式（```math 围栏）
+ *
+ * 机制在 `math.ts` 的 `decorateMathFences`：**一个 `block: true` 的跨行 replace**
+ * 把整段围栏换成一个 `.nd-math.nd-math-block` widget（和表格同一条块级通道）。
+ * 这里只负责长什么样。
+ *
+ * ⚠️ 以前是「开围栏行换行内 widget + 其余行 `.nd-math-hidden` 压成 `height: 0`」——
+ * **那套已删除**：`height: 0` 的行会让 CM6 的高度表 tile 数学对不上，真浏览器里
+ * 抛 `No tile at position N`。块级 replace 之后不再需要「压行高」，行高由 widget
+ * 自己决定。
+ * ======================================================================= */
+
+/*
+ * 公式本体。
+ *
+ * ⚠️ 渲染侧产出的是 `<div class="nd-math nd-math-block">`，编辑器侧的 widget 现在
+ * 也是 `<div>`（块级替换）—— 两边**同一套类名、同一个块级模型**，所以这里只写一份。
+ *
+ * ⚠️ 必须**盖掉行内胶囊那套样式**（`.nd-math` 的数学衬线 + 斜体 + 底色）：
+ * 那是给「显示 TeX 源码」用的。真公式的字体/斜体由 KaTeX 自己管，外面再套一层
+ * 斜体反而会把 KaTeX 的直立符号（`\int` / `\sum` 之类）弄歪。
+ *
+ * ⚠️ 上下留白只能用 `padding`，**不能用 `margin`** —— CM6 对块级装饰的高度测量
+ * 不含垂直 margin，写了会算错高度（同 `.nd-table`，`@codemirror/view` 的文档要求）。
+ */
+.nd-math.nd-math-block {
+  display: block;
+  box-sizing: border-box;
+  padding: 0.5em 0;
+  /* 居中由 KaTeX 的 `.katex-display` 负责；这里给个兜底，降级成源码时也居中。 */
+  text-align: center;
+  background: none;
+  font-family: inherit;
+  font-style: normal;
+}
+
+/*
+ * 编辑器侧块 widget 的对齐。
+ *
+ * ⚠️ block widget 是 `.cm-content` 的**直接子节点**，不在 `.cm-line` 里，
+ * 拿不到 `.cm-line { padding: 0 2px 0 6px }` 那份内边距 —— 得自己补，
+ * 公式才和正文左边缘齐平（同 `.nd-table`）。
+ *
+ * 加 `.cm-editor` 前缀提高特异度，盖掉上面那条（渲染侧那份保持不变）。
+ */
+.cm-editor .nd-math.nd-math-block {
+  padding-left: 6px;
+  padding-right: 2px;
+}
+
+/* 大公式悬停不该整块变色（行内胶囊那套 hover 只适合小段源码）。 */
+.nd-math.nd-math-block:hover {
+  background: none;
+}
+
+/* 渲染函数抛错时的降级形态：直接显示 TeX 源码，用等宽字体标出"这是原始代码"。 */
+.nd-math.nd-math-block.nd-math-source {
+  font-family: var(--nd-font-mono);
+  font-size: 0.9em;
+  color: var(--nd-text-2);
+  white-space: pre-wrap;
+  text-align: left;
+}

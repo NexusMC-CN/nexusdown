@@ -18,6 +18,9 @@ import { decorateHeading } from './decorate/heading';
 import { decorateInline } from './decorate/inline';
 import { decorateLink, linkClickHandler } from './decorate/link';
 import { decorateListItem } from './decorate/list';
+import { createEditorFeatureMap } from './features/index';
+import type { MathRenderer } from './features/math';
+import type { MentionResolutions } from './features/mention';
 import { foldedBlocks } from './fold';
 import { nexusdownLivePreview } from './plugin';
 import { markdownKeymap } from './shortcuts';
@@ -83,6 +86,43 @@ export interface NexusdownOptions {
   urlPolicy?: UrlPolicy;
   /** 引用式链接（`[text][ref]`）索引；不传则由 link 装饰器从 doc 现算。 */
   references?: LinkReferences;
+  /**
+   * **数学渲染函数**（可选）—— 让块级 ` ```math ` 围栏在编辑器里就显示成公式。
+   *
+   * 形状与渲染侧的 `KatexLike` **完全一致**，所以消费方可以把**同一个 katex 对象**
+   * 同时喂给编辑器和渲染器：
+   *
+   * ```ts
+   * import katex from 'katex'
+   * import 'katex/dist/katex.min.css'      // ⚠️ 字体 CSS 也要引
+   *
+   * mountEditor({ parent, doc, mathRenderer: katex })
+   * renderMarkdown(src, { plugins: [katexRenderer(katex)] })
+   * ```
+   *
+   * 不传时**不报错**：块级公式退回普通代码块（见 `features/math.ts`）。
+   * 库**自己不 import katex** —— 那是 peer（~4 MB，绝大多数是字体），不该替所有消费方付这个体积。
+   */
+  mathRenderer?: MathRenderer;
+  /**
+   * **提及解析结果**（可选）—— `slug → MentionResolution`，让编辑器里的提及卡片
+   * 显示成**和发布侧同构**的样子（标题 / 图标 / 角标 / 缩略图）。
+   *
+   * ★ **形状和渲染侧的 `RenderData.mentions` 是同一个**
+   * （`ReadonlyMap<string, MentionResolution>`）—— 消费方把已经算好的那份**原样传进来**
+   * 就行，不要再建第二套：
+   *
+   * ```ts
+   * const data: RenderData = { mentions: new Map(...) }
+   * mountEditor({ parent, doc, mentions: data.mentions })
+   * renderMarkdown(src, { data })
+   * ```
+   *
+   * 不传时**不报错**：卡片只显示源码 slug（**不画空的图标方块**，见 `features/mention.ts`）。
+   * 库**不查库**（同 `mathRenderer` / 渲染侧的 `RenderData`）—— 「这个 slug 对应什么」
+   * 是消费方的事。
+   */
+  mentions?: MentionResolutions;
 }
 
 /**
@@ -107,7 +147,7 @@ export interface NexusdownOptions {
  * CM6 的 `historyField` 是 StateField，同一份 field 只生效一次。
  */
 export function nexusdown(opts: NexusdownOptions = {}): Extension {
-  const { codeLanguages, defaultCodeLanguage, urlPolicy, references } = opts;
+  const { codeLanguages, defaultCodeLanguage, urlPolicy, references, mathRenderer, mentions } = opts;
 
   return [
     // ⚠️ 必须用 `base: markdownLanguage`（GFM）。
@@ -128,6 +168,18 @@ export function nexusdown(opts: NexusdownOptions = {}): Extension {
       },
       urlPolicy,
       references,
+      /*
+       * ★ **功能模块**（`src/cm/features/`）。
+       *
+       * 加新元素 = 往 `EDITOR_FEATURES` 加一项，**不要改 `plugin.ts`** ——
+       * 骨架只认「节点名 → 功能」，不认识任何具体元素。
+       *
+       * ⚠️ 走 `createEditorFeatureMap()` 而不是直接给 `EDITOR_FEATURE_BY_NODE`：
+       * 前者会把消费方注入的 `mathRenderer` / `mentions` 带进对应功能
+       * （块级公式要用渲染函数，提及卡片要用解析结果）。
+       * 都没传时它**原样返回**那张默认表，行为一字不变。
+       */
+      features: createEditorFeatureMap({ mathRenderer, mentions }),
     }),
 
     // ---------------------------------------------------------------------
@@ -179,6 +231,72 @@ export function nexusdown(opts: NexusdownOptions = {}): Extension {
 export { nexusdownLivePreview, type LivePreviewOptions } from './plugin';
 export { baseTheme } from './theme';
 export { foldedBlocks, toggleFold } from './fold';
+/*
+ * ★ **建编辑器视图的唯一入口。**
+ *
+ * UI 层（`nexusdown/editor` 的 `.vue`）**不许自己 `new EditorView`** ——
+ * 它发的是原始源码，import 由消费方打包器解析；自己建对象就会拿到**另一份**
+ * CM6，然后 `Unrecognized extension value in extension set`。
+ * 详见 `mount.ts` 的文件头。
+ */
+export { mountEditor, setEditorValue, type MountEditorOptions } from './mount';
+/*
+ * ★ **CM6 原语，给 `nexusdown/editor` 用。**
+ *
+ * UI 层**不该自己 `import '@codemirror/view'`** —— 那样它会从**自己的解析路径**
+ * 拿到一份模块，而 `nexusdown()` 来自**另一条**解析路径。只要这两条路径有一处
+ * 不同（pnpm 的隔离布局、optional peer 没被链接、Vite 的预打包…），
+ * 拿到的就是**两个模块实例**，而 CM6 的 facet / StateField 按**模块标识**比较 ——
+ * 结果是 `Unrecognized extension value in extension set ([object Object])`，
+ * 或者更糟：**装饰静默失效**（不报错，就是不渲染）。
+ *
+ * 所以统一走这里：UI 要什么，问引擎要。**一条解析路径，一个实例。**
+ */
+export { EditorState } from '@codemirror/state';
+export { EditorView, keymap } from '@codemirror/view';
+export { defaultKeymap, redo, undo } from '@codemirror/commands';
+export { syntaxTree } from '@codemirror/language';
+/*
+ * 类型也转出去 —— 让 UI 层**连类型都不需要碰 `@codemirror/*`**。
+ *
+ * 不只是洁癖：`.vue` 是以原始源码发给消费方的，`import type` 虽然会被 TS 擦掉，
+ * 但**万一某个消费方的 transform 没擦**，它就变成运行时 import，
+ * 又把"第二份 CM6"引回来。
+ */
+export type { Command } from '@codemirror/view';
+/*
+ * Markdown 编辑命令 —— **工具栏和快捷键共用这一份**。
+ *
+ * 以前它们在应用里（每个消费者抄一遍），而 `shortcuts.ts` 里还有一份
+ * 逐字相同的 `toggle()`。判据：**改了它会导致编辑器行为不一致 → 属于 nexusdown。**
+ */
+export {
+  insertBlockMath,
+  insertEmbed,
+  insertInlineMath,
+  insertLink,
+  insertMention,
+  insertTable,
+  toggleBold,
+  toggleBulletList,
+  toggleHeading,
+  toggleInlineCode,
+  toggleItalic,
+  toggleOrderedList,
+  toggleQuote,
+  wrapCodeBlock,
+} from './commands';
+/*
+ * 提及候选的形状 —— 工具栏的「提及」选择器用它。消费方按这个形状把候选
+ * 送进 `<NexusdownEditor :mention-candidates="…">`（库不查库，同 `RenderData`）。
+ */
+export type { MentionCandidate } from './commands';
+/*
+ * 提及**解析结果**的形状 —— 让编辑器卡片显示成发布侧的样子时用它。
+ * 它就是渲染侧 `RenderData.mentions` 的类型，转出来是为了让消费方
+ * **连类型都从同一个地方取**（不要另定义一套）。
+ */
+export type { MentionResolutions } from './features/mention';
 /*
  * 代码块标题栏的**纯逻辑**。
  *

@@ -1,25 +1,19 @@
 {
   "name": "nexusdown",
+  "description": "开箱即用的 Markdown 编辑器，以及保证「编辑时看到的 = 发布出来的」的渲染器 —— 编辑器和渲染器共用同一套方言实现，不可能对不上。",
   "version": "0.0.0",
   "type": "module",
   "files": [
     "dist",
-    "src/style.css",
-    "src/vue",
-    "src/core",
     "src/render",
-    "src/cm"
+    "src/cm",
+    "src/shared"
   ],
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "require": "./dist/index.cjs"
-    },
-    "./core": {
-      "types": "./dist/core/index.d.ts",
-      "import": "./dist/core/index.js",
-      "require": "./dist/core/index.cjs"
     },
     "./render": {
       "types": "./dist/render/index.d.ts",
@@ -32,13 +26,13 @@
       "require": "./dist/cm/index.cjs"
     },
     "./cm/theme.css": "./src/cm/theme.css",
-    "./vue": {
-      "types": "./src/vue/entry.ts",
-      "import": "./src/vue/entry.js",
-      "default": "./src/vue/entry.js"
+    "./dialect.css": "./src/shared/dialect.css",
+    "./editor": {
+      "types": "./src/editor/index.d.ts",
+      "import": "./dist/editor/index.js",
+      "default": "./dist/editor/index.js"
     },
-    "./vue/*": "./src/vue/*",
-    "./style.css": "./src/style.css"
+    "./editor/style.css": "./dist/editor/nexusdown.css"
   },
   "scripts": {
     "test": "vitest run",
@@ -46,9 +40,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
-    "sync:style": "node -e \"require('fs').copyFileSync('src/style.css','public/style.css')\"",
-    "gen:vue-entry": "node scripts/generate-vue-entry.mjs",
-    "build": "npm run sync:style && npm run gen:vue-entry && tsup",
+    "build": "tsup && vite build --config vite.editor.config.ts",
     "prepare": "npm run build",
     "check:exports": "node scripts/check-exports.mjs",
     "build:astro-example": "npm --prefix examples/astro-vue run build",
@@ -64,6 +56,7 @@
     "@codemirror/view": "^6.0.0",
     "@lezer/common": "^1.0.0",
     "@lezer/markdown": "^1.0.0",
+    "katex": "^0.18.0",
     "vue": "^3.0.0"
   },
   "peerDependenciesMeta": {
@@ -86,6 +79,9 @@
       "optional": true
     },
     "@lezer/markdown": {
+      "optional": true
+    },
+    "katex": {
       "optional": true
     }
   },
