@@ -14,7 +14,7 @@ import { foldedBlocks, toggleFold } from '../../src/cm/fold.js'
 
 const DOC = '```yaml\n我是内容\n\n还有一行\n```\n\n尾段\n'
 
-function mount(doc = DOC, folded = false) {
+function mount(doc = DOC) {
   const state = EditorState.create({
     doc,
     /*

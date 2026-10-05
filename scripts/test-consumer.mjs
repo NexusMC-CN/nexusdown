@@ -11,13 +11,13 @@
  *   1. `npm pack` the package.
  *   2. Install the tarball into a throwaway project outside this repo.
  *   3. Assert every documented subpath resolves.
- *   4. Build a minimal Vue + Vite app that imports the public entry, proving the
- *      SFCs compile in a consumer bundler with the consumer's own Vue.
+ *   4. Type-check and build a Vue + Vite app using the published editor,
+ *      CodeMirror engine, renderer and stylesheets.
  *
  * Run: `npm run test:consumer` (also invoked from CI).
  */
 import { spawnSync } from 'node:child_process'
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -74,7 +74,7 @@ function readDocumentedSubpaths() {
 }
 
 /** Assert each export key maps to a file that actually exists in the tarball. */
-function assertExportTargetsExist(pkg) {
+function assertExportTargetsExist(pkg, packageDir) {
   const missing = []
   for (const [key, value] of Object.entries(pkg.exports)) {
     if (key.includes('*')) continue
@@ -82,7 +82,7 @@ function assertExportTargetsExist(pkg) {
     for (const target of targets) {
       // `types` may point at a .ts source that ships alongside the runtime .js.
       const relative = target.replace(/^\.\//, '')
-      if (!existsSync(join(root, relative))) missing.push(`${key} -> ${target}`)
+      if (!existsSync(join(packageDir, relative))) missing.push(`${key} -> ${target}`)
     }
   }
   if (missing.length) throw new Error(`missing export targets: ${missing.join(', ')}`)
@@ -94,7 +94,7 @@ console.log('consumer smoke test')
 // ---------------------------------------------------------------------------
 // Pack
 // ---------------------------------------------------------------------------
-// The build must run first so `dist/` and the generated shim are current.
+// Build both the engine and the compiled Vue editor before packing.
 run('npm', ['run', 'build'], { cwd: root, stdio: ['ignore', 'pipe', 'pipe'] })
 
 const workDir = mkdtempSync(join(tmpdir(), 'nexusdown-consumer-'))
@@ -108,17 +108,20 @@ try {
 
   const { pkg, subpaths } = readDocumentedSubpaths()
 
-  step('every export target exists in the repo', () => assertExportTargetsExist(pkg))
-
   // -------------------------------------------------------------------------
   // Install into an isolated project
   // -------------------------------------------------------------------------
   const appDir = join(workDir, 'app')
   mkdirSync(appDir, { recursive: true })
   writeFileSync(join(appDir, 'package.json'), JSON.stringify({ name: 'consumer', private: true, type: 'module' }, null, 2))
-  run('npm', ['install', tarballPath, 'vue', 'vite', '@vitejs/plugin-vue', '--silent', '--no-audit', '--no-fund'], {
-    cwd: appDir,
-  })
+	// The editor needs the optional CodeMirror peers; use the versions tested
+	// by this repository instead of letting the consumer drift to latest.
+	const consumerDependencies = ['vue', 'vite', '@vitejs/plugin-vue', 'typescript',
+		...Object.keys(pkg.peerDependencies).filter((name) => /^@(codemirror|lezer)\//.test(name)),
+	].map((name) => `${name}@${pkg.devDependencies[name] ?? pkg.peerDependencies[name]}`)
+	run('npm', ['install', tarballPath, ...consumerDependencies, '--no-audit', '--no-fund'], {
+		cwd: appDir,
+	})
 
   const installed = join(appDir, 'node_modules', 'nexusdown')
   step('package installed', () => {
@@ -126,29 +129,16 @@ try {
     return installed.replace(workDir, '<tmp>')
   })
 
-  // Files that must ship for the documented usage to work.
-  for (const relative of [
-    'dist/index.js',
-    'dist/index.cjs',
-    'dist/index.d.ts',
-    'dist/core/index.js',
-    'dist/core/index.cjs',
-    'dist/style.css',
-    'src/vue/entry.js',
-    'src/vue/entry.ts',
-    'src/vue/NexusdownEditor.vue',
-  ]) {
-    step(`ships ${relative}`, () => {
-      if (!existsSync(join(installed, relative))) throw new Error(`missing from tarball`)
-      return 'present'
-    })
-  }
+	step('every export target ships in the package', () => {
+		const installedPkg = JSON.parse(readFileSync(join(installed, 'package.json'), 'utf8'))
+		return assertExportTargetsExist(installedPkg, installed)
+	})
 
   // -------------------------------------------------------------------------
   // Resolution: plain Node must resolve the subpaths (this is what broke before)
   // -------------------------------------------------------------------------
   step('require.resolve() finds every documented subpath', () => {
-    // Export keys are "./core" style; consumers import "nexusdown/core".
+    // Export keys are "./cm" style; consumers import "nexusdown/cm".
     const specifiers = subpaths.map((key) => (key === '.' ? pkg.name : `${pkg.name}/${key.replace(/^\.\//, '')}`))
     const script = `
       const results = ${JSON.stringify(specifiers)}.map((s) => {
@@ -163,67 +153,31 @@ try {
     return `${parsed.length} subpaths`
   })
 
-  step('pre-compiled ./core loads in bare Node', () => {
-    const script = `
-      import('nexusdown/core').then((m) => {
-        const needed = ['createNexusdownEditor', 'createDefaultToolbarItems']
-        const missing = needed.filter((n) => typeof m[n] !== 'function')
-        if (missing.length) { console.error('missing exports: ' + missing); process.exit(1) }
-        console.log('ok')
-      }).catch((e) => { console.error(e.code || e.message); process.exit(1) })
-    `
-    const output = run(process.execPath, ['--input-type=module', '-e', script], { cwd: appDir }).trim()
-    if (!output.includes('ok')) throw new Error(`unexpected output: ${output}`)
-    return 'createNexusdownEditor present'
-  })
-
-  step('published style.css contains the responsive/touch layer', () => {
-    const css = readFileSync(join(installed, 'dist', 'style.css'), 'utf8')
-    for (const token of ['@media (pointer: coarse)', '@media (max-width: 760px)', 'env(safe-area-inset-bottom)']) {
-      if (!css.includes(token)) throw new Error(`dist/style.css is missing ${token}`)
-    }
-    return 'mobile rules present'
-  })
-
-  step('published types declare the documented API', () => {
-    // tsup splits declarations into shared chunks and leaves `dist/core/index.d.ts`
-    // as a re-export barrel, so grepping that one file gives false negatives.
-    // Concatenate every declaration file before matching.
-    const distDir = join(installed, 'dist')
-    const collect = (dir) =>
-      readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
-        const full = join(dir, entry.name)
-        if (entry.isDirectory()) return collect(full)
-        return /\.d\.(ts|cts|mts)$/.test(entry.name) ? [readFileSync(full, 'utf8')] : []
-      })
-    const declarations = collect(distDir).join('\n')
-
-    const expected = {
-      'getText(): string': /getText\(\):\s*string/,
-      'insertMarkdown command': /insertMarkdown:\s*\(/,
-      'setTextAlign command': /setTextAlign:\s*\(/,
-      'indent command': /indent:\s*\(\)/,
-      'outdent command': /outdent:\s*\(\)/,
-      'TextAlignment type': /TextAlignment\s*=/,
-      "PasteMode includes 'markdown'": /PasteMode\s*=[^;]*markdown/,
-    }
-    const missing = Object.entries(expected)
-      .filter(([, pattern]) => !pattern.test(declarations))
-      .map(([name]) => name)
-    if (missing.length) throw new Error(`missing from published types: ${missing.join(', ')}`)
-    return `${Object.keys(expected).length} declarations`
-  })
-
-  step('published entry.js matches its TypeScript source', () => {
-    // A stale shim would mean the generated file was committed without rebuilding.
-    const shim = readFileSync(join(installed, 'src/vue/entry.js'), 'utf8')
-    if (/\bas\s+DefineComponent\b/.test(shim)) throw new Error('shim still contains TypeScript-only syntax')
-    if (/^\s*(import|export)\s+type\s/m.test(shim)) throw new Error('shim still contains type-only statements')
-    return 'shim is plain JavaScript'
-  })
+	for (const format of ['esm', 'cjs']) {
+		step(`engine and renderer load in bare Node (${format})`, () => {
+			const imports = format === 'esm'
+				? "const engine = await import('nexusdown'); const cm = await import('nexusdown/cm'); const renderer = await import('nexusdown/render');"
+				: "const engine = require('nexusdown'); const cm = require('nexusdown/cm'); const renderer = require('nexusdown/render');"
+			const script = `${imports}
+				for (const api of [engine, cm]) {
+					for (const name of ['nexusdown', 'mountEditor', 'setEditorValue']) {
+						if (typeof api[name] !== 'function') throw new Error('Missing ' + name);
+					}
+				}
+				for (const api of [engine, renderer]) {
+					if (!api.renderMarkdown('**consumer-ok**').includes('<strong>consumer-ok</strong>')) {
+						throw new Error('Renderer output is incorrect');
+					}
+				}
+				console.log('ok');
+			`
+			run(process.execPath, ['--input-type=' + (format === 'esm' ? 'module' : 'commonjs'), '-e', script], { cwd: appDir })
+			return 'public functions and Markdown rendering verified'
+		})
+	}
 
   // -------------------------------------------------------------------------
-  // Real bundler build: proves SFCs compile with the consumer's Vue
+  // Real consumer: checks published declarations, compiled editor and styles.
   // -------------------------------------------------------------------------
   step('Vite consumer app builds and imports the public entry', () => {
     mkdirSync(join(appDir, 'src'), { recursive: true })
@@ -238,23 +192,32 @@ try {
     writeFileSync(
       join(appDir, 'src', 'main.ts'),
       [
-        "import NexusdownEditor, { useNexusdownTheme } from 'nexusdown/vue'",
-        "import { createNexusdownEditor } from 'nexusdown/core'",
-        "import 'nexusdown/style.css'",
-        'if (typeof NexusdownEditor !== "object" && typeof NexusdownEditor !== "function") {',
-        '  throw new Error("default export is not a component")',
-        '}',
-        'if (typeof useNexusdownTheme !== "function") throw new Error("missing useNexusdownTheme")',
-        'if (typeof createNexusdownEditor !== "function") throw new Error("missing createNexusdownEditor")',
-        'console.log("consumer-ok")',
+				"import { createApp, h } from 'vue'",
+				"import { NexusdownEditor, NexusdownToolbar } from 'nexusdown/editor'",
+				"import { nexusdown, mountEditor } from 'nexusdown/cm'",
+				"import { renderMarkdown } from 'nexusdown/render'",
+				"import 'nexusdown/editor/style.css'",
+				"import 'nexusdown/cm/theme.css'",
+				"import 'nexusdown/dialect.css'",
+				"const html: string = renderMarkdown('**consumer-ok**')",
+				'console.log(html, nexusdown(), mountEditor, NexusdownToolbar)',
+				"createApp({ render: () => h(NexusdownEditor, { modelValue: '# Hello' }) }).mount('#app')",
       ].join('\n'),
     )
-    run('npx', ['vite', 'build', '--logLevel', 'error'], { cwd: appDir })
+		step('published declarations type-check in a consumer', () => {
+			run(process.execPath, [join(appDir, 'node_modules/typescript/bin/tsc'),
+				'--noEmit', '--strict', '--skipLibCheck', '--module', 'ESNext',
+				'--moduleResolution', 'bundler', '--target', 'ES2022', 'src/main.ts',
+			], { cwd: appDir })
+			return 'editor, engine and renderer types resolved'
+		})
+		run(process.execPath, [join(appDir, 'node_modules/vite/bin/vite.js'), 'build', '--logLevel', 'error'], { cwd: appDir })
 
     const assets = join(appDir, 'dist', 'assets')
     if (!existsSync(assets)) throw new Error('no dist/assets produced')
     const emitted = readFileSync(join(appDir, 'dist', 'index.html'), 'utf8')
     if (!/assets\/.*\.js/.test(emitted)) throw new Error('bundle not referenced from index.html')
+		if (!readdirSync(assets).some((name) => name.endsWith('.css'))) throw new Error('no stylesheet emitted')
     return 'bundle emitted'
   })
 

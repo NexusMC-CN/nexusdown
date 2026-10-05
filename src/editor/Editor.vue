@@ -1,4 +1,6 @@
 <script setup lang="ts">
+defineOptions({ name: 'NexusdownEditor' })
+
 /**
  * `<NexusdownEditor>` —— **成品编辑器**：CM6 宿主 + 工具栏 + 正文排版。
  *

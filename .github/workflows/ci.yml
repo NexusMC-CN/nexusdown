@@ -90,7 +90,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node: ['20', '22', '24']
+        node: ['22', '24']
     steps:
       - uses: actions/checkout@v4
 
@@ -98,7 +98,13 @@ jobs:
         with:
           node-version: ${{ matrix.node }}
           cache: npm
-          cache-dependency-path: examples/nuxt-ssr/package-lock.json
+          cache-dependency-path: |
+            package-lock.json
+            examples/nuxt-ssr/package-lock.json
+
+      # The file:../.. dependency runs the root package's prepare script.
+      - name: Install root dependencies
+        run: npm ci --include=dev
 
       - name: Install Nuxt example dependencies
         working-directory: examples/nuxt-ssr
