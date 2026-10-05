@@ -502,3 +502,57 @@ export function insertLink(href: string): Command {
     return true
   }
 }
+
+/* ==========================================================================
+ * 提及
+ * ========================================================================== */
+
+/**
+ * 选择器里的一条候选 —— **由消费方注入**。
+ *
+ * 和 `mathRenderer` / 渲染侧的 `RenderData` 是同一条边界：**库不查库**。
+ * 「有哪些 slug 可提及」是消费方的事（要查资源表、要发请求），库只认
+ * `@slug` 这个**语法**（`shared/mention.ts`）。所以候选从外面送进来，
+ * 没送进来时按钮照样在（见 `Toolbar.vue` 的降级说明）。
+ */
+export interface MentionCandidate {
+  /** 插进正文的 slug —— `@` 后面那串（契约 §8：`[a-z0-9][a-z0-9-]*`）。 */
+  slug: string
+  /** 展示名（选择器里显示，**不**进正文）。 */
+  title: string
+  /** 实体类型（`resource` / `post` …）。只用于展示，命令层与扫描器都不看它。 */
+  kind: string
+}
+
+/**
+ * 插入 `@slug`（契约 §8 的提及语法）。
+ *
+ * `slug` 由调用方给（工具栏弹选择器让用户挑），命令层只负责落字 ——
+ * 和 `insertLink` 同一条：命令不碰 UI，才能被别的入口复用（快捷键、粘贴板识别…）。
+ *
+ * - 有选区 → 用 `@slug` **替换**选区。提及没有"把选中文字包进去"的自然语义
+ *   （不像链接的 `[选中文字](url)`），所以退化成"就地插入"（同 `insertTable`）。
+ * - `slug` 为空 → 落一个裸 `@`。这是工具栏**没注入候选**时的降级：
+ *   编辑器侧的提及本来就是纯语法的（打 `@slug` 就渲染成胶囊，不查库），
+ *   所以按钮退化成"给出语法的开头"，而不是禁用 —— 见 `Toolbar.vue`。
+ *
+ * ⚠️ **不校验 slug 合法性**（同 `insertLink` 不校验 URL）：真正认不认这个提及，
+ * 由 `shared/mention.ts` 的扫描器判定。这里拦一遍只会让"先写 `@`、slug 以后再补"
+ * 这种正常操作被挡住，而用户看到的是按钮没反应。
+ */
+export function insertMention(slug: string): Command {
+  return (view) => {
+    const { state } = view
+    const insert = '@' + slug.trim()
+
+    const changes = state.changeByRange((range) => ({
+      changes: { from: range.from, to: range.to, insert },
+      range: EditorSelection.cursor(range.from + insert.length),
+    }))
+
+    if (changes.changes.empty) return false
+
+    view.dispatch({ ...changes, userEvent: 'format.nexusdown' })
+    return true
+  }
+}

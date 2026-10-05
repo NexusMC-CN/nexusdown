@@ -254,6 +254,7 @@ export {
   insertEmbed,
   insertInlineMath,
   insertLink,
+  insertMention,
   insertTable,
   toggleBold,
   toggleBulletList,
@@ -264,6 +265,11 @@ export {
   toggleQuote,
   wrapCodeBlock,
 } from './commands';
+/*
+ * 提及候选的形状 —— 工具栏的「提及」选择器用它。消费方按这个形状把候选
+ * 送进 `<NexusdownEditor :mention-candidates="…">`（库不查库，同 `RenderData`）。
+ */
+export type { MentionCandidate } from './commands';
 /*
  * 代码块标题栏的**纯逻辑**。
  *

@@ -21,6 +21,7 @@ import {
   insertEmbed,
   insertInlineMath,
   insertLink,
+  insertMention,
   insertTable,
   toggleBold,
   toggleBulletList,
@@ -182,6 +183,45 @@ describe('insertLink', () => {
     const v = editor('点这里', [0, 3])
     const out = run(v, insertLink('https://example.com'))
     expect(out.doc).toBe('[点这里](https://example.com)')
+    v.destroy()
+  })
+})
+
+describe('insertMention', () => {
+  it('光标处插入 `@slug`，光标停在末尾', () => {
+    const v = editor('看这个 ', 4)
+    const out = run(v, insertMention('rei'))
+    expect(out.doc).toBe('看这个 @rei')
+    // `看这个 ` 是 4 个字符，`@rei` 又占 4 个 —— 光标落在整串之后
+    expect(out.ranges[0]).toEqual([8, 8])
+    v.destroy()
+  })
+
+  it('有选区 → 用 `@slug` 替换选区（提及没有"包住选中内容"的语义）', () => {
+    const v = editor('旧内容', [0, 3])
+    const out = run(v, insertMention('rei'))
+    expect(out.doc).toBe('@rei')
+    expect(out.ranges[0]).toEqual([4, 4])
+    v.destroy()
+  })
+
+  it('空 slug → 落一个裸 `@`（工具栏没注入候选时的降级）', () => {
+    const v = editor('', 0)
+    const out = run(v, insertMention(''))
+    expect(out.doc).toBe('@')
+    expect(out.ranges[0]).toEqual([1, 1])
+    v.destroy()
+  })
+
+  it('★ 多光标：每个选区各插一份，第二份的光标跟着第一份的插入右移', () => {
+    const v = editor('ab', 0, 2)
+    const out = run(v, insertMention('rei'))
+    expect(out.doc).toBe('@reiab@rei')
+    // 第一份 `@rei` 4 字 → 光标 4；`ab` 2 字 + 第一份 4 字 → 第二份从 6 起，光标 6+4=10
+    expect(out.ranges).toEqual([
+      [4, 4],
+      [10, 10],
+    ])
     v.destroy()
   })
 })

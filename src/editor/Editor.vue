@@ -34,7 +34,7 @@
  * （`undo(view)` / `syntaxTree(view.state)`），而 `undo` / `syntaxTree`
  * 也是从同一个 `nexusdown/cm` 来的 ✓。
  */
-import type { EditorView } from 'nexusdown/cm'
+import type { EditorView, MentionCandidate } from 'nexusdown/cm'
 /*
  * ⚠️ **只 import type**（同上一行的 `EditorView`）—— `KatexLike` 是纯类型，
  * 编译期就被擦掉，不会变成运行时 import，也就不会把"第二份 CM6 / markdown-it"
@@ -71,6 +71,21 @@ const props = defineProps<{
    * ```
    */
   mathRenderer?: KatexLike
+  /**
+   * 提及候选（可选）—— 注入后工具栏的「提及」按钮会打开一个可搜索的选择器。
+   *
+   * **必须能异步**（返回 Promise）：候选可能要发请求去查库，而**库不查库**
+   * （同 `mathRenderer` / 渲染侧的 `RenderData`）—— 「有哪些 slug 可提及」
+   * 是消费方的事，库只认 `@slug` 这个语法。
+   *
+   * 不传时**不报错**：「提及」按钮照样在，只是降级成"落一个 `@`"
+   * （编辑器侧的提及是纯语法的，打 `@slug` 就渲染成胶囊，不依赖候选）。
+   *
+   * ```vue
+   * <NexusdownEditor v-model="body" :mention-candidates="loadMentionCandidates" />
+   * ```
+   */
+  mentionCandidates?: () => Promise<MentionCandidate[]>
 }>()
 
 const emit = defineEmits<{
@@ -168,7 +183,7 @@ defineExpose({ view })
 
 <template>
   <div class="nd-editor">
-    <NexusdownToolbar :view="view" />
+    <NexusdownToolbar :view="view" :mention-candidates="mentionCandidates" />
 
     <!--
       CodeMirror 自己往这个容器里塞 DOM。

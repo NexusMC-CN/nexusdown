@@ -44,7 +44,7 @@
  * 这个项目已经踩过"运行时从 CDN 拉图标、离线时静默变空标签"的坑，
  * 十几个路径写在文件里，离线、SSR、剪包都不会出问题。
  */
-import { nextTick, onUnmounted, ref, watch } from 'vue'
+import { computed, nextTick, onUnmounted, ref, watch } from 'vue'
 /*
  * ⚠️ **运行时依赖一律从引擎拿**（`../cm/index`），不要直接 import `@codemirror/*`。
  *
@@ -55,7 +55,7 @@ import { nextTick, onUnmounted, ref, watch } from 'vue'
  *
  * 类型 import（`type`）是安全的 —— 编译期就擦掉了，不进运行时。
  */
-import type { Command, EditorView } from 'nexusdown/cm'
+import type { Command, EditorView, MentionCandidate } from 'nexusdown/cm'
 import {
   redo,
   syntaxTree,
@@ -64,6 +64,7 @@ import {
   insertEmbed,
   insertInlineMath,
   insertLink,
+  insertMention,
   insertTable,
   toggleBold,
   toggleBulletList,
@@ -79,6 +80,15 @@ import { codeIconSvg } from 'nexusdown/cm'
 const props = defineProps<{
   /** 编辑器实例。还没挂上时是 `null` —— 那时所有按钮都禁用。 */
   view: EditorView | null
+  /**
+   * 提及候选（可选，**必须能异步**）—— 消费方可能要发请求去查库。
+   *
+   * 库**不查库**（同 `mathRenderer` / 渲染侧的 `RenderData`）：它只认 `@slug`
+   * 这个语法，「有哪些 slug 可提及」是消费方的事。注入了 → 「提及」按钮打开
+   * 一个可搜索的选择器；**没注入 → 按钮照样在**，只是降级成"落一个 `@`"
+   * （理由见 `openMention`）。
+   */
+  mentionCandidates?: () => Promise<MentionCandidate[]>
 }>()
 
 /* ---------------------------------------------------------------- 图标 */
@@ -114,7 +124,7 @@ type IconName =
   | 'bold' | 'italic' | 'inlineCode' | 'inlineMath'
   | 'h1' | 'h2' | 'h3'
   | 'bullet' | 'ordered' | 'quote' | 'table'
-  | 'link' | 'codeBlock' | 'blockMath' | 'embed'
+  | 'link' | 'mention' | 'codeBlock' | 'blockMath' | 'embed'
   | 'undo' | 'redo'
 
 /** 列表三行的 y —— 无序和有序**共用同一组基准线**，两个图标才会像一对。 */
@@ -207,6 +217,18 @@ const ICONS: Record<IconName, Shape[]> = {
       d: 'M6.94 8.53a2.66 2.66 0 0 0 4.02.28l1.6-1.6a2.66 2.66 0 0 0-3.76-3.76L7.88 4.37'
         + 'M9.06 7.47a2.66 2.66 0 0 0-4.02-.28l-1.6 1.6a2.66 2.66 0 0 0 3.76 3.76l.91-.91',
     },
+  ],
+  /* 提及：一个 `@` —— 内圈（"a"的碗）+ 右侧竖干和尾巴 + 外圈，三段拼成
+     （坐标是 Feather `at-sign` 的 24 网格缩到 16 的，缩放系数 **≈0.38** 不是 2/3）。
+     ⚠️ **它是全套里"最重"的形状**：一个 `@` 天生是**内外两层环**，笔画总长
+     比别的图标长得多 —— 2/3 缩出来墨迹面积 90.2（均值的 1.83 倍，一行里像块墨疙瘩）。
+     一路收到 0.38 才落到 **52.1**（均值的 1.11 倍），代价是外框只有 9.4×9.4
+     （别的图标约 11~12）—— 这不是画小了，是**双环形状本身的性质**，
+     和 `table` 靠面积而不是外框对齐是同一条判断。
+     （复现：`node scripts/measure-icons.mjs '{"x":[{"t":"p","d":"M9.5 6.5v1.9a1.1 1.1 0 0 0 2.2 0v-.4a3.95 3.95 0 1 0-1.6 3.18"},{"t":"p","d":"M8 6.5a1.5 1.5 0 1 0 0 3 1.5 1.5 0 1 0 0-3z"}]}'`） */
+  mention: [
+    { t: 'p', d: 'M9.5 6.5v1.9a1.1 1.1 0 0 0 2.2 0v-.4a3.95 3.95 0 1 0-1.6 3.18' },
+    { t: 'p', d: 'M8 6.5a1.5 1.5 0 1 0 0 3 1.5 1.5 0 1 0 0-3z' },
   ],
   /* 代码块：`</>` —— 比行内代码多一条中缝斜杠，尖括号同时收小一圈。 */
   codeBlock: [
@@ -404,6 +426,183 @@ function cancelLink() {
   props.view?.focus()
 }
 
+/* ---------------------------------------------------------------- 提及选择器 */
+
+/**
+ * ## 为什么按钮**没有候选时也要在**
+ *
+ * 用户报的 bug 是"**没在编辑器里看到**这个功能" —— 所以入口必须**永远可见**，
+ * 不能因为消费方没接线就整个消失（那正是当初"工具栏没看到表格/公式按钮"那类问题）。
+ *
+ * ## 没注入候选时为什么是"落一个 `@`"而不是"禁用 + tooltip"
+ *
+ * 编辑器侧的提及是**纯语法**的：`@slug` 由 `shared/mention.ts` 扫出来渲染成胶囊，
+ * **根本不查库**（查库只在渲染侧、发布之后）。也就是说这个按钮的核心动作
+ * （"给我一个提及"）**不依赖候选列表**，缺的只是"帮你挑 slug"这一步。
+ * 所以禁用是在**说谎** —— 它会让用户以为功能不可用，而实际上打 `@rei` 照样出胶囊。
+ * 退化成"落一个 `@`"更诚实：给出语法的开头，用户接着打 slug 即可
+ * （悬停卡片里的演示正好教了 `@slug` 长什么样）。
+ *
+ * 同一条判断在 `insertInlineMath` 上：空白处点它也是落一对 `$`、光标居中，
+ * 而不是"没选中内容就禁用"。
+ *
+ * ## 键盘 / 焦点 / Esc —— 和 `openLink` 那套一致
+ *
+ * - **打开即聚焦输入框**（`nextTick`）—— 否则用户得先点一下才能打字；
+ * - **Esc 关掉**并**把焦点还给编辑器**（同 `cancelLink`）；
+ * - 上下键移动高亮（**循环**，到底回到头）、回车选中、鼠标悬停也跟着高亮
+ *   （`@mouseenter` 同步 `mentionActive`，不然键盘和鼠标两套高亮会打架）；
+ * - 点面板**外面**关掉 —— 下拉面板和链接那条**内联输入行**不同：它浮在正文上，
+ *   不关就会一直盖着编辑器。判定用"点是否落在工具栏根元素之外"，
+ *   这样点工具栏上的**任何**按钮（包括再点一次「提及」）都不算"外面"，
+ *   不会和按钮自己的 toggle 打架。
+ */
+const mentionOpen = ref(false)
+const mentionQuery = ref('')
+const mentionItems = ref<MentionCandidate[]>([])
+const mentionActive = ref(0)
+const mentionLoading = ref(false)
+const mentionError = ref('')
+const mentionInput = ref<HTMLInputElement | null>(null)
+const mentionRoot = ref<HTMLElement | null>(null)
+
+/**
+ * 过滤后的候选。`slug` 和 `title` **都参与匹配**：用户可能记得显示名
+ * （「REI 物品管理器」），也可能记得 slug（`rei`）。大小写不敏感 ——
+ * slug 只收小写，但 title 是中文 / 混合大小写。
+ *
+ * 候选可能几十上百个，所以过滤放在**客户端**做（一次拉全、边打边筛），
+ * 比每敲一个字发一次请求稳 —— 不会因为请求乱序而闪。
+ */
+const mentionFiltered = computed(() => {
+  const q = mentionQuery.value.trim().toLowerCase()
+  if (!q) return mentionItems.value
+  return mentionItems.value.filter(
+    (c) => c.slug.toLowerCase().includes(q) || c.title.toLowerCase().includes(q),
+  )
+})
+
+/**
+ * 竞态令牌：用户可能开了又关、又开，或者连点两下。
+ * 只有**最后一次**打开的请求结果算数 —— 否则旧请求后回来会把列表覆盖掉。
+ */
+let mentionToken = 0
+
+function openMention() {
+  const view = props.view
+  if (!view) return
+  // 已经开着 → 再点一次就是关掉（开关语义，和链接按钮的"只开不关"不同，
+  // 因为它是个浮层，用户会想用同一个按钮收起它）。
+  if (mentionOpen.value) {
+    closeMention()
+    return
+  }
+
+  const load = props.mentionCandidates
+  /*
+   * 没注入候选 → 降级成"落一个 `@`"（理由见本节文件头注释）。
+   * `insertMention('')` 落的就是一个裸 `@`，和注入了候选时走的是**同一条命令** ——
+   * 不给降级路径单开一条分支，行为就不会和主路径漂。
+   */
+  if (!load) {
+    runCommand(insertMention(''))
+    return
+  }
+
+  mentionOpen.value = true
+  mentionQuery.value = ''
+  mentionActive.value = 0
+  mentionItems.value = []
+  mentionError.value = ''
+  mentionLoading.value = true
+  nextTick(() => mentionInput.value?.focus())
+
+  const token = ++mentionToken
+  load().then(
+    (items) => {
+      if (token !== mentionToken) return
+      mentionItems.value = items
+      mentionActive.value = 0
+      mentionLoading.value = false
+    },
+    (e: unknown) => {
+      if (token !== mentionToken) return
+      mentionError.value = e instanceof Error ? e.message : String(e)
+      mentionLoading.value = false
+    },
+  )
+}
+
+/** 选中一条候选：插 `@slug`、关面板、焦点还给编辑器。 */
+function pickMention(c: MentionCandidate) {
+  const view = props.view
+  mentionOpen.value = false
+  if (!view) return
+  insertMention(c.slug)(view)
+  view.focus()
+  /* 立刻重算一次点亮状态，不等 `selectionchange`（同 `runCommand` 那条）。 */
+  refreshActive()
+}
+
+function closeMention() {
+  mentionOpen.value = false
+  props.view?.focus()
+}
+
+/** 高亮上下移动。**循环** —— 到最后一条再按下回到第一条。 */
+function moveMention(delta: number) {
+  const n = mentionFiltered.value.length
+  if (!n) return
+  mentionActive.value = (mentionActive.value + delta + n) % n
+}
+
+function onMentionKeydown(event: KeyboardEvent) {
+  if (event.key === 'Escape') {
+    event.preventDefault()
+    closeMention()
+    return
+  }
+  if (event.key === 'ArrowDown') {
+    event.preventDefault()
+    moveMention(1)
+    return
+  }
+  if (event.key === 'ArrowUp') {
+    event.preventDefault()
+    moveMention(-1)
+    return
+  }
+  if (event.key === 'Enter') {
+    event.preventDefault()
+    const hit = mentionFiltered.value[mentionActive.value]
+    if (hit) pickMention(hit)
+  }
+}
+
+/** 查询变了 → 高亮回到第一条（不然会停在一个跟新列表无关的下标上）。 */
+watch(mentionQuery, () => {
+  mentionActive.value = 0
+})
+
+/**
+ * 点面板外面关掉。用 `pointerdown` 而不是 `click` —— 后者要等抬起，
+ * 期间页面已经响应了那次点击（比如把光标落到正文里），观感是"先点了别处、面板才慢半拍地关"。
+ */
+function onDocPointerDown(event: PointerEvent) {
+  if (!mentionOpen.value) return
+  const root = mentionRoot.value
+  const target = event.target
+  if (root && target instanceof Node && root.contains(target)) return
+  closeMention()
+}
+
+watch(mentionOpen, (open) => {
+  if (open) document.addEventListener('pointerdown', onDocPointerDown)
+  else document.removeEventListener('pointerdown', onDocPointerDown)
+})
+
+onUnmounted(() => document.removeEventListener('pointerdown', onDocPointerDown))
+
 /* ---------------------------------------------------------------- 按钮表 */
 
 /**
@@ -417,7 +616,7 @@ type DemoName =
   | 'bold' | 'italic' | 'inlineCode' | 'inlineMath'
   | 'h1' | 'h2' | 'h3'
   | 'bullet' | 'ordered' | 'quote' | 'table'
-  | 'link' | 'codeBlock' | 'blockMath' | 'embed'
+  | 'link' | 'mention' | 'codeBlock' | 'blockMath' | 'embed'
   | 'undo' | 'redo'
 
 interface ToolButton {
@@ -455,6 +654,10 @@ const GROUPS: ToolButton[][] = [
   ],
   [
     { icon: 'link', demo: 'link', title: '插入链接', act: openLink },
+    /* 提及和链接一样是「插入一个指向」，所以并在一组、紧挨着放。
+       它**没有** `kind` —— 插入类不是开关，不点亮 `aria-pressed`
+       （和行内公式 / 表格 / 块级公式 / 嵌入同一条）。 */
+    { icon: 'mention', demo: 'mention', title: '提及', act: openMention },
     { icon: 'codeBlock', demo: 'codeBlock', title: '插入代码块', act: () => runCommand(wrapCodeBlock), kind: 'codeBlock' },
     /* 块级公式 / 嵌入和代码块一样是**围栏**（```math / ```embed），并在一组。
        注意 `codeBlock` 有 `kind` 而这两个没有：前者会随光标进入代码块点亮，
@@ -525,7 +728,7 @@ function replayDemos(event: MouseEvent) {
 </script>
 
 <template>
-  <div class="cm-toolbar">
+  <div ref="mentionRoot" class="cm-toolbar">
     <div class="row" role="toolbar" aria-label="正文格式">
       <template v-for="(group, gi) in GROUPS" :key="gi">
         <span v-if="gi" class="sep" aria-hidden="true" />
@@ -716,6 +919,19 @@ function replayDemos(event: MouseEvent) {
                 </span>
               </div>
 
+              <!--
+                提及：`@slug` 原地变成一枚胶囊。
+                ⚠️ 和别的演示不同，这里**没有"标记消失"那一拍** ——
+                `@` 在源码态和渲染态里**都在**（胶囊里装的就是 `@slug`），
+                所以它不做"淡入淡出"，而是**先亮成品牌色**当"这是触发字符"的提示。
+                见 CSS 里 `demo-mention-at` 的注释。
+              -->
+              <div v-else-if="b.demo === 'mention'" class="demo-mention">
+                <span class="demo-mention__pill">
+                  <span class="demo-mention__at">@</span><span class="demo-mention__text">nexus</span>
+                </span>
+              </div>
+
               <!-- 代码块：同一行字，上方长出一个小窗口的标题栏 -->
               <div v-else-if="b.demo === 'codeBlock'" class="demo-code-block">
                 <!--
@@ -819,6 +1035,54 @@ function replayDemos(event: MouseEvent) {
         </div>
       </div>
     </div>
+
+    <!--
+      提及选择器。**浮层**（不是链接那种内联输入行）：候选可能有几十上百个，
+      内联展开会把正文整个推下去。所以它绝对定位在工具栏下方、盖在编辑器上。
+
+      ⚠️ `v-if` 而不是"常驻 + visibility"：链接那条内联行需要常驻是为了
+      展开动画（`0fr → 1fr`）；浮层不需要动画，用 `v-if` 反而顺手把
+      "收起时 Tab 会跳进看不见的输入框"这个坑一起消掉了。
+
+      ⚠️ 输入框**没有** `@mousedown.prevent`（链接那行也没有）：这里必须能点进输入框。
+      面板本身靠 `pointerdown` 落点判断是否点在外面（见 `onDocPointerDown`）。
+    -->
+    <div v-if="mentionOpen" class="mention-pop" role="dialog" aria-label="插入提及">
+      <input
+        ref="mentionInput"
+        v-model="mentionQuery"
+        class="mention-input"
+        type="text"
+        autocomplete="off"
+        placeholder="搜索资源…"
+        aria-label="搜索提及候选"
+        role="combobox"
+        aria-expanded="true"
+        aria-controls="mention-list"
+        :aria-activedescendant="mentionFiltered.length ? `mention-opt-${mentionActive}` : undefined"
+        @keydown="onMentionKeydown"
+      >
+
+      <p v-if="mentionLoading" class="mention-note">加载中…</p>
+      <p v-else-if="mentionError" class="mention-note mention-note--err">候选加载失败：{{ mentionError }}</p>
+      <p v-else-if="!mentionFiltered.length" class="mention-note">没有匹配的资源</p>
+      <ul v-else id="mention-list" class="mention-list" role="listbox">
+        <li
+          v-for="(c, i) in mentionFiltered"
+          :id="`mention-opt-${i}`"
+          :key="c.slug"
+          class="mention-item"
+          :class="{ on: i === mentionActive }"
+          role="option"
+          :aria-selected="i === mentionActive"
+          @mouseenter="mentionActive = i"
+          @mousedown.prevent="pickMention(c)"
+        >
+          <span class="mention-item__slug">@{{ c.slug }}</span>
+          <span class="mention-item__title">{{ c.title }}</span>
+        </li>
+      </ul>
+    </div>
   </div>
 </template>
 
@@ -857,6 +1121,8 @@ function replayDemos(event: MouseEvent) {
  * 比标题还往右缩，视觉上更像"没对齐"。）
  */
 .cm-toolbar {
+  /* 提及选择器是绝对定位的浮层，要有定位基准（见 `.mention-pop`）。 */
+  position: relative;
   border-top: 1px solid var(--nd-line);
   background: var(--nd-surface-2);
 }
@@ -1023,6 +1289,97 @@ function replayDemos(event: MouseEvent) {
 }
 .link-input:focus { border-color: var(--nd-brand-soft-border); box-shadow: 0 0 0 2px var(--nd-brand-soft); }
 .link-input::placeholder { color: var(--nd-text-4); }
+
+/* ---------------------------------------------------------------- 提及选择器 */
+
+/**
+ * 浮层：白底 + 1px 边框 + `--shadow-2`（和悬停卡片同一档"浮起来的下拉"）。
+ *
+ * ⚠️ `z-index: 50` —— 要盖在悬停卡片（40）和链接输入行上面。
+ * ⚠️ 宽度写死 260：输入框和列表等宽，鼠标扫过时不会左右抽动。
+ * ⚠️ `left: 22px` 对齐工具栏左边距（同 `.row` 的 `padding`），
+ *    这样面板左边缘和第一个按钮的**图标**对齐（见 `.cm-toolbar` 那节的尺寸表）。
+ */
+.mention-pop {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 22px;
+  z-index: 50;
+
+  box-sizing: border-box;
+  width: 260px;
+  max-height: 264px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+
+  background: #fff;
+  border: 1px solid var(--nd-border);
+  border-radius: var(--nd-radius-md);
+  box-shadow: var(--nd-shadow-2);
+}
+
+.mention-input {
+  flex: none;
+  height: 30px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--nd-text);
+  background: #fff;
+  border: 0;
+  /* 只留底边一条分隔线 —— 输入框和列表是一整块，再画一圈框就"框里还有框"了 */
+  border-bottom: 1px solid var(--nd-line);
+  border-radius: var(--nd-radius-md) var(--nd-radius-md) 0 0;
+  padding: 0 10px;
+  outline: none;
+}
+.mention-input:focus { box-shadow: inset 0 0 0 2px var(--nd-brand-soft); }
+.mention-input::placeholder { color: var(--nd-text-4); }
+
+/* 提示行（加载中 / 出错 / 空结果）。 */
+.mention-note {
+  margin: 0;
+  padding: 12px 10px;
+  font-size: 12.5px;
+  color: var(--nd-text-3);
+}
+.mention-note--err { color: var(--nd-danger, #cf222e); }
+
+/* 列表：候选多时内部滚动，面板高度不失控。`min-height: 0` 是 flex 子项能滚动的前提。 */
+.mention-list {
+  min-height: 0;
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  overflow-y: auto;
+}
+
+.mention-item {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 5px 7px;
+  border-radius: var(--nd-radius-sm);
+  cursor: pointer;
+}
+/* 高亮：键盘和鼠标**共用这一个类**（鼠标悬停会同步 `mentionActive`），
+   所以不会出现"键盘选中的是 A、鼠标指着的是 B"两套高亮。 */
+.mention-item.on { background: var(--nd-brand-soft); }
+
+.mention-item__slug {
+  flex: none;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--nd-brand);
+}
+.mention-item__title {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 12.5px;
+  color: var(--nd-text-2);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
 /* ================================================================ 悬停演示动画
  *
@@ -2320,8 +2677,133 @@ function replayDemos(event: MouseEvent) {
   }
 }
 
-/* ---------------------------------------------------------------- 8. 插入代码块 */
+/* ---------------------------------------------------------------- 7b. 提及 */
 
+/**
+ * `@nexus` 一行普通文字 → 一枚胶囊（淡蓝底 + 全圆角 + 品牌色文字），
+ * 也就是编辑器里 `.nd-mention` 的样子（见 `cm/features/mention.css`）。
+ *
+ * ## ⚠️ 和别的演示最大的不同：**没有"标记消失"那一拍**
+ *
+ * 别的演示里语法标记（`**` / `#` / ```` ``` ````）在渲染后会被"消化"掉，
+ * 所以它们走通用的 `demo-syntax`（淡入 → 淡出）。
+ * 提及不是 —— **胶囊里装的就是 `@slug`**，`@` 在源码态和渲染态里**都在**。
+ * 硬套"淡出"会得到一个没有 `@` 的胶囊，那是在演一个不存在的状态。
+ *
+ * 所以这里的叙事改成：**`@` 先亮成品牌色**（"这个字符让后面那串变成一个提及"），
+ * 然后整枚胶囊浮出来、文字跟着变蓝。`__at` 用自己的 `demo-mention-at`
+ * 而**不是**通用的 `[class*='__syntax']` —— 后者的 `animation-name` 是写死的
+ * `demo-syntax`，会把它淡没。
+ *
+ * ## 只动颜色和背景，不动尺寸
+ *
+ * `__pill` 的内边距 / 边框宽度**全程不变**（只动 `background-color` /
+ * `border-color`），所以"胶囊浮出来"时文字**一格都不会移** —— 和表格格子、
+ * 代码块窗口是同一条（避免文字被推着走）。
+ */
+.demo-mention {
+  box-sizing: border-box;
+  width: 120px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  font: 13px/1.5 system-ui, sans-serif;
+  color: var(--nd-text);
+  white-space: nowrap;
+}
+
+.demo-mention__pill {
+  display: inline-flex;
+  align-items: center;
+  /* 内边距和 1px 边框**常驻**（透明），动画只换颜色 —— 尺寸零位移 */
+  padding: 1px 8px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  animation-name: demo-mention-pill;
+  animation-duration: 2.8s;
+  animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+  animation-fill-mode: forwards;
+  /* 默认暂停在 0%；JS 在 mouseenter 时 play() 重播 */
+  animation-play-state: paused;
+}
+
+/* `@` —— 比后面那串稍粗一点，强调它是"触发字符" */
+.demo-mention__at {
+  font-weight: 600;
+  animation-name: demo-mention-at;
+  animation-duration: 2.8s;
+  animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+  animation-fill-mode: forwards;
+  animation-play-state: paused;
+}
+
+.demo-mention__text {
+  animation-name: demo-mention-ink;
+  animation-duration: 2.8s;
+  animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+  animation-fill-mode: forwards;
+  animation-play-state: paused;
+}
+
+/* demo-mention-pill / -at / -ink —— 悬停时跑起来
+ * ⚠️ 每个选择器各带一遍前缀（`A, B,` 会把 B 变成顶层选择器）。 */
+.tb-wrap:hover .demo-mention__pill,
+.tb:focus-visible + .demo-pop .demo-mention__pill,
+.tb-wrap:hover .demo-mention__at,
+.tb:focus-visible + .demo-pop .demo-mention__at,
+.tb-wrap:hover .demo-mention__text,
+.tb:focus-visible + .demo-pop .demo-mention__text {
+  animation-play-state: running;
+}
+
+@keyframes demo-mention-pill {
+  /* 1–3：还看不出是胶囊，就是一行普通文字 */
+  0%,
+  58% {
+    background-color: transparent;
+    border-color: transparent;
+  }
+  /* 4 渲染：淡蓝底 + 淡蓝描边浮出来，停住 */
+  72%,
+  100% {
+    background-color: var(--nd-brand-soft);
+    border-color: var(--nd-brand-soft-border);
+  }
+}
+
+@keyframes demo-mention-at {
+  /*
+   * 1–2：`@` 还是普通文字。
+   * 3（42% 起）：**先亮成品牌色** —— 这一拍就是"标记露出来"的替代：
+   *   告诉观众"是这个 `@` 把后面那串变成了提及"。
+   * 之后一直保持（渲染态里 `@` 也是品牌色）。
+   */
+  0%,
+  30% {
+    color: var(--nd-text);
+  }
+  42%,
+  100% {
+    color: var(--nd-brand);
+  }
+}
+
+@keyframes demo-mention-ink {
+  /* 1–3：后面那串还是正文色（`@` 已经亮了，两者错开才有"谁触发了谁"的因果） */
+  0%,
+  58% {
+    color: var(--nd-text);
+  }
+  /* 4 渲染：跟着 `@` 一起变蓝，停住 */
+  72%,
+  100% {
+    color: var(--nd-brand);
+  }
+}
+
+/* ---------------------------------------------------------------- 8. 插入代码块 */
 /**
  * 一行普通文字（`port: 25565`）原地变成一个小号"代码窗口"：顶部一条薄标题栏
  * （左边三个小圆点、右边语言名、底边一条分隔线），下面一行等宽代码。
@@ -3239,6 +3721,15 @@ function replayDemos(event: MouseEvent) {
   /* 7. 链接：蓝字 + 完整下划线 */
   .demo-link__text { animation: none; color: var(--nd-brand); }
   .demo-link__text::after { animation: none; transform: scaleX(1); }
+
+  /* 7b. 提及：直接呈现渲染态 —— 胶囊浮出、`@` 和文字都是品牌色 */
+  .demo-mention__pill {
+    animation: none;
+    background-color: var(--nd-brand-soft);
+    border-color: var(--nd-brand-soft-border);
+  }
+  .demo-mention__at,
+  .demo-mention__text { animation: none; color: var(--nd-brand); }
 
   /* 8. 代码块：停在渲染态（窗口展开、围栏消失） */
   .demo-code-block__win {
