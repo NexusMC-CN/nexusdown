@@ -12,11 +12,18 @@ import { EditorState, type Extension } from '@codemirror/state'
 import { EditorView, ViewPlugin, type Decoration } from '@codemirror/view'
 import { afterEach, describe, expect, it } from 'vitest'
 
-import { mentionFeature, MentionCardWidget, MentionWidget } from '../../src/cm/features/mention.js'
+import {
+  createMentionFeature,
+  mentionFeature,
+  MentionCardWidget,
+  MentionWidget,
+  type MentionResolutions,
+} from '../../src/cm/features/mention.js'
 import {
   nexusdownLivePreview,
   type LivePreviewPluginValue,
 } from '../../src/cm/plugin.js'
+import type { MentionResolution } from '../../src/render/feature.js'
 
 type Kind = 'line' | 'mark' | 'replace' | 'widget'
 
@@ -34,9 +41,9 @@ afterEach(() => {
   document.body.innerHTML = ''
 })
 
-function mount(doc: string, cursor: number = doc.length) {
+function mount(doc: string, cursor: number = doc.length, mentions?: MentionResolutions) {
   const plugin = nexusdownLivePreview({
-    features: new Map([['Paragraph', mentionFeature]]),
+    features: new Map([['Paragraph', mentions ? createMentionFeature(mentions) : mentionFeature]]),
   })
   const state = EditorState.create({
     doc,
@@ -213,5 +220,105 @@ describe('mention —— widget eq', () => {
     expect(new MentionWidget('@foo').eq(new MentionWidget('@bar'))).toBe(false)
     expect(new MentionCardWidget('@foo').eq(new MentionCardWidget('@foo'))).toBe(true)
     expect(new MentionCardWidget('@foo').eq(new MentionCardWidget('@bar'))).toBe(false)
+  })
+})
+
+/* ==========================================================================
+ * 注入了 `mentions` —— 卡片必须和渲染侧 `renderCard()` 同构
+ * ======================================================================== */
+
+const RES: MentionResolution = {
+  title: 'Nexus 优化器',
+  href: '/resources/nexus-optimizer',
+  kind: 'resource',
+  summary: '一句话摘要',
+  byline: 'alice',
+  badges: ['v1.2', '10k'],
+  image: 'https://cdn.example.com/x.png',
+}
+
+const withRes = (res: MentionResolution = RES): MentionResolutions => new Map([['nexus-optimizer', res]])
+
+/** 卡片行的末尾放个"尾部"段落，让默认光标（文末）落在非揭示态基线上。 */
+const CARD_DOC = '@nexus-optimizer\n\n尾部'
+
+describe('mention —— 卡片（注入了解析结果）', () => {
+  it('★ DOM 逐节点对齐渲染侧：图标 + 标题 + 摘要 + 署名 + 角标 + 缩略图', () => {
+    const { instance } = mount(CARD_DOC, undefined, withRes())
+    const card = widgetOf(instance, MentionCardWidget).toDOM()
+
+    expect(card.className).toBe('nd-mention-card')
+    expect(card.getAttribute('data-kind')).toBe('resource')
+    // 子节点顺序必须和 `renderCard()` 一致（icon → body → badges → image），
+    // 顺序错了 CSS 的 flex 布局就变了 —— 两侧长得一样靠的就是这个顺序。
+    expect([...card.children].map((c) => c.className)).toEqual([
+      'nd-mention-card__icon',
+      'nd-mention-card__body',
+      'nd-mention-card__badges',
+      'nd-mention-card__image',
+    ])
+    expect(card.querySelector('.nd-mention-card__icon')?.getAttribute('data-kind')).toBe('resource')
+    expect(card.querySelector('.nd-mention-card__title')?.textContent).toBe('Nexus 优化器')
+    expect(card.querySelector('.nd-mention-card__summary')?.textContent).toBe('一句话摘要')
+    expect(card.querySelector('.nd-mention-card__byline')?.textContent).toBe('alice')
+    expect([...card.querySelectorAll('.nd-mention-card__badge')].map((b) => b.textContent)).toEqual(['v1.2', '10k'])
+    expect(card.querySelector('.nd-mention-card__image')?.getAttribute('src')).toBe('https://cdn.example.com/x.png')
+  })
+
+  it('★ 没注入 → 卡片照画，但**不画空的 `__icon`**（空方块看起来就是"图标坏了"）', () => {
+    const { instance } = mount(CARD_DOC)
+    const card = widgetOf(instance, MentionCardWidget).toDOM()
+    expect(card.className).toBe('nd-mention-card')
+    expect(card.querySelector('.nd-mention-card__icon')).toBeNull()
+    expect(card.textContent).toBe('@nexus-optimizer')
+  })
+
+  it('★ `missing: true` → **不是卡片**，退回行内墓碑（和渲染侧同一条判据）', () => {
+    const { instance } = mount('@nexus-optimizer\n\n尾部', undefined, withRes({ ...RES, missing: true }))
+    const widgets = values(instance).map((v) => (v.spec as { widget?: unknown }).widget)
+    expect(widgets.some((w) => w instanceof MentionCardWidget)).toBe(false)
+
+    const pill = widgetOf(instance, MentionWidget).toDOM()
+    expect(pill.className).toBe('nd-mention nd-mention--missing')
+  })
+
+  it('★ 缩略图 URL 非法（javascript:）→ 不输出 img', () => {
+    const { instance } = mount('@nexus-optimizer\n\n尾部', undefined, withRes({ ...RES, image: 'javascript:alert(1)' }))
+    expect(widgetOf(instance, MentionCardWidget).toDOM().querySelector('img')).toBeNull()
+  })
+
+  it('★ 标题里的 HTML 是**文本**，不产生节点（同渲染侧的转义防线）', () => {
+    const { instance } = mount(
+      '@nexus-optimizer\n\n尾部',
+      undefined,
+      // 去掉缩略图，好让下面的 `querySelector('img')` 只可能命中"标题注入"的产物。
+      withRes({ ...RES, image: undefined, title: '<img src=x onerror=alert(1)>' }),
+    )
+    const card = widgetOf(instance, MentionCardWidget).toDOM()
+    expect(card.querySelector('img')).toBeNull()
+    expect(card.querySelector('.nd-mention-card__title')?.textContent).toBe('<img src=x onerror=alert(1)>')
+  })
+
+  it('解析结果变了 → `eq` 判不相等（DOM 会重建）', () => {
+    expect(new MentionCardWidget('@x', RES).eq(new MentionCardWidget('@x', RES))).toBe(true)
+    expect(new MentionCardWidget('@x', RES).eq(new MentionCardWidget('@x', { ...RES, title: '别的' }))).toBe(false)
+    expect(new MentionCardWidget('@x', RES).eq(new MentionCardWidget('@x', undefined))).toBe(false)
+  })
+})
+
+describe('mention —— 卡片替换区间（守住"多出来的空盒子"）', () => {
+  it('★ 前导空白被区间吞掉：`  @foo  ` 的替换从**行首**开始', () => {
+    const doc = 'x\n\n  @foo  \n\ny'
+    const lineFrom = doc.indexOf('  @foo')
+    // 段落节点范围不含前导空白（`@foo  `），而卡片是 `width: 100%` ——
+    // 留着那两格空白，卡片就会被挤到第二个视觉行，行高凭空多一整行。
+    expect(spans(read(mount(doc).instance), 'widget')).toEqual([[lineFrom, lineFrom + '  @foo  '.length]])
+    expect(atomicSpans(mount(doc).instance)).toEqual([[lineFrom, lineFrom + '  @foo  '.length]])
+  })
+
+  it('没有前导空白时区间照旧从段落起点开始（不受影响）', () => {
+    const doc = 'x\n\n@foo\n\ny'
+    const from = doc.indexOf('@foo')
+    expect(spans(read(mount(doc).instance), 'widget')).toEqual([[from, from + 4]])
   })
 })

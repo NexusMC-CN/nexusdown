@@ -32,6 +32,7 @@ import { EditorState } from '@codemirror/state'
 import { EditorView, keymap } from '@codemirror/view'
 
 import type { MathRenderer } from './features/math.js'
+import type { MentionResolutions } from './features/mention.js'
 import { nexusdown } from './index.js'
 
 export interface MountEditorOptions {
@@ -48,6 +49,14 @@ export interface MountEditorOptions {
    * 不传时**不报错**：块级公式退回普通代码块（见 `features/math.ts`）。
    */
   mathRenderer?: MathRenderer
+  /**
+   * 提及解析结果（可选）—— 注入后编辑器里的提及卡片和**发布侧同构**
+   * （标题 / 图标 / 角标 / 缩略图）。
+   *
+   * ★ 形状就是渲染侧 `RenderData.mentions`（`ReadonlyMap<string, MentionResolution>`），
+   * 消费方把算好的那份**原样传进来**即可。不传时**不报错**：卡片只显示 slug。
+   */
+  mentions?: MentionResolutions
 }
 
 /**
@@ -78,10 +87,10 @@ export function mountEditor(options: MountEditorOptions): EditorView {
          * Markdown 快捷键 → 撤销栈 → `drawSelection()`（**光标就是它画的**）
          * → 当前行高亮 → 基础语法着色 → baseTheme。
          *
-         * `mathRenderer` 一路透传下去，最终进 math 功能的块级公式装饰。
-         * 不传时 `nexusdown()` 的行为与没有这个参数时**一字不变**。
+         * `mathRenderer` / `mentions` 一路透传下去，最终进 math 功能与 mention 功能。
+         * 不传时 `nexusdown()` 的行为与没有这些参数时**一字不变**。
          */
-        nexusdown({ mathRenderer: options.mathRenderer }),
+        nexusdown({ mathRenderer: options.mathRenderer, mentions: options.mentions }),
 
         /*
          * `nexusdown()` **故意不含** `defaultKeymap`（它只带 `historyKeymap`

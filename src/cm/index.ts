@@ -20,6 +20,7 @@ import { decorateLink, linkClickHandler } from './decorate/link';
 import { decorateListItem } from './decorate/list';
 import { createEditorFeatureMap } from './features/index';
 import type { MathRenderer } from './features/math';
+import type { MentionResolutions } from './features/mention';
 import { foldedBlocks } from './fold';
 import { nexusdownLivePreview } from './plugin';
 import { markdownKeymap } from './shortcuts';
@@ -103,6 +104,25 @@ export interface NexusdownOptions {
    * 库**自己不 import katex** —— 那是 peer（~4 MB，绝大多数是字体），不该替所有消费方付这个体积。
    */
   mathRenderer?: MathRenderer;
+  /**
+   * **提及解析结果**（可选）—— `slug → MentionResolution`，让编辑器里的提及卡片
+   * 显示成**和发布侧同构**的样子（标题 / 图标 / 角标 / 缩略图）。
+   *
+   * ★ **形状和渲染侧的 `RenderData.mentions` 是同一个**
+   * （`ReadonlyMap<string, MentionResolution>`）—— 消费方把已经算好的那份**原样传进来**
+   * 就行，不要再建第二套：
+   *
+   * ```ts
+   * const data: RenderData = { mentions: new Map(...) }
+   * mountEditor({ parent, doc, mentions: data.mentions })
+   * renderMarkdown(src, { data })
+   * ```
+   *
+   * 不传时**不报错**：卡片只显示源码 slug（**不画空的图标方块**，见 `features/mention.ts`）。
+   * 库**不查库**（同 `mathRenderer` / 渲染侧的 `RenderData`）—— 「这个 slug 对应什么」
+   * 是消费方的事。
+   */
+  mentions?: MentionResolutions;
 }
 
 /**
@@ -127,7 +147,7 @@ export interface NexusdownOptions {
  * CM6 的 `historyField` 是 StateField，同一份 field 只生效一次。
  */
 export function nexusdown(opts: NexusdownOptions = {}): Extension {
-  const { codeLanguages, defaultCodeLanguage, urlPolicy, references, mathRenderer } = opts;
+  const { codeLanguages, defaultCodeLanguage, urlPolicy, references, mathRenderer, mentions } = opts;
 
   return [
     // ⚠️ 必须用 `base: markdownLanguage`（GFM）。
@@ -155,10 +175,11 @@ export function nexusdown(opts: NexusdownOptions = {}): Extension {
        * 骨架只认「节点名 → 功能」，不认识任何具体元素。
        *
        * ⚠️ 走 `createEditorFeatureMap()` 而不是直接给 `EDITOR_FEATURE_BY_NODE`：
-       * 前者会把消费方注入的 `mathRenderer` 带进 math 功能（块级公式要用）。
-       * 没传渲染函数时它**原样返回**那张默认表，行为一字不变。
+       * 前者会把消费方注入的 `mathRenderer` / `mentions` 带进对应功能
+       * （块级公式要用渲染函数，提及卡片要用解析结果）。
+       * 都没传时它**原样返回**那张默认表，行为一字不变。
        */
-      features: createEditorFeatureMap({ mathRenderer }),
+      features: createEditorFeatureMap({ mathRenderer, mentions }),
     }),
 
     // ---------------------------------------------------------------------
@@ -270,6 +291,12 @@ export {
  * 送进 `<NexusdownEditor :mention-candidates="…">`（库不查库，同 `RenderData`）。
  */
 export type { MentionCandidate } from './commands';
+/*
+ * 提及**解析结果**的形状 —— 让编辑器卡片显示成发布侧的样子时用它。
+ * 它就是渲染侧 `RenderData.mentions` 的类型，转出来是为了让消费方
+ * **连类型都从同一个地方取**（不要另定义一套）。
+ */
+export type { MentionResolutions } from './features/mention';
 /*
  * 代码块标题栏的**纯逻辑**。
  *

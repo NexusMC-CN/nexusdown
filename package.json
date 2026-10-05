@@ -26,6 +26,7 @@
       "require": "./dist/cm/index.cjs"
     },
     "./cm/theme.css": "./src/cm/theme.css",
+    "./dialect.css": "./src/shared/dialect.css",
     "./editor": {
       "types": "./src/editor/index.d.ts",
       "import": "./dist/editor/index.js",

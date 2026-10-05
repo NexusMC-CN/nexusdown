@@ -35,11 +35,15 @@
  *
  * 功能模块的样式各写在自己的 `features/<名字>.css` 里，主文件只负责 import ——
  * 这样加新功能不用动这个文件的核心部分。
+ *
+ * ⚠️ `dialect.css` 是例外：它装的是**两侧共用**的样式（编辑器 widget 和渲染器
+ * 产出同一套类名），所以放在 `src/shared/`、并且**也是 `nexusdown/dialect.css`
+ * 这个渲染侧入口指向的文件**。见那个文件的文件头。
  */
+@import '../shared/dialect.css';
 @import './features/embed.css';
 @import './features/emoji.css';
 @import './features/math.css';
-@import './features/mention.css';
 @import './features/table.css';
 
 :root {

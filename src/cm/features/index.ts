@@ -2,7 +2,7 @@ import { indexFeatures, type EditorFeature } from '../feature';
 import { emojiFeature } from './emoji';
 import { embedFeature } from './embed';
 import { createMathFeature, mathFeature, type MathRenderer } from './math';
-import { mentionFeature } from './mention';
+import { createMentionFeature, mentionFeature, type MentionResolutions } from './mention';
 import { tableFeature } from './table';
 
 /**
@@ -33,18 +33,29 @@ export const EDITOR_FEATURES: readonly EditorFeature[] = [
 export const EDITOR_FEATURE_BY_NODE = indexFeatures(EDITOR_FEATURES);
 
 /**
- * 按选项装配功能表 —— 目前只有一件事：把消费方注入的**数学渲染函数**交给 math 功能。
+ * 按选项装配功能表 —— 把消费方注入的**装配期配置**交给对应功能。
  *
- * 为什么要单独一个函数、而不是让 `mathFeature` 自己去读某个全局变量：渲染函数是
- * **每个编辑器一份的装配期配置**（同渲染侧 `katexRenderer` 的定位）。做成模块级
- * 可变状态的话，同一进程里两个消费方装不同的 KaTeX 会互相串，而且测试没法并行。
+ * 目前有两件事：
+ * - **数学渲染函数**交给 math 功能（块级 ` ```math ` 围栏要它才能出公式）；
+ * - **提及解析结果**交给 mention 功能（卡片要它才能显示标题 / 图标 / 角标 / 缩略图）。
  *
- * 没传渲染函数时**原样返回默认表**（`EDITOR_FEATURE_BY_NODE`）—— 块级公式退回普通
- * 代码块，行为与加这个通道之前完全一致。
+ * 为什么要单独一个函数、而不是让功能自己去读某个全局变量：这两样都是
+ * **每个编辑器一份的装配期配置**（同渲染侧 `katexRenderer` / `RenderData` 的定位）。
+ * 做成模块级可变状态的话，同一进程里两个消费方装不同的数据会互相串，
+ * 而且测试没法并行。
+ *
+ * 什么都没传时**原样返回默认表**（`EDITOR_FEATURE_BY_NODE`）—— 行为与加这些
+ * 通道之前完全一致（块级公式退回普通代码块、提及卡片只显示 slug）。
  */
 export function createEditorFeatureMap(
-  opts: { mathRenderer?: MathRenderer } = {},
+  opts: { mathRenderer?: MathRenderer; mentions?: MentionResolutions } = {},
 ): ReadonlyMap<string, EditorFeature> {
-  if (!opts.mathRenderer) return EDITOR_FEATURE_BY_NODE;
-  return indexFeatures([emojiFeature, createMathFeature(opts.mathRenderer), tableFeature, embedFeature, mentionFeature]);
+  if (!opts.mathRenderer && !opts.mentions) return EDITOR_FEATURE_BY_NODE;
+  return indexFeatures([
+    emojiFeature,
+    opts.mathRenderer ? createMathFeature(opts.mathRenderer) : mathFeature,
+    tableFeature,
+    embedFeature,
+    opts.mentions ? createMentionFeature(opts.mentions) : mentionFeature,
+  ]);
 }

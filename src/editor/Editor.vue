@@ -34,7 +34,7 @@
  * （`undo(view)` / `syntaxTree(view.state)`），而 `undo` / `syntaxTree`
  * 也是从同一个 `nexusdown/cm` 来的 ✓。
  */
-import type { EditorView, MentionCandidate } from 'nexusdown/cm'
+import type { EditorView, MentionCandidate, MentionResolutions } from 'nexusdown/cm'
 /*
  * ⚠️ **只 import type**（同上一行的 `EditorView`）—— `KatexLike` 是纯类型，
  * 编译期就被擦掉，不会变成运行时 import，也就不会把"第二份 CM6 / markdown-it"
@@ -86,6 +86,23 @@ const props = defineProps<{
    * ```
    */
   mentionCandidates?: () => Promise<MentionCandidate[]>
+  /**
+   * 提及解析结果（可选）—— 注入后编辑器里的提及卡片和**发布侧长得一样**
+   * （标题 / 图标 / 角标 / 缩略图）。
+   *
+   * ★ 形状和渲染侧 `RenderData.mentions` **完全一致**
+   * （`ReadonlyMap<string, MentionResolution>`），消费方把同一份数据喂给两侧即可：
+   *
+   * ```vue
+   * <NexusdownEditor v-model="body" :mentions="renderData.mentions" />
+   * ```
+   *
+   * **和 `mentionCandidates` 是两件事**：那个是工具栏选择器的候选（异步、可搜索），
+   * 这个是**卡片显示用的解析结果**（同步、按 slug 查）。库不查库，两个都由消费方给。
+   *
+   * 不传时**不报错**：卡片只显示源码 slug（**不画空的图标方块**）。
+   */
+  mentions?: MentionResolutions
 }>()
 
 const emit = defineEmits<{
@@ -136,6 +153,7 @@ async function mount(): Promise<void> {
       doc: props.modelValue,
       onDocChange: (value) => emit('update:modelValue', value),
       mathRenderer: props.mathRenderer,
+      mentions: props.mentions,
     })
   } catch (e) {
     /*

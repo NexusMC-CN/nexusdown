@@ -315,6 +315,42 @@ export interface MentionResolution {
   （这是刻意的 ✓：能不用块级就不用 ✓）
 - **揭示**：光标进到那一段就露出源码 ✓（行内 widget 用现有那套 ✓）
 
+### ★ 两侧共用一份样式（`nexusdown/dialect.css`）
+
+`mention`（以及以后的 `nd-card` / `nd-embed` / `nd-carousel`）的类名**两侧都产**，
+所以样式放在**一个文件**里：`src/shared/dialect.css`。
+
+- **编辑器**：`nexusdown/cm/theme.css` 顶部 `@import '../shared/dialect.css'` ✓，
+  再由 `nexusdown/editor` 的 `.vue` 引 `theme.css` ✓。
+- **渲染侧**：消费方直接引 `nexusdown/dialect.css` ✓（只渲染不编辑的页面**不用**背上
+  整个编辑器主题 ✓）。
+- 编辑器专属的几何差异（卡片要 `inline-flex` + `width: 100%`，见下）写在
+  `.cm-editor` 前缀的选择器里 ✓ —— 渲染侧天然不吃 ✓。
+
+⚠️ 这条是**本次修复的核心** ✓：以前 mention 的样式在 `src/cm/features/mention.css`
+（名字上像"编辑器专属" ✓），渲染侧引不到 ✗ → 发出来的卡片没有样式 ✗ → 两侧必然不一样 ✗。
+
+### 编辑器侧的卡片：注入 `mentions` 才和发布侧同构
+
+编辑器**不查库** ✓（同 `mathRenderer` / `RenderData`）。要让卡片显示
+「标题 / 图标 / 角标 / 缩略图」✓，消费方把**和渲染侧同一份**的解析结果也喂给编辑器 ✓：
+
+```ts
+// 同一份数据喂两侧 —— 形状就是 RenderData.mentions
+mountEditor({ parent, doc, mentions: data.mentions })
+renderMarkdown(src, { data })
+```
+
+- **注入了** ✓：卡片 DOM 逐节点对齐 `renderCard()` ✓（图标 + 标题 + 摘要 + 署名 +
+  角标 + 缩略图 ✓），`image` 同样**过 URL 白名单** ✓。
+- **没注入** ✓：卡片照画，但**不画 `__icon`** ✓ —— 一个空的方块看起来就是"图标坏了" ✗，
+  比没有图标更糟 ✓。
+- **`missing: true`** ✓：**不做卡片** ✓（退回行内、套 `--missing` ✓），
+  对齐渲染侧 core 规则的 `if (!res || res.missing) continue` ✓。
+- ⚠️ **行内胶囊仍然显示源码 `@slug`** ✓（不显示显示名 ✓）—— 编辑器里它是
+  「你写的那个语法」的提示 ✓；渲染侧才换成 `<a href>显示名</a>` ✓。
+  两侧的**颜色/底色共用同一套** ✓，所以"同一个胶囊"的观感一致 ✓。
+
 ### ⚠️ 已知覆盖差异（编辑器侧只认段落）
 
 编辑器侧认领 `Paragraph` ✓（`Document` 被 `math` 占了 ✗，`indexFeatures` 会抛 ✓），
