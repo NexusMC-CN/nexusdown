@@ -1,4 +1,6 @@
 <script setup lang="ts">
+defineOptions({ name: 'NexusdownToolbar' })
+
 /**
  * 发帖页的 Markdown 工具栏（CodeMirror 6）。
  *

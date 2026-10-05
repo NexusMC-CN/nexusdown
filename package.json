@@ -5,6 +5,7 @@
   "type": "module",
   "files": [
     "dist",
+    "src/editor/index.d.ts",
     "src/render",
     "src/cm",
     "src/shared"
