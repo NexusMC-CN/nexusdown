@@ -31,6 +31,7 @@ import { defaultKeymap } from '@codemirror/commands'
 import { EditorState } from '@codemirror/state'
 import { EditorView, keymap } from '@codemirror/view'
 
+import type { MentionCandidate } from './commands.js'
 import type { MathRenderer } from './features/math.js'
 import type { MentionResolutions } from './features/mention.js'
 import { nexusdown } from './index.js'
@@ -57,6 +58,13 @@ export interface MountEditorOptions {
    * 消费方把算好的那份**原样传进来**即可。不传时**不报错**：卡片只显示 slug。
    */
   mentions?: MentionResolutions
+  /**
+   * 提及候选（可选）—— 注入后在正文里打 `@` 会就地弹出候选列表
+   * （工具栏的「提及」按钮是另一个入口，两者共用**这个**函数）。
+   *
+   * ⚠️ 必须能异步：候选要查库 / 发请求。不传时**不挂自动补全**。
+   */
+  mentionCandidates?: () => Promise<MentionCandidate[]>
 }
 
 /**
@@ -90,7 +98,11 @@ export function mountEditor(options: MountEditorOptions): EditorView {
          * `mathRenderer` / `mentions` 一路透传下去，最终进 math 功能与 mention 功能。
          * 不传时 `nexusdown()` 的行为与没有这些参数时**一字不变**。
          */
-        nexusdown({ mathRenderer: options.mathRenderer, mentions: options.mentions }),
+        nexusdown({
+          mathRenderer: options.mathRenderer,
+          mentions: options.mentions,
+          mentionCandidates: options.mentionCandidates,
+        }),
 
         /*
          * `nexusdown()` **故意不含** `defaultKeymap`（它只带 `historyKeymap`

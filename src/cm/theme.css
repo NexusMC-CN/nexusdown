@@ -756,3 +756,92 @@
   vertical-align: -2px;
   cursor: pointer;
 }
+
+/* ---------------------------------------------------------------------------
+ * 提及自动补全（打 `@` 就地弹出的候选列表）
+ *
+ * 由 `src/cm/mention-complete.ts` 的 `autocompletion()` 产出。类名全部来自
+ * CM6 的 `@codemirror/autocomplete`（`.cm-tooltip-autocomplete` 那一套），
+ * 这里只把它的**默认外观换成项目的** —— 不换的话它是 CM6 的样子：
+ * 等宽字体、`min-width: 250px`、选中项是 `#17c` 的纯蓝，
+ * 和旁边的工具栏选择器（`.mention-pop`）并排一看就是两套东西。
+ *
+ * ⚠️ CM6 的默认值走 `EditorView.baseTheme`，优先级很低 —— 普通选择器就能盖掉，
+ * 不需要 `!important`（用了反而给以后的换肤添堵）。
+ * ------------------------------------------------------------------------- */
+
+.cm-tooltip.cm-tooltip-autocomplete {
+  border: 1px solid var(--nd-border);
+  border-radius: var(--nd-radius-md);
+  background: #fff;
+  box-shadow: var(--nd-shadow-2);
+  overflow: hidden;
+}
+
+.cm-tooltip.cm-tooltip-autocomplete > ul {
+  /* ⚠️ 必须显式覆盖：baseTheme 把这里设成了 `monospace`。 */
+  font-family: inherit;
+  font-size: 12.5px;
+  /* 面板宽度写死，和工具栏的 `.mention-pop`（260px）对齐 —— 鼠标在两条入口之间
+     来回切时，列表宽度不会左右跳。`min-width` 那条也要盖，否则短候选会把面板压窄。 */
+  min-width: 260px;
+  max-width: 260px;
+  max-height: 264px;
+  padding: 4px;
+}
+
+.cm-tooltip.cm-tooltip-autocomplete > ul > li {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 5px 7px;
+  line-height: 1.4;
+  border-radius: var(--nd-radius-sm);
+}
+
+/*
+ * 选中项：和 `.mention-item.on` 用**同一个**底色。
+ * baseTheme 里是 `&light ... { background: #17c; color: white }`，必须连 `color` 一起盖，
+ * 不然会变成"浅蓝底 + 白字"（几乎看不见）。
+ */
+.cm-tooltip.cm-tooltip-autocomplete > ul > li[aria-selected] {
+  background: var(--nd-brand-soft);
+  color: inherit;
+}
+
+/* slug —— 和工具栏选择器里那条同色同重。 */
+.cm-tooltip .cm-completionLabel {
+  color: var(--nd-brand);
+  font-weight: 500;
+}
+
+/*
+ * 显示名。baseTheme 给的是斜体 —— 中文斜体是**伪斜体**（字形被强行切斜），
+ * 观感很脏，而且这里本来也不需要强调。改成常规字重 + 次级色。
+ */
+.cm-tooltip .cm-completionDetail {
+  margin-left: 0;
+  color: var(--nd-text-2);
+  font-style: normal;
+}
+
+/*
+ * 空态那一行（「没有匹配的资源」）。
+ *
+ * 它是**假候选**（见 `mention-complete.ts` 的 `NO_MATCH`）—— 唯一作用是撑开面板、
+ * 把"没有匹配"这句话显示出来。所以既不该有可点的光标，也不该是品牌色
+ * （那会让人以为点得动）。由 `optionClass` 挂上这个类。
+ *
+ * ⚠️ 还要**盖掉选中底色**：CM6 会把它当成 `selected = 0` 那一项高亮，
+ * 看起来就是个"能选的条目"。可它是条消息，不是选项 —— 底色去掉。
+ * 选择器比上面那条选中规则多一个 `.nd-mention-empty`，所以能盖住（不需要 `!important`）。
+ */
+.cm-tooltip.cm-tooltip-autocomplete > ul > li.nd-mention-empty {
+  background: transparent;
+  cursor: default;
+}
+.cm-tooltip .nd-mention-empty .cm-completionLabel {
+  color: var(--nd-text-3);
+  font-weight: 400;
+}
+

@@ -351,6 +351,17 @@ renderMarkdown(src, { data })
   「你写的那个语法」的提示 ✓；渲染侧才换成 `<a href>显示名</a>` ✓。
   两侧的**颜色/底色共用同一套** ✓，所以"同一个胶囊"的观感一致 ✓。
 
+### ⚠️ 消费方要装 `@codemirror/autocomplete`
+
+编辑器侧「打 `@` 就地弹候选」依赖 **`@codemirror/autocomplete`** ✓ ——
+它是本包的 **`optional` peer** ✗：**不装不会报错** ✗，
+而是**静默不挂补全** ✓（和 `@codemirror/language` 那个坑同款 ✓）。
+
+⚠️ 而且**消费方还必须把它列进 `optimizeDeps.include`** ✗ ——
+不列的话它会像 `@codemirror/language` 当初一样被**内联进别人的 chunk** ✓，
+导致补全拿到的 `CompletionContext` 和编辑器那份**不是同一个实例** ✓
+→ **打 `@` 什么都不弹、控制台零报错** ✓（最难查的那种 ✓）。
+
 ### ⚠️ 已知覆盖差异（编辑器侧只认段落）
 
 编辑器侧认领 `Paragraph` ✓（`Document` 被 `math` 占了 ✗，`indexFeatures` 会抛 ✓），
