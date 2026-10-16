@@ -32,8 +32,8 @@ export default tseslint.config(
       // TypeScript already reports undefined identifiers; the base rule produces
       // false positives on types and is disabled by tseslint for that reason.
       'no-undef': 'off',
-      // Allow intentionally unused args prefixed with `_` (common in extension
-      // hooks where the signature is fixed by Tiptap).
+      // Allow intentionally unused args prefixed with `_` when a callback
+      // signature includes parameters the implementation does not need.
       '@typescript-eslint/no-unused-vars': [
         'error',
         { argsIgnorePattern: '^_', varsIgnorePattern: '^_', caughtErrorsIgnorePattern: '^_' },
@@ -53,8 +53,7 @@ export default tseslint.config(
       // provided" and drives fallbacks like `props.toolbarItems ??
       // createDefaultToolbarItems()`. Adding defaults would change behaviour.
       'vue/require-default-prop': 'off',
-      // `v-html` is used only for highlight.js output generated from already
-      // escaped source, never for raw user HTML.
+      // `v-html` renders the bundled SVG used by the code-block toolbar preview.
       'vue/no-v-html': 'off',
     },
   },
@@ -79,14 +78,6 @@ export default tseslint.config(
       // Tests legitimately assert on loosely typed fixtures.
       '@typescript-eslint/no-explicit-any': 'off',
       '@typescript-eslint/no-non-null-assertion': 'off',
-    },
-  },
-
-  {
-    // The generated shim is emitted by scripts/generate-vue-entry.mjs.
-    files: ['src/vue/entry.js'],
-    rules: {
-      '@typescript-eslint/no-unused-vars': 'off',
     },
   },
 )

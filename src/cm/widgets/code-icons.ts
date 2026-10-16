@@ -3,16 +3,15 @@
  *
  * ⚠️ **这是自动生成的，不要手改。** 重新生成：`node scripts/build-code-icons.mjs`
  *
- * ## 为什么内联，而不是运行时用 `iconify-icon`
+ * ## 内联资源
  *
- * `iconify-icon` 确实在依赖里，但它是个 Web Component，**要从 CDN 拉图标数据**。
- * 离线 / 内网 / CDN 被墙的环境下它会**静默变成一个空标签** —— 不报错、就是不显示。
- * 这个项目今天已经踩过一次同类的静默失效（两份 `@codemirror/language` 让装饰层
- * 全失效、零报错），所以这里选**构建期拉一次、内联进产物**：运行时零请求、零闪烁。
+ * 图标由生成脚本从 Iconify API 获取，作为静态 SVG 随包分发。
+ * 运行时直接使用内联资源，无需加载图标 Web Component 或请求图标 CDN，
+ * 适用于离线 / 内网环境。
  *
  * 每个 SVG 约 300~600 字节，全部内联后约 40KB（gzip 后小得多）。
  *
- * `width/height="1em"` 是 iconify 的默认值，正好跟着 `font-size` 走，不用改。
+ * SVG 使用 `width/height="1em"`，随 `font-size` 缩放。
  */
 
 /** 语言别名 → SVG 源码。key 是小写。 */
