@@ -10,7 +10,16 @@
   "dependencies": {
     "@astrojs/vue": "^5.1.4",
     "astro": "^5.13.5",
-    "nexusdown": "file:../..",
-    "vue": "^3.5.0"
+    "@nexusmc-cn/nexusdown": "file:../..",
+    "vue": "^3.5.0",
+    "@codemirror/autocomplete": "6.20.3",
+    "@codemirror/commands": "6.11.1",
+    "@codemirror/lang-markdown": "6.5.2",
+    "@codemirror/language": "6.12.4",
+    "@codemirror/state": "6.7.6",
+    "@codemirror/view": "6.43.13",
+    "@lezer/common": "1.5.0",
+    "@lezer/markdown": "1.7.2",
+    "@lezer/highlight": "1.2.1"
   }
 }

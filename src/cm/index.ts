@@ -263,14 +263,14 @@ export { foldedBlocks, toggleFold } from './fold';
 /*
  * ★ **建编辑器视图的唯一入口。**
  *
- * UI 层（`nexusdown/editor` 的 `.vue`）**不许自己 `new EditorView`** ——
+ * UI 层（`@nexusmc-cn/nexusdown/editor` 的 `.vue`）**不许自己 `new EditorView`** ——
  * 它发的是原始源码，import 由消费方打包器解析；自己建对象就会拿到**另一份**
  * CM6，然后 `Unrecognized extension value in extension set`。
  * 详见 `mount.ts` 的文件头。
  */
 export { mountEditor, setEditorValue, type MountEditorOptions } from './mount';
 /*
- * ★ **CM6 原语，给 `nexusdown/editor` 用。**
+ * ★ **CM6 原语，给 `@nexusmc-cn/nexusdown/editor` 用。**
  *
  * UI 层**不该自己 `import '@codemirror/view'`** —— 那样它会从**自己的解析路径**
  * 拿到一份模块，而 `nexusdown()` 来自**另一条**解析路径。只要这两条路径有一处
@@ -329,7 +329,7 @@ export type { MentionResolutions } from './features/mention';
 /*
  * 代码块标题栏的**纯逻辑**。
  *
- * 导出是因为「同一个标题栏有三个渲染者」：编辑器 widget、`nexusdown/render`
+ * 导出是因为「同一个标题栏有三个渲染者」：编辑器 widget、`@nexusmc-cn/nexusdown/render`
  * 的 fence 规则、以及消费方自己的演示/预览 UI。三者必须长得一样，
  * 所以结构、类名、图标必须来自**同一个函数**，而不是各自手抄。
  */

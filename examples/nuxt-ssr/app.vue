@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import { NexusdownEditor } from 'nexusdown/editor'
+import { NexusdownEditor } from '@nexusmc-cn/nexusdown/editor'
+import '@nexusmc-cn/nexusdown/editor/style.css'
 
 const value = ref('# Nuxt SSR\n\nThis editor is rendered by Nuxt before hydration.')
 </script>

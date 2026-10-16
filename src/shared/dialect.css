@@ -18,11 +18,11 @@
  * ## 两侧各自怎么拿到它
  *
  * - **编辑器**：`src/cm/theme.css` 顶部 `@import '../shared/dialect.css'`，
- *   再由 `nexusdown/editor` 的 `.vue` 引 `theme.css`（`dist/editor/nexusdown.css` 里就有它）。
- * - **渲染侧**：消费方直接引 `nexusdown/dialect.css`（`package.json#exports` 指向本文件）。
+ *   再由 `@nexusmc-cn/nexusdown/editor` 的 `.vue` 引 `theme.css`（`dist/editor/nexusdown.css` 里就有它）。
+ * - **渲染侧**：消费方直接引 `@nexusmc-cn/nexusdown/dialect.css`（`package.json#exports` 指向本文件）。
  *   帖子详情页、资源说明页这些只渲染不编辑的页面，**不需要**背上整个编辑器主题。
  *
- * 注意：`nexusdown/cm/theme.css` 也 `@import` 了本文件，所以**已经引了主题的消费方
+ * 注意：`@nexusmc-cn/nexusdown/cm/theme.css` 也 `@import` 了本文件，所以**已经引了主题的消费方
  * 会顺带拿到**（同一份文件，打包器去重）—— 这是刻意的，不是巧合。
  *
  * ## ⚠️ 为什么叫 `dialect.css` 而不是 `render/style.css`

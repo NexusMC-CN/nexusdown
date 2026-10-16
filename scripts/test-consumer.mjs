@@ -42,12 +42,15 @@ function step(name, fn) {
 /**
  * Run a command, returning stdout. Throws with stderr attached on non-zero exit.
  *
- * Windows needs a shell to launch `npm`/`npx`, which are `.cmd` shims, but a
- * shell re-parses the argument list and breaks executable paths containing
- * spaces (e.g. `D:\Program Files\nodejs\node.exe`). So only use a shell for the
- * package-manager shims and invoke `node` directly.
+ * Invoke npm's CLI through Node when running as an npm script. This preserves
+ * version ranges such as ^3.0.0, which Windows cmd would otherwise strip, and
+ * paths containing spaces. Direct script invocations retain the shim fallback.
  */
 function run(command, args, options = {}) {
+  if (command === 'npm' && process.env.npm_execpath) {
+    args = [process.env.npm_execpath, ...args]
+    command = process.execPath
+  }
   const needsShell = process.platform === 'win32' && /^(npm|npx)(\.cmd)?$/.test(command)
   const result = spawnSync(command, args, {
     encoding: 'utf8',
@@ -123,9 +126,9 @@ try {
 		cwd: appDir,
 	})
 
-  const installed = join(appDir, 'node_modules', 'nexusdown')
+  const installed = join(appDir, 'node_modules', ...pkg.name.split('/'))
   step('package installed', () => {
-    if (!existsSync(installed)) throw new Error('node_modules/nexusdown missing')
+    if (!existsSync(installed)) throw new Error(`node_modules/${pkg.name} missing`)
     return installed.replace(workDir, '<tmp>')
   })
 
@@ -138,7 +141,7 @@ try {
   // Resolution: plain Node must resolve the subpaths (this is what broke before)
   // -------------------------------------------------------------------------
   step('require.resolve() finds every documented subpath', () => {
-    // Export keys are "./cm" style; consumers import "nexusdown/cm".
+    // Export keys are "./cm" style; consumers import "@nexusmc-cn/nexusdown/cm".
     const specifiers = subpaths.map((key) => (key === '.' ? pkg.name : `${pkg.name}/${key.replace(/^\.\//, '')}`))
     const script = `
       const results = ${JSON.stringify(specifiers)}.map((s) => {
@@ -156,8 +159,8 @@ try {
 	for (const format of ['esm', 'cjs']) {
 		step(`engine and renderer load in bare Node (${format})`, () => {
 			const imports = format === 'esm'
-				? "const engine = await import('nexusdown'); const cm = await import('nexusdown/cm'); const renderer = await import('nexusdown/render');"
-				: "const engine = require('nexusdown'); const cm = require('nexusdown/cm'); const renderer = require('nexusdown/render');"
+				? "const engine = await import('@nexusmc-cn/nexusdown'); const cm = await import('@nexusmc-cn/nexusdown/cm'); const renderer = await import('@nexusmc-cn/nexusdown/render');"
+				: "const engine = require('@nexusmc-cn/nexusdown'); const cm = require('@nexusmc-cn/nexusdown/cm'); const renderer = require('@nexusmc-cn/nexusdown/render');"
 			const script = `${imports}
 				for (const api of [engine, cm]) {
 					for (const name of ['nexusdown', 'mountEditor', 'setEditorValue']) {
@@ -193,15 +196,27 @@ try {
       join(appDir, 'src', 'main.ts'),
       [
 				"import { createApp, h } from 'vue'",
-				"import { NexusdownEditor, NexusdownToolbar } from 'nexusdown/editor'",
-				"import { nexusdown, mountEditor } from 'nexusdown/cm'",
-				"import { renderMarkdown } from 'nexusdown/render'",
-				"import 'nexusdown/editor/style.css'",
-				"import 'nexusdown/cm/theme.css'",
-				"import 'nexusdown/dialect.css'",
+				"import { NexusdownEditor, NexusdownToolbar } from '@nexusmc-cn/nexusdown/editor'",
+				"import { nexusdown, mountEditor } from '@nexusmc-cn/nexusdown/cm'",
+				"import { renderMarkdown } from '@nexusmc-cn/nexusdown/render'",
+				"import '@nexusmc-cn/nexusdown/editor/style.css'",
+				"import '@nexusmc-cn/nexusdown/cm/theme.css'",
+				"import '@nexusmc-cn/nexusdown/dialect.css'",
 				"const html: string = renderMarkdown('**consumer-ok**')",
 				'console.log(html, nexusdown(), mountEditor, NexusdownToolbar)',
-				"createApp({ render: () => h(NexusdownEditor, { modelValue: '# Hello' }) }).mount('#app')",
+				"const editorProps: InstanceType<typeof NexusdownEditor>['$props'] = {",
+				"  modelValue: '# Hello',",
+				"  mathRenderer: { renderToString: (tex: string) => tex },",
+				"  mentionCandidates: async () => [{ slug: 'demo', title: 'Demo', kind: 'post' }],",
+				"  mentions: new Map(),",
+				"  'onUpdate:modelValue': (value: string) => console.log(value),",
+				'}',
+				"const toolbarProps: InstanceType<typeof NexusdownToolbar>['$props'] = {",
+				"  view: null,",
+				"  mentionCandidates: editorProps.mentionCandidates,",
+				'}',
+				'console.log(toolbarProps)',
+				"createApp({ render: () => h(NexusdownEditor, editorProps) }).mount('#app')",
       ].join('\n'),
     )
 		step('published declarations type-check in a consumer', () => {

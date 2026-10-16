@@ -162,8 +162,8 @@ export class MathWidget extends WidgetType {
  * ```ts
  * import katex from 'katex'
  * import 'katex/dist/katex.min.css'          // ⚠️ 字体 CSS 也要引
- * import { mountEditor } from 'nexusdown/cm'
- * import { renderMarkdown, katexRenderer } from 'nexusdown/render'
+ * import { mountEditor } from '@nexusmc-cn/nexusdown/cm'
+ * import { renderMarkdown, katexRenderer } from '@nexusmc-cn/nexusdown/render'
  *
  * mountEditor({ parent, doc, mathRenderer: katex })
  * renderMarkdown(src, { plugins: [katexRenderer(katex)] })

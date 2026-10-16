@@ -315,14 +315,14 @@ export interface MentionResolution {
   （这是刻意的 ✓：能不用块级就不用 ✓）
 - **揭示**：光标进到那一段就露出源码 ✓（行内 widget 用现有那套 ✓）
 
-### ★ 两侧共用一份样式（`nexusdown/dialect.css`）
+### ★ 两侧共用一份样式（`@nexusmc-cn/nexusdown/dialect.css`）
 
 `mention`（以及以后的 `nd-card` / `nd-embed` / `nd-carousel`）的类名**两侧都产**，
 所以样式放在**一个文件**里：`src/shared/dialect.css`。
 
-- **编辑器**：`nexusdown/cm/theme.css` 顶部 `@import '../shared/dialect.css'` ✓，
-  再由 `nexusdown/editor` 的 `.vue` 引 `theme.css` ✓。
-- **渲染侧**：消费方直接引 `nexusdown/dialect.css` ✓（只渲染不编辑的页面**不用**背上
+- **编辑器**：`@nexusmc-cn/nexusdown/cm/theme.css` 顶部 `@import '../shared/dialect.css'` ✓，
+  再由 `@nexusmc-cn/nexusdown/editor` 的 `.vue` 引 `theme.css` ✓。
+- **渲染侧**：消费方直接引 `@nexusmc-cn/nexusdown/dialect.css` ✓（只渲染不编辑的页面**不用**背上
   整个编辑器主题 ✓）。
 - 编辑器专属的几何差异（卡片要 `inline-flex` + `width: 100%`，见下）写在
   `.cm-editor` 前缀的选择器里 ✓ —— 渲染侧天然不吃 ✓。

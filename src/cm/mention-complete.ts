@@ -3,7 +3,7 @@
  *
  * ## 它是「提及」的**第二个入口**（第一个是工具栏按钮）
  *
- * 工具栏的「提及」按钮（`nexusdown/editor` 的 `Toolbar.vue` → `openMention`）
+ * 工具栏的「提及」按钮（`@nexusmc-cn/nexusdown/editor` 的 `Toolbar.vue` → `openMention`）
  * 是一个**可发现的**入口：用户不知道有这个功能时能找到它。但写作时手不会离开键盘，
  * 所以还要有**就地**的那条：打 `@` 就弹。两条入口**共用同一个候选来源**
  * （消费方注入的 `mentionCandidates`）—— 所以不会出现"按钮里有的资源、打 `@` 却搜不到"。

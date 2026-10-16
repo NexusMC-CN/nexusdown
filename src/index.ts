@@ -8,7 +8,7 @@
  *
  * 删的理由：它和现在这套（CM6 + markdown-it）**是两套方言、两套实现**，
  * 留着只会让"nexusdown 到底是什么"永远说不清 —— 而且它的默认入口占着 `.`，
- * 让新用户一 `import 'nexusdown'` 就拿到一套已经没人维护的东西。
+ * 让新用户一 `import '@nexusmc-cn/nexusdown'` 就拿到一套已经没人维护的东西。
  *
  * ## 现在是什么
  *
@@ -18,13 +18,13 @@
  *
  * | 入口 | 给谁 | 内容 |
  * | --- | --- | --- |
- * | `nexusdown`（这里） | 想要引擎的人 | `cm` + `render` 的聚合 |
- * | `nexusdown/render` | 只要渲染（docs 站、帖子详情页） | markdown → HTML，**不背 UI** |
- * | `nexusdown/cm` | 要引擎、想自己写 UI | CM6 扩展 + 命令 + 主题 |
- * | `nexusdown/editor` | **要成品编辑器** | 工具栏 + 外壳 + 正文排版 |
+ * | `@nexusmc-cn/nexusdown`（这里） | 想要引擎的人 | `cm` + `render` 的聚合 |
+ * | `@nexusmc-cn/nexusdown/render` | 只要渲染（docs 站、帖子详情页） | markdown → HTML，**不背 UI** |
+ * | `@nexusmc-cn/nexusdown/cm` | 要引擎、想自己写 UI | CM6 扩展 + 命令 + 主题 |
+ * | `@nexusmc-cn/nexusdown/editor` | **要成品编辑器** | 工具栏 + 外壳 + 正文排版 |
  *
- * ⚠️ `nexusdown/editor` 不在这里 re-export —— 它是 `.vue`，拉进来会让
- * **只要引擎的人也被迫处理 SFC**。想要 UI 就显式引 `nexusdown/editor`。
+ * ⚠️ `@nexusmc-cn/nexusdown/editor` 不在这里 re-export —— 它是 `.vue`，拉进来会让
+ * **只要引擎的人也被迫处理 SFC**。想要 UI 就显式引 `@nexusmc-cn/nexusdown/editor`。
  */
 export * from './cm/index.js'
 export * from './render/index.js'

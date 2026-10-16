@@ -102,12 +102,12 @@ import { selectionHoversBlock, selectionTouchesLineRange } from '../util/selecti
  * `import MarkdownIt from "markdown-it"`，**没有内联** —— `dist/cm` 涨的这 26 KB
  * 是渲染侧自己那点代码（renderer + 规则 + features）。
  *
- * 代价是 `nexusdown/cm` 这个入口**多了一条 `markdown-it` 的运行时 import**
+ * 代价是 `@nexusmc-cn/nexusdown/cm` 这个入口**多了一条 `markdown-it` 的运行时 import**
  * （消费方打包时约 40 KB gzip）。它本来就是这个包的**硬依赖**（不是 peer），
  * 所以不算新增依赖，只是 cm-only 的消费方会多载它。
  *
  * 为什么不做成「消费方注入渲染函数」（方案 B，同 math 注入 katex）：
- * B 会让表格**默认不渲染** —— 而 `nexusdown/editor` 这个成品编辑器入口
+ * B 会让表格**默认不渲染** —— 而 `@nexusmc-cn/nexusdown/editor` 这个成品编辑器入口
  * 按约定不碰 `.vue`，注入链根本接不上，「开箱即用」就没了。
  * 表格是这个库的招牌功能（「编辑时看到的 = 发布出来的」），+11% 的产物换它值得。
  * math 之所以走注入，是因为 katex 是 ~4 MB 的 peer（体积差 20 倍，性质不同）。

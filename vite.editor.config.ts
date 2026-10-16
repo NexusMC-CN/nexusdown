@@ -1,5 +1,5 @@
 /**
- * 把 `nexusdown/editor`（Vue SFC）**构建成 JS**。
+ * 把 `@nexusmc-cn/nexusdown/editor`（Vue SFC）**构建成 JS**。
  *
  * ## ★ 为什么必须构建，不能发原始 `.vue`
  *
@@ -16,10 +16,10 @@
  * → 消费方的打包器**统一**处理它们 ✓（要么全预构建、要么全不 ✓）
  * → 不可能出现"一半一半" ✓。
  *
- * 顺带：消费方**不再需要 `build.transpile: ['nexusdown']`** ✓
+ * 顺带：消费方**不再需要 `build.transpile: ['@nexusmc-cn/nexusdown']`** ✓
  * （那是"要转译 node_modules 里的源码"才需要的 ✓）。
  *
- * ⚠️ `nexusdown/cm` 也要 **external** —— 它是本包自己的另一个入口 ✓，
+ * ⚠️ `@nexusmc-cn/nexusdown/cm` 也要 **external** —— 它是本包自己的另一个入口 ✓，
  * 由消费方通过 `exports` 解析 ✓（这样 `mountEditor` 和消费方拿到的是**同一份** ✓）。
  */
 import { defineConfig } from 'vite'
@@ -40,13 +40,13 @@ export default defineConfig({
        * 全部 external —— 一个都不打进产物。
        *
        * `vue` / `@codemirror/*` / `@lezer/*` 是 peer（由消费方提供 ✓）；
-       * `nexusdown/cm` 是本包自己的入口（自引用 ✓）。
+       * `@nexusmc-cn/nexusdown/cm` 是本包自己的入口（自引用 ✓）。
        */
       external: [
         'vue',
         /^@codemirror\//,
         /^@lezer\//,
-        'nexusdown/cm',
+        '@nexusmc-cn/nexusdown/cm',
       ],
     },
   },

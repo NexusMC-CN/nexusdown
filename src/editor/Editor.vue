@@ -34,16 +34,16 @@ defineOptions({ name: 'NexusdownEditor' })
  *
  * ⚠️ **允许"持有并传递" view，不允许"创建"** —— 工具栏要用它
  * （`undo(view)` / `syntaxTree(view.state)`），而 `undo` / `syntaxTree`
- * 也是从同一个 `nexusdown/cm` 来的 ✓。
+ * 也是从同一个 `@nexusmc-cn/nexusdown/cm` 来的 ✓。
  */
-import type { EditorView, MentionCandidate, MentionResolutions } from 'nexusdown/cm'
+import type { EditorView, MentionCandidate, MentionResolutions } from '@nexusmc-cn/nexusdown/cm'
 /*
  * ⚠️ **只 import type**（同上一行的 `EditorView`）—— `KatexLike` 是纯类型，
  * 编译期就被擦掉，不会变成运行时 import，也就不会把"第二份 CM6 / markdown-it"
- * 引回来。`nexusdown/render` 与 `nexusdown/cm` 共用同一个 `KatexLike` 定义，
+ * 引回来。`@nexusmc-cn/nexusdown/render` 与 `@nexusmc-cn/nexusdown/cm` 共用同一个 `KatexLike` 定义，
  * 保证这个 prop 的渲染函数能**原样**同时喂给编辑器和渲染器。
  */
-import type { KatexLike } from 'nexusdown/render'
+import type { KatexLike } from '@nexusmc-cn/nexusdown/render'
 import { onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
 
 import NexusdownToolbar from './Toolbar.vue'
@@ -132,7 +132,7 @@ const error = ref('')
  * ⚠️ 只动态 import 一次、之后复用 —— 不要在 `watch` 里反复 `await import()`：
  * 那样每次都要过一次模块解析，而且会让同步逻辑变成异步竞态。
  */
-let engine: typeof import('nexusdown/cm') | null = null
+let engine: typeof import('@nexusmc-cn/nexusdown/cm') | null = null
 
 /**
  * 挂载。
@@ -149,7 +149,7 @@ async function mount(): Promise<void> {
   if (!el) return
 
   try {
-    engine = await import('nexusdown/cm')
+    engine = await import('@nexusmc-cn/nexusdown/cm')
     view.value = engine.mountEditor({
       parent: el,
       doc: props.modelValue,
@@ -259,7 +259,7 @@ defineExpose({ view })
  *
  * 换掉「源码 / 预览」切换的前提就是**编辑器里看到的就是发出去的样子**。
  * CM6 默认是 `font-family: monospace` + `line-height: 1.4`、标题 `2em/1.6em/1.35em`，
- * 而渲染侧（`nexusdown/render`）产出的是普通正文 —— 两边对不上的话，
+ * 而渲染侧（`@nexusmc-cn/nexusdown/render`）产出的是普通正文 —— 两边对不上的话，
  * "不用切预览"就成了错觉。
  *
  * 所以这几条要**和显示侧的排版一起改**，别单独动。

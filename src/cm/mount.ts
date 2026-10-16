@@ -3,7 +3,7 @@
  *
  * ## ★ 为什么要有这个文件（而不是让 `.vue` 自己建）
  *
- * `nexusdown/editor` 的 `.vue` 是**以原始源码发给消费方**的，它的 import 由
+ * `@nexusmc-cn/nexusdown/editor` 的 `.vue` 是**以原始源码发给消费方**的，它的 import 由
  * **消费方的打包器**解析。只要那个文件里出现 `EditorState` / `EditorView` /
  * `keymap` 这类 **CM6 对象**，就会出现这种情况：
  *
@@ -76,7 +76,7 @@ export interface MountEditorOptions {
  * - 调用方（`.vue`）可以拿到这个 view、递给工具栏 ✓
  * - 但**绝不能自己 `new EditorView` / `EditorState.create` / `keymap.of`** ✗
  *
- * 因为 `undo` / `syntaxTree` 这些也是从**同一个构建产物**（`nexusdown/cm`）
+ * 因为 `undo` / `syntaxTree` 这些也是从**同一个构建产物**（`@nexusmc-cn/nexusdown/cm`）
  * 来的 ✓ → **创建者和消费者同源** ✓ → 无论消费方打包器把 CM6 解析成几份，
  * 这条链上的对象标识都是自洽的 ✓。
  *

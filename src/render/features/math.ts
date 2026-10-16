@@ -25,7 +25,7 @@
  * ```ts
  * import katex from 'katex'                 // 消费方自己装（可选依赖）
  * import 'katex/dist/katex.min.css'         // ⚠️ 字体 CSS 也必须由消费方引入
- * import { katexRenderer } from 'nexusdown/render'
+ * import { katexRenderer } from '@nexusmc-cn/nexusdown/render'
  *
  * renderMarkdown(src, { plugins: [katexRenderer(katex)] })
  * ```

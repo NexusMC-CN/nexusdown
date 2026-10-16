@@ -163,7 +163,7 @@ function resolveParser(plugins: MarkdownItPlugin[] | undefined): MarkdownItInsta
  * file. Only pass it Markdown you trust.
  *
  * ```ts
- * import { renderMarkdown } from 'nexusdown/render'
+ * import { renderMarkdown } from '@nexusmc-cn/nexusdown/render'
  *
  * const html = renderMarkdown('# Hello **world**')
  * // => '<h1>Hello <strong>world</strong></h1>'
@@ -209,7 +209,7 @@ export { isShortLink, parseEmbedUrl, type EmbedSpec, type EmbedProvider, type Em
  * ```ts
  * import katex from 'katex'
  * import 'katex/dist/katex.min.css'      // ⚠️ 字体 CSS 也必须引
- * import { renderMarkdown, katexRenderer } from 'nexusdown/render'
+ * import { renderMarkdown, katexRenderer } from '@nexusmc-cn/nexusdown/render'
  *
  * renderMarkdown(src, { plugins: [katexRenderer(katex)] })
  * ```
@@ -232,12 +232,12 @@ export {
  * 必须和**渲染时**用的判定**完全一致** ✗：落库用一套正则、渲染用另一套的话，
  * 会出现「库里记了、页面上没渲染」或者反过来。
  *
- * 所以扫描器**必须转出到这一层**，消费方从 `nexusdown/render` 取 ——
+ * 所以扫描器**必须转出到这一层**，消费方从 `@nexusmc-cn/nexusdown/render` 取 ——
  * 和 `katexRenderer` / `isShortLink` 是同一种「文档写了、得真的导出」的缺口
  * （那两处都踩过）。
  *
  * ```ts
- * import { scanMentions } from 'nexusdown/render'
+ * import { scanMentions } from '@nexusmc-cn/nexusdown/render'
  * for (const span of scanMentions(body)) { span.slug / span.fragment / span.from / span.to }
  * ```
  */

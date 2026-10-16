@@ -12,7 +12,7 @@
  * 现在实现在这里，`shortcuts.ts` 只负责把命令绑到键上。
  *
  * ⚠️ **历史教训**（留着，别再犯）：这份代码曾经是应用的副本，因为
- * `nexusdown/cm` 当时**没把这些命令导出**。判据是"改了它会不会导致
+ * `@nexusmc-cn/nexusdown/cm` 当时**没把这些命令导出**。判据是"改了它会不会导致
  * 编辑器行为不一致"—— 会，那就必须只有一份。
  *
  * ## 块级那几条是新代码
@@ -475,7 +475,7 @@ export const insertTable: Command = (view) => {
  * - 无选区 → 填 `文字` 两个占位字，**并把它选中**，用户直接打字就能替换掉。
  *
  * ⚠️ 不校验 URL 合法性：`javascript:` 之类的危险协议由**渲染端**的
- * `urlPolicy` 兜（`nexusdown/render` 和 CM6 的链接装饰共用同一套白名单），
+ * `urlPolicy` 兜（`@nexusmc-cn/nexusdown/render` 和 CM6 的链接装饰共用同一套白名单），
  * 在这里拦一遍只会让「先写文字、以后再补链接」这种正常操作被挡。
  */
 export function insertLink(href: string): Command {

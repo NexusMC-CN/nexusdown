@@ -10,7 +10,7 @@ defineOptions({ name: 'NexusdownToolbar' })
  * 改的是 Tiptap 的**节点树**。CM6 这边根本没有节点树可改 —— 真相是文本，
  * 命令签名是 `(view: EditorView) => boolean`。**两边的抽象对不上，不能复用。**
  *
- * 命令本体在 `nexusdown/cm`（以前是本地的 `~/utils/cm-markdown`，
+ * 命令本体在 `@nexusmc-cn/nexusdown/cm`（以前是本地的 `~/utils/cm-markdown`，
  * 已搬回库里 —— 它只改文档不画 UI，是纯方言知识；而且 `shortcuts.ts` 里
  * 曾经另有一份逐字相同的实现。行内标记那三条是
  * `nexusdown/src/cm/shortcuts.ts` 的移植，那个文件里有完整说明）。
@@ -57,7 +57,7 @@ import { computed, nextTick, onUnmounted, ref, watch } from 'vue'
  *
  * 类型 import（`type`）是安全的 —— 编译期就擦掉了，不进运行时。
  */
-import type { Command, EditorView, MentionCandidate } from 'nexusdown/cm'
+import type { Command, EditorView, MentionCandidate } from '@nexusmc-cn/nexusdown/cm'
 import {
   redo,
   syntaxTree,
@@ -76,8 +76,8 @@ import {
   toggleOrderedList,
   toggleQuote,
   wrapCodeBlock,
-} from 'nexusdown/cm'
-import { codeIconSvg } from 'nexusdown/cm'
+} from '@nexusmc-cn/nexusdown/cm'
+import { codeIconSvg } from '@nexusmc-cn/nexusdown/cm'
 
 const props = defineProps<{
   /** 编辑器实例。还没挂上时是 `null` —— 那时所有按钮都禁用。 */
