@@ -1,5 +1,6 @@
 /**
- * `math` —— 行内 `$E = mc^2$` + 块级 ` ```math ` 围栏（契约：`docs/dialect-extensions.md` 第 2 节）。
+ * `math` —— 行内 `$E = mc^2$` + 块级 `$$…$$`（正典）/ ` ```math ` 围栏（别名）
+ * （契约：`docs/dialect-extensions.md` 第 2 节）。
  *
  * ## 为什么行内用「正则扫描」而不是 lezer 行内扩展
  *
@@ -13,27 +14,43 @@
  * 没有一个「文档级」钩子。要做全文扫描，只能认领一个**覆盖全文**的节点 ——
  * 那就是根节点 `Document`（实测 `tree.iterate` 即使只遍历可见子区间也会 enter 到它）。
  *
- * ⚠️ 由此引出一条**跨 agent 的注册约束**：`indexFeatures` 会拒绝「两个功能认领同一
- * 节点名」，所以 `Document` **只能被这一个功能认领**。emoji 功能因此改去认领
- * lezer 的 `Emoji` 节点（见 `emoji.ts`），不跟这里抢 `Document`。
+ * ## ★ `$$` 块：认领 `Paragraph`（和 `mention` 共用同一个节点）
+ *
+ * `$$…$$` 在 lezer 里**不是**一个独立节点 —— 实测整个块被解析成**一个 `Paragraph`**：
+ *
+ *     Paragraph [0,21] "$$\n\\int_0^1 x^2 dx\n$$"
+ *
+ * 而 `Paragraph` **已经被 `mention` 认领了**。以前 `indexFeatures` 会拒绝第二个认领者
+ * （启动即抛），于是 `$$` 只能走别的路（独立 StateField / 自己写 lezer 扩展）。
+ *
+ * 现在注册表支持「一个节点 → 多个功能」（见 `feature.ts` 的 `EditorFeature.nodes`），
+ * 两个功能各看各的文本判据、互不干扰：
+ *
+ * - `mention` 找 `@slug`（段落里没有 `@` 就 no-op）；
+ * - 本功能看**首行**是不是 `$$`（不是就 no-op）。
+ *
+ * ⚠️ 两个功能**分处不同通道**（本功能是 `block: true` → StateField；mention 在
+ * ViewPlugin 里），所以「同一节点两拨分流」这条也依赖注册表改造 —— 见 `plugin.ts`
+ * 的 `splitFeatures`。
+ *
+ * ⚠️ **只认顶层段落**（`parent.name === 'Document'`）：块级 replace 会盖掉整行，
+ * 而引用块 / 列表里的行上已经有 `Decoration.line`（引用竖线、列表背景）。
+ * 块级 replace 与行装饰叠在同一行上的表现依赖布局，没有实测过 —— 不做。
+ * 代价：引用块里的 `$$` 在编辑器里显示源码、发布出去是公式（**覆盖差异**，
+ * 不是语法分歧；契约 §2 记了这一条）。
+ *
+ * ⚠️ **中间有空行的 `$$` 块编辑器侧认不出来**：lezer 会把它切成两个 `Paragraph`，
+ * 而「开 `$$`」那个段落到不了闭 `$$`。渲染侧（markdown-it block rule）允许空行。
+ * 同样是覆盖差异，同样记在契约里。
  *
  * ## 块级公式：KaTeX 由消费方注入，没注入就退回普通代码块
  *
- * 块级语法是 ` ```math ` 围栏。**它也是一个 `FencedCode` 节点，而那个节点归 embed
- * 认领**（embed 的语法就是一个围栏，见 `features/embed.ts` 文件头）——
- * 一个节点名只能被一个功能认领，所以这里**不能**也去认领 `FencedCode`。
- *
- * 于是分工是：
- *
- * - 本功能继续认领 `Document`，从**文档根节点走一遍树**找 `FencedCode` 子节点，
- *   用 `isMathInfo` 挑出 math 围栏；
- * - `embed.ts` 那边遇到 math 围栏**主动让出去**（不画成代码块），免得两条 replace
- *   叠在同一区间上。两边的判据都来自 `decorate/fence.ts` 的 `isMathInfo`，不会漂。
- *
  * 渲染函数**由消费方注入**（`nexusdown({ mathRenderer })`），和渲染侧是同一套思路：
  * KaTeX 是 **peerDependency**（~4 MB，绝大多数是字体），库**自己不 import**，
- * 消费方装、消费方把对象塞进来。没塞的时候**不报错**，退回**普通代码块**
- * （也就是本次改动之前的样子）——见 `decorateMathFences`。
+ * 消费方装、消费方把对象塞进来。没塞的时候**不报错**：
+ *
+ * - ` ```math ` 围栏 → 退回**普通代码块**（也就是本次改动之前的样子）；
+ * - `$$…$$` → **源码原样**（没有围栏可退，露着源码就是最接近的形态）。
  *
  * ⚠️ 为什么不直接在 widget 里 `import('katex')`：CM6 widget 的 `toDOM()` 是**同步**的，
  * `import()` 拿不到；而且那会让 KaTeX 变成硬依赖、进主包。同渲染侧的取舍。
@@ -52,25 +69,32 @@
  * - 功能标 `block: true` → 骨架（`plugin.ts` 的 `splitFeatures`）把它分流到 StateField
  *   （**块级装饰只能由 StateField 提供**，ViewPlugin 提供会抛 `Block decorations may not
  *   be specified via plugins`）；
- * - **一个** `Decoration.replace({ block: true, widget })` 覆盖**整段**围栏
- *   （开围栏行首 → 闭围栏行尾）；
- * - **揭示态**：选区碰到围栏任意一行、**或**光标紧邻（`from - 1` / `to + 1`）→ 什么都不推。
+ * - **一个** `Decoration.replace({ block: true, widget })` 覆盖**整段**
+ *   （`$$` 块 = 整个段落；围栏 = 开围栏行首 → 闭围栏行尾）；
+ * - **揭示态**：选区碰到任意一行、**或**光标紧邻（`from - 1` / `to + 1`）、
+ *   **或**用户点开过这个块（`editingBlock`）→ 什么都不推。
  *   「紧邻即揭示」是关键 —— 块级区间光标进不去，门口是**唯一**能触达的位置，
  *   一到门口就换回源码，键盘用户照样能编辑；
- * - 点 widget → 光标落到 `from - 1`（见 `MathBlockWidget`）。
+ * - 点 widget → 光标落到 `from - 1` 并记下 `editingBlock`（见 `MathBlockWidget`）。
  *
  * ## 三条硬约束
  *
  * - widget 必须实现 `eq`（否则每次 rebuild 重建 DOM）；
  * - **行内**公式的隐藏态 `replace` 必须登记进 `atomicRanges`（`pushAtomicRange`）；
  *   块级 replace 不用 —— 光标本来就进不去（同 `table.ts`）。
- * - 块级 `replace` **必须**落在整行边界（行首/行尾），见 `decorateMathFences`。
+ * - 块级 `replace` **必须**落在整行边界（行首/行尾），见 `decorateMathFences` /
+ *   `decorateDollarMathBlock`。
  */
 import { EditorSelection, type Line, type Text } from '@codemirror/state'
 import type { EditorView } from '@codemirror/view'
 import { Decoration, WidgetType } from '@codemirror/view'
 
 import { KATEX_OPTIONS, type KatexLike } from '../../render/features/math.js'
+import {
+  isMathBlockFenceLine,
+  joinMathBlockLines,
+  parseSingleLineMathBlock,
+} from '../../shared/math-block.js'
 import { setEditingBlock } from '../plugin.js';
 import { decorateFencedCode, isMathInfo, readFenceInfo } from '../decorate/fence.js'
 import { MUTED_MARK, pushAtomicRange } from '../decorate/shared.js'
@@ -297,13 +321,16 @@ export function createMathFeature(render?: MathRenderer): EditorFeature {
   return {
     name: 'math',
     /*
-     * ⚠️ `Document` 是**全局唯一**的挂载点，别再加第二个功能来认领它
-     * （`indexFeatures` 会抛错）。见文件头。
+     * `Document`：全文扫描的挂载点（行内 `$…$` + 围栏）。
+     * `Paragraph`：`$$…$$` 块（lezer 把整个块解析成一个段落）。
+     *
+     * ⚠️ `Paragraph` 同时被 `mention` 认领 —— 那是**允许**的（见文件头），
+     * 两个功能各看各的文本判据。`Document` 目前只有本功能认领。
      */
-    nodes: ['Document'],
+    nodes: ['Document', 'Paragraph'],
     /*
-     * ★ 块级功能：围栏产出一个 `block: true` 的跨行 replace，只能由 StateField 提供
-     * （ViewPlugin 提供会抛 `Block decorations may not be specified via plugins`）。
+     * ★ 块级功能：`$$` 块与围栏都产出 `block: true` 的跨行 replace，只能由 StateField
+     * 提供（ViewPlugin 提供会抛 `Block decorations may not be specified via plugins`）。
      * 见文件头「块级围栏走块级通道」。
      *
      * ⚠️ 本功能**同时**推行内公式的装饰（认领 `Document` 是全文扫描的代价）。
@@ -311,6 +338,14 @@ export function createMathFeature(render?: MathRenderer): EditorFeature {
      */
     block: true,
     decorate(ranges, atomicRanges, node, doc, selection, _context, blockEditing) {
+      /*
+       * 按节点名分工 —— 一个功能认领多个节点时，`plugin.ts` 会分别调进来
+       * （同一节点上若有多个功能，列表顺序由 `indexFeatures` 排好）。
+       */
+      if (node.name === 'Paragraph') {
+        decorateDollarMathBlock(ranges, doc, selection, node, render, blockEditing ?? null)
+        return
+      }
       decorateMath(ranges, atomicRanges, node, doc, selection, render, blockEditing ?? null)
     },
   }
@@ -362,10 +397,15 @@ function decorateInlineMath(
 }
 
 /**
- * 块级 ` ```math ` 围栏。
+ * 块级 ` ```math ` 围栏（**别名**形态；正典是 `$$…$$`，见 `decorateDollarMathBlock`）。
  *
- * 从 `Document` 节点走一遍树找 `FencedCode`（为什么不能自己认领 `FencedCode`
- * 见文件头「块级公式」）。对每个 math 围栏：
+ * 从 `Document` 节点走一遍树找 `FencedCode`。为什么不自己认领 `FencedCode`：
+ * 那个节点归 `embed` 认领（embed 的语法就是一个围栏），而且**一个节点只能被一个
+ * 功能认领**这条硬规则对 `FencedCode` 仍然成立（`Paragraph` 是本次才放开的多认领）。
+ * 于是分工是：本功能从根节点走树找围栏，`embed.ts` 遇到 math 围栏主动让出去。
+ * 两边的判据都来自 `decorate/fence.ts` 的 `isMathInfo`，不会漂。
+ *
+ * 对每个 math 围栏：
  *
  * - **注入了渲染函数** → **一个** `block: true` 的跨行 replace 覆盖**整段围栏**
  *   （开围栏行首 → 闭围栏行尾），揭示态不推任何装饰。
@@ -405,7 +445,7 @@ function decorateMathFences(
 
     // 揭示态 → **什么都不推**，源码原样（用户要能改）。⚠️ 必须在推 replace 之前返回，
     // 否则会把光标要编辑的源码藏掉。
-    if (isMathFenceRevealed(doc, selection, from, to, blockEditing)) continue
+    if (isBlockRevealed(doc, selection, from, to, blockEditing)) continue
 
     // 整段围栏 → 一个块级公式 widget。
     // 块级 replace 不登记 atomicRanges —— 光标本来就被 CM6 挡在区间外（同 `table.ts`）。
@@ -419,19 +459,127 @@ function decorateMathFences(
 }
 
 /**
+ * 块级 `$$…$$`（**正典**形态）。
+ *
+ * ## 节点范围就是块范围
+ *
+ * lezer 把整个 `$$…$$` 解析成**一个 `Paragraph`**（实测：`$$\n\\int_0^1 x^2 dx\n$$`
+ * 是 `Paragraph [0,21]`），所以这里不需要像围栏那样先走树找子节点 —— 段落本身
+ * 就是那一块。要做的只是：
+ *
+ * 1. **判定**：首行是单行公式 `$$x^2$$`，还是光秃秃的 `$$`（多行形式的开围栏）；
+ * 2. **取 tex**：单行形式取中间那段；多行形式取开闭围栏之间的原始行；
+ * 3. 推一个 `block: true` 的整行 replace。
+ *
+ * ⚠️ 判定用的是 `shared/math-block.ts` 里那几个**和渲染侧共用**的函数 ——
+ * 两边各写一套「哪行算开、哪行算闭」的规则必然漂（一边 `trim` 一边没 `trim`，
+ * 于是同一条 `$$` 在一侧是公式、另一侧是文本）。见那个文件的文件头。
+ *
+ * ## 三条「不装饰」的边界（都有理由）
+ *
+ * - **没注入渲染函数** → 什么都不推，源码原样。围栏那边能退回普通代码块（有围栏
+ *   可画），`$$` 没有围栏可退，露着源码就是最接近的形态。
+ * - **不是顶层段落** → 不装饰。块级 replace 会盖掉整行，而引用块 / 列表里的行上
+ *   已经有 `Decoration.line`（引用竖线、列表背景），两者叠在同一行上的表现没实测过。
+ *   代价是「引用块里的 `$$` 编辑器里显示源码、发出去是公式」（契约 §2 记了这条）。
+ * - **揭示态**（选区碰到 / 光标紧邻 / 用户点开过）→ 什么都不推，源码原样。
+ */
+function decorateDollarMathBlock(
+  ranges: DecorationRanges,
+  doc: Text,
+  selection: EditorSelection,
+  node: MarkdownNode,
+  render: MathRenderer | undefined,
+  blockEditing: number | null,
+): void {
+  // 没有渲染函数 → 源码原样（见上面第一条边界）。
+  if (!render) return;
+  // 只认顶层段落（见上面第二条边界）。
+  if (node.parent?.name !== 'Document') return;
+
+  const firstLine = doc.lineAt(node.from);
+  /*
+   * ⚠️ 从 `node.from` 而不是行首开始切：段落的节点范围**不含** ≤3 个前导空格
+   * （实测 `  $$` 的 `Paragraph.from` 指在 `$$` 上）。从行首切的话缩进一多就判不出来。
+   */
+  const head = doc.sliceString(node.from, firstLine.to);
+
+  let to = firstLine.to;
+  const from = firstLine.from;
+  let tex = parseSingleLineMathBlock(head);
+
+  if (tex === null) {
+    // 不是单行形式 → 必须是一个光秃秃的 `$$` 行（多行形式的开围栏）。
+    if (!isMathBlockFenceLine(head)) return;
+
+    // `node.to` 是**排他**的：正好落在下一行行首时，不减 1 会多算一行（同 `fence.ts`）。
+    const lastPos = node.to > node.from ? node.to - 1 : node.to;
+    const endLine = doc.lineAt(lastPos);
+    // 只有一行（没闭合）→ 不是公式，源码原样。
+    if (endLine.number <= firstLine.number) return;
+    // 末行必须是闭围栏 `$$`（同样用共用的判定）。
+    if (!isMathBlockFenceLine(endLine.text)) return;
+
+    const lines: string[] = [];
+    /*
+     * ⚠️ 按**首行的缩进宽度**剥掉内容行的前导空格 —— 对齐渲染侧
+     * （`state.getLines(..., state.sCount[startLine], ...)` 是按同一个宽度 dedent 的）。
+     * 不剥的话，缩进 2 格的 `$$` 块两侧 tex 会差几个空格：KaTeX 看不出差别，
+     * 但「两侧 tex 一致」是契约里的说法，能对上就别留例外。
+     */
+    const indent = node.from - firstLine.from;
+    for (let n = firstLine.number + 1; n < endLine.number; n++) {
+      lines.push(dedent(doc.line(n).text, indent));
+    }
+    tex = joinMathBlockLines(lines);
+    // 内容全空白（`$$\n$$`）→ 不是公式，否则会产出一个看不见、也点不到的空块。
+    if (tex === null) return;
+    to = endLine.to;
+  }
+
+  // 块级 replace **必须**落在整行边界（CM6 要求）。
+  if (to <= from) return;
+
+  // 揭示态 → 源码原样。⚠️ 必须在推 replace 之前返回。
+  if (isBlockRevealed(doc, selection, from, to, blockEditing)) return;
+
+  // 块级 replace 不登记 atomicRanges —— 光标本来就被 CM6 挡在区间外（同围栏 / `table.ts`）。
+  ranges.push(
+    Decoration.replace({
+      block: true,
+      widget: new MathBlockWidget(tex, render, from),
+    }).range(from, to),
+  );
+}
+
+/**
+ * 剥掉最多 `width` 个前导空格（对齐 markdown-it `StateBlock.getLines` 的 dedent）。
+ *
+ * ⚠️ 只数**空格**，不数 tab：`getLines` 对 tab 有自己的一套列宽算法，而
+ * `$$` 块的前导缩进最多 3 格（4 格就是缩进代码块，那条路进不来），
+ * 所以这里不会遇到 tab 缩进。多写的复杂度没有收益。
+ */
+function dedent(line: string, width: number): string {
+  let i = 0;
+  while (i < width && i < line.length && line.charCodeAt(i) === 0x20) i++;
+  return line.slice(i);
+}
+
+/**
  * 揭示判据 —— **和 `table.ts` 的 `isTableRevealed` 同一套**（见那边文件头「紧邻即揭示」）。
+ * 块级公式的两种形态（`$$` 块 / ` ```math ` 围栏）共用这一份：判据只和区间有关。
  *
  * 两个条件任一成立就揭示：
  *
- * 1. **选区碰到围栏任意一行** —— 复用 `selectionTouchesLineRange`，多光标安全。
+ * 1. **选区碰到任意一行** —— 复用 `selectionTouchesLineRange`，多光标安全。
  * 2. **光标紧邻** `from - 1` / `to + 1` —— ⚠️ 这一条**不能省**。块级区间光标进不去，
- *    门口是**唯一**能触达的位置；少了它键盘用户永远进不了围栏
+ *    门口是**唯一**能触达的位置；少了它键盘用户永远进不去
  *    （`selectionTouchesLineRange` 不会把 `from - 1` 算进来 —— 那是**上一行**）。
  *
  * 用 `range.head` 而不是 `range.from` / `range.to`：紧邻描述的是**光标**（移动端），
- * 而选区只要碰到围栏行就已被条件 1 覆盖。
+ * 而选区只要碰到那一行就已被条件 1 覆盖。
  */
-function isMathFenceRevealed(
+function isBlockRevealed(
   doc: Text,
   selection: EditorSelection,
   from: number,
@@ -439,7 +587,7 @@ function isMathFenceRevealed(
   blockEditing: number | null,
 ): boolean {
   /*
-   * ★ **意图判据优先** ✓ —— 用户点开过这个围栏（`editingBlock` ✓）就一直揭示 ✓，
+   * ★ **意图判据优先** ✓ —— 用户点开过这个块（`editingBlock` ✓）就一直揭示 ✓，
    * 直到他走开 ✓。这是"点击编辑"能成立的前提 ✓：
    * 块级区间光标进不去 ✗，光靠"停在门口"分不清"路过"和"要编辑" ✗
    * （空行整行都是 `from - 1` ✓ → 路过也命中 ✓ → 公式莫名其妙不渲染 ✓）。

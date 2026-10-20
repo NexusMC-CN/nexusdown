@@ -23,7 +23,9 @@
  * 落进代码块里。所以这里**不要**自己做语法高亮，也不要在 `enter` 里阻断下降。
  */
 import type { EditorSelection, Text } from '@codemirror/state'
-import { Decoration } from '@codemirror/view'
+import { Decoration, WidgetType } from '@codemirror/view'
+
+import { parseAttrLine, parseLineRanges } from '../../shared/attrs.js'
 
 import type { DecorateContext, DecorationRanges, MarkdownNode } from '../types.js'
 import { selectionTouchesLineRange } from '../util/selection.js'
@@ -60,6 +62,74 @@ function lineDecoration(index: number, count: number): Decoration {
   if (index === 0) return LINE_FIRST
   if (index === count - 1) return LINE_LAST
   return LINE_PLAIN
+}
+
+/**
+ * 行号 widget。
+ *
+ * ⚠️ 不用 CSS counter：`counter-reset` 放在**首个内容行**上只作用于该元素及其子树，
+ * 后续兄弟行看不到这个 counter —— 实测每行都显示 1。行号由装饰器按行索引直接算，
+ * 放进一个绝对定位的 widget，既不依赖 CSS 作用域，也不占文本流。
+ */
+export class CodeLineNumberWidget extends WidgetType {
+  constructor(readonly line: number) {
+    super()
+  }
+
+  override eq(other: CodeLineNumberWidget): boolean {
+    return other instanceof CodeLineNumberWidget && other.line === this.line
+  }
+
+  override toDOM(): HTMLElement {
+    const span = document.createElement('span')
+    span.className = 'nd-code-line-no'
+    span.textContent = String(this.line)
+    span.setAttribute('aria-hidden', 'true')
+    return span
+  }
+}
+
+/** 动态行装饰的缓存：class 相同就复用同一个 `Decoration`（RangeSet 按对象标识比较）。 */
+const LINE_CACHE = new Map<string, Decoration>()
+
+function lineFor(className: string): Decoration {
+  let decoration = LINE_CACHE.get(className)
+  if (!decoration) {
+    decoration = Decoration.line({ class: className })
+    LINE_CACHE.set(className, decoration)
+  }
+  return decoration
+}
+
+/**
+ * 展开态的行装饰 —— 在基础圆角类上叠 `lines` / `highlight`。
+ *
+ * 行号只加在**内容行**（index 1..count-2）：开围栏是标题栏、闭围栏被藏掉。
+ * `nd-code-lines-first` 负责 `counter-reset`，其余内容行 `counter-increment`。
+ */
+function expandedLineDecoration(
+  index: number,
+  count: number,
+  attrs: FenceAttrs | null,
+): Decoration {
+  const base =
+    count === 1
+      ? `${BLOCK} nd-code-block-first nd-code-block-last`
+      : index === 0
+        ? `${BLOCK} nd-code-block-first`
+        : index === count - 1
+          ? `${BLOCK} nd-code-block-last`
+          : BLOCK
+
+  const extra: string[] = []
+  const isContent = index > 0 && index < count - 1
+  if (isContent && attrs?.lines) {
+    extra.push('nd-code-lines')
+    if (index === 1) extra.push('nd-code-lines-first')
+  }
+  if (isContent && attrs?.highlight.has(index)) extra.push('nd-code-hl')
+
+  return extra.length > 0 ? lineFor([base, ...extra].join(' ')) : lineDecoration(index, count)
 }
 
 /**
@@ -136,6 +206,10 @@ export function decorateFencedCode(
   // ---------------------------------------------------------------------
   // 折叠态：**只剩标题栏**，其余行全部压掉。
   // ---------------------------------------------------------------------
+  /** 围栏后一行的属性（title / lines / highlight）—— 和显示侧同一份属性解析。 */
+  const attrs = readFenceAttrs(doc, node)
+  const title = attrs?.title
+
   if (folded) {
     // 标题栏那一行：上下都要圆角（它现在是整张卡片的唯一可见部分）。
     ranges.push(LINE_ONLY.range(startLine.from))
@@ -155,7 +229,7 @@ export function decorateFencedCode(
         pushAtomicRange(
           ranges,
           atomicRanges,
-          Decoration.replace({ widget: new CodeFenceHeaderWidget(info, true, node.from) }),
+          Decoration.replace({ widget: new CodeFenceHeaderWidget(info, true, node.from, title) }),
           openLine.from,
           openLine.to,
         )
@@ -176,12 +250,24 @@ export function decorateFencedCode(
    * —— 窗口上下凭空缺一块，比多两条灰边更奇怪（用户原话："那一行凭空消失了相当于？
    * 就很奇怪，我建议是保留上和下行，显示为一个真正的卡片的样子"）。
    */
-  for (let n = startLine.number; n <= endLine.number; n++) {
-    ranges.push(lineDecoration(n - startLine.number, count).range(doc.line(n).from))
-  }
-
-  // 揭示态（光标/选区碰到这个块的任意一行）：围栏原样可见 —— 用户要能改语言标记。
+  /*
+   * ⚠️ **揭示态必须在推任何行装饰之前 return。**
+   *
+   * 之前把行装饰放在前面，揭示时只撤掉了标题栏和闭围栏 —— 代码块的灰底、
+   * 圆角、行内边距还留着，用户看到的是「源码套着代码块壳」（实测截图）。
+   * 揭示态要的是**纯源码**：没有任何行 class、没有 widget。
+   */
   if (selectionTouchesLineRange(doc, selection, node.from, node.to)) return
+
+  for (let n = startLine.number; n <= endLine.number; n++) {
+    const index = n - startLine.number
+    const line = doc.line(n)
+    ranges.push(expandedLineDecoration(index, count, attrs).range(line.from))
+    // 行号：内容行（1..count-2）从 1 开始编号，绝对定位在行首。
+    if (attrs?.lines && index > 0 && index < count - 1) {
+      ranges.push(Decoration.widget({ widget: new CodeLineNumberWidget(index) }).range(line.from))
+    }
+  }
 
   // 开围栏行 → **窗口标题栏**（圆点 + 图标 + 文件名 + 语言名 + 折叠按钮）。
   if (open) {
@@ -192,7 +278,7 @@ export function decorateFencedCode(
       pushAtomicRange(
         ranges,
         atomicRanges,
-        Decoration.replace({ widget: new CodeFenceHeaderWidget(info, false, node.from) }),
+        Decoration.replace({ widget: new CodeFenceHeaderWidget(info, false, node.from, title) }),
         openLine.from,
         openLine.to,
       )
@@ -206,5 +292,35 @@ export function decorateFencedCode(
     if (closeLine.to > closeLine.from) {
       pushAtomicRange(ranges, atomicRanges, HIDE, closeLine.from, closeLine.to)
     }
+  }
+}
+
+
+/**
+ * 读围栏后一行的 `{title="…"}`。
+ *
+ * ⚠️ 只认**紧挨着的下一行**：属性行是「块的后缀」，隔空行就不是后缀了
+ * （`docs/dialect-extensions.md` §0.1；列表那条要空行是 CommonMark 的例外）。
+ */
+interface FenceAttrs {
+  title?: string
+  lines: boolean
+  highlight: Set<number>
+}
+
+function readFenceAttrs(doc: Text, node: MarkdownNode): FenceAttrs | null {
+  // ⚠️ `node.to` 排他，可能落在下一行行首（同 table.ts 的 lastPos）。
+  const endLine = doc.lineAt(node.to > node.from ? node.to - 1 : node.to)
+  if (endLine.number >= doc.lines) return null
+
+  const tokens = parseAttrLine(doc.line(endLine.number + 1).text)
+  if (!tokens) return null
+
+  const title = tokens.find((attr) => attr.kind === 'key' && attr.name === 'title')
+  const highlight = tokens.find((attr) => attr.kind === 'key' && attr.name === 'highlight')
+  return {
+    title: title && title.kind === 'key' ? title.value : undefined,
+    lines: tokens.some((attr) => attr.kind === 'key' && attr.name === 'lines'),
+    highlight: parseLineRanges(highlight && highlight.kind === 'key' ? highlight.value : undefined),
   }
 }

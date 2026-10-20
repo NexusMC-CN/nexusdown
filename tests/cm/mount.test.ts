@@ -53,7 +53,12 @@ describe('mountEditor', () => {
 
   it('★ 装的是 nexusdown() 的扩展（语法着色与装饰挂上了）', () => {
     const el = host()
-    const view = mountEditor({ parent: el, doc: '```js\nconst a = 1\n```' })
+    /*
+     * ⚠️ 围栏**不能放在文档开头**：不传 selection 时光标落在 0（开围栏行），
+     * 那一行处于揭示态 —— 揭示态现在是**纯源码**（不推任何行装饰），
+     * 断言 `.nd-code-block` 会失败。前面垫一段，光标落在前言上。
+     */
+    const view = mountEditor({ parent: el, doc: '前言\n\n```js\nconst a = 1\n```' })
     /*
      * 断言"扩展真的装上了"最稳的抓手是**围栏代码块的行 class** ——
      * 它由 `nexusdown()` 里的装饰产出 ✓。

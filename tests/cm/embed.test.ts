@@ -330,3 +330,56 @@ describe('embed —— 三家 kind 都能出卡', () => {
     })
   }
 })
+
+/* ==========================================================================
+ * URL 形式（正典，契约 §4）
+ *
+ * ` ```embed <url> ` 与三段式 ` ```embed provider kind id ` 共用同一个
+ * `parseEmbedFence`（渲染侧那份），所以两侧不会各认一套。
+ * ======================================================================== */
+describe('embed —— URL 形式', () => {
+  const URL_DOC = '```embed https://www.bilibili.com/video/BV1xx411c7mD\n```\n\n尾部'
+  const LEGACY_DOC = '```embed bilibili video BV1xx411c7mD\n```\n\n尾部'
+
+  it('★ URL 形式产出占位卡（标题里是 provider + id），不加载 iframe', () => {
+    const { instance } = mount(URL_DOC)
+    const deco = widgetOf(instance, 'EmbedCardWidget')!
+
+    const dom = (deco.spec as { widget: EmbedCardWidget }).widget.toDOM()
+    expect(dom.getAttribute('data-nd-embed')).toBe('bilibili:video')
+    expect(dom.textContent).toContain('哔哩哔哩')
+    expect(dom.textContent).toContain('BV1xx411c7mD')
+    expect(dom.querySelector('iframe')).toBeNull()
+  })
+
+  it('★ 两种写法产出**完全相同**的装饰（同一条解析路径）', () => {
+    const viaUrl = read(mount(URL_DOC).instance)
+    const viaLegacy = read(mount(LEGACY_DOC).instance)
+
+    // 区间可能因为开围栏行长度不同而不同，比「形状」：widget 种类 + 行装饰。
+    const shape = (ds: Deco[]) => ds.map((d) => [d.kind, d.cls, d.widget])
+    expect(shape(viaUrl)).toEqual(shape(viaLegacy))
+    expect(viaUrl.filter((d) => d.widget === 'EmbedCardWidget')).toHaveLength(1)
+  })
+
+  it('★ 非法 URL / 未知平台 → 降级成普通代码块（不显示骗人的占位卡）', () => {
+    const { instance } = mount('```embed https://evil.com/video/BV1xx411c7mD\n```\n\n尾部')
+    const ds = read(instance)
+
+    expect(ds.filter((d) => d.widget === 'EmbedCardWidget')).toHaveLength(0)
+    expect(ds.filter((d) => d.widget === 'CodeFenceHeaderWidget')).toHaveLength(1)
+  })
+
+  it('★ 短链在编辑器里**解不了**（没有 `RenderData.links`）→ 降级成代码块', () => {
+    const { instance } = mount('```embed https://b23.tv/abcdefg\n```\n\n尾部')
+    const ds = read(instance)
+
+    expect(ds.filter((d) => d.widget === 'EmbedCardWidget')).toHaveLength(0)
+    expect(ds.filter((d) => d.widget === 'CodeFenceHeaderWidget')).toHaveLength(1)
+  })
+
+  it('URL 形式也是揭示态优先：光标落进围栏 → 源码原样', () => {
+    const { instance } = mount(URL_DOC, 12)
+    expect(read(instance)).toHaveLength(0)
+  })
+})

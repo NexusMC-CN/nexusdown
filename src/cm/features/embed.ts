@@ -179,6 +179,12 @@ function decorateEmbed(
 
   // 是 embed 但写错了 → 也交回，让作者看到源码去修。渲染侧同样会降级成普通代码块，
   // 两侧行为因此一致（契约最怕的「编辑器写得出、渲染器读不出」在这里被挡住）。
+  //
+  // ★ 两种写法都认：` ```embed <url> `（正典）与 ` ```embed provider kind id `（legacy），
+  // 判定在 `parseEmbedFence` 里（两侧共用那一份）。
+  // ⚠️ 这里**没有 env**，所以 URL 形式只认**长链**：短链（`b23.tv` 等）要消费方预先
+  // 解析、经 `RenderData.links` 传进来，编辑器拿不到 —— 于是编辑器里显示成代码块，
+  // 发布出去（带数据时）是播放器。这是刻意的降级，契约 §4 记了这一条。
   const spec = parseEmbedFence(info)
   if (!spec) {
     decorateFencedCode(ranges, atomicRanges, node, doc, selection, context)

@@ -38,6 +38,17 @@ export interface DecorationBuild {
  * 折叠是唯一需要**文档级状态**的场景，所以只给它开一个口子，而不是把 `state`
  * 塞进所有人的签名里。
  */
+/**
+ * 一块「正在编辑源码」的区间（块级 widget 点开后设置）。
+ *
+ * 在区间内，**所有装饰都被跳过** —— 用户看到的是原样的 Markdown 源码：
+ * 没有代码块外壳、没有属性 chip、没有行内标记渲染。
+ */
+export interface SourceRange {
+  from: number;
+  to: number;
+}
+
 export interface DecorateContext {
   /** 这个 `FencedCode` 当前是否被折叠（内容行藏起来、只留标题栏）。 */
   folded: boolean;

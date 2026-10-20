@@ -35,6 +35,8 @@
  */
 import { syntaxTree } from '@codemirror/language'
 import { EditorSelection, type EditorState, type SelectionRange } from '@codemirror/state'
+
+import { formatAttrLine, parseAttrLine } from '../shared/attrs.js'
 import type { Command } from '@codemirror/view'
 
 /**
@@ -555,4 +557,142 @@ export function insertMention(slug: string): Command {
     view.dispatch({ ...changes, userEvent: 'format.nexusdown' })
     return true
   }
+}
+
+/* ==========================================================================
+ * 块变体 —— 给光标所在的块补一行属性（`docs/dialect-extensions.md` §0）
+ * ========================================================================== */
+
+/** 光标所在块的类型（决定「＋ 变体」菜单给哪些选项）。 */
+export type BlockKind = 'list' | 'table' | 'fence' | 'paragraph'
+
+/** 向上找光标所在的块；`Paragraph` 只作为兜底（它可能只是列表项内容）。 */
+function findBlock(state: EditorState, pos: number): { node: SyntaxNode; kind: BlockKind } | null {
+  const tree = syntaxTree(state)
+  let paragraph: SyntaxNode | null = null
+
+  /*
+   * 位置 0（或块首）用 `-1` 偏置会解析到 `Document`（没有节点"结束于"0），
+   * 往上走就找不到块。这时换 `+1` 偏置再探一次 —— 光标在 `- a` 的行首也能
+   * 正确落到 `BulletList`。
+   */
+  let start: SyntaxNode | null = tree.resolveInner(pos, -1)
+  if (start.name === 'Document' && pos < state.doc.length) start = tree.resolveInner(pos, 1)
+
+  for (let node: SyntaxNode | null = start; node; node = node.parent) {
+    if (node.name === 'Paragraph') paragraph ??= node
+    if (node.name === 'BulletList' || node.name === 'OrderedList') return { node, kind: 'list' }
+    if (node.name === 'Table') return { node, kind: 'table' }
+    if (node.name === 'FencedCode') return { node, kind: 'fence' }
+    // 引用块里的属性行不生效（渲染侧只认顶层段落），所以这里也不提供变体。
+    if (node.name === 'Blockquote') return null
+  }
+
+  return paragraph ? { node: paragraph, kind: 'paragraph' } : null
+}
+
+/** 块的完整区间 —— 「＋ 变体」按钮要拿 `from` 定位。 */
+export interface BlockRange {
+  from: number
+  to: number
+  kind: BlockKind
+}
+
+export function blockRangeAt(state: EditorState, pos = state.selection.main.head): BlockRange | null {
+  const target = findBlock(state, pos)
+  return target ? { from: target.node.from, to: target.node.to, kind: target.kind } : null
+}
+
+export function blockKindAt(state: EditorState, pos = state.selection.main.head): BlockKind | null {
+  return findBlock(state, pos)?.kind ?? null
+}
+
+/**
+ * 给**光标所在的块**补一行属性（或在已有的属性行上合并）。
+ *
+ * 规则（和 `docs/dialect-extensions.md` §0.1 对齐）：
+ *
+ * - 列表 / 段落：块后**空一行**再写（否则会被 CommonMark 当续行）；
+ * - 表格 / 围栏：紧跟块后，不空行；
+ * - 已经有属性行 → **合并**（同一类/键不重复），不新开一行。
+ *
+ * 光标不动 —— 插入点在块尾，而光标在块内。
+ */
+export function applyBlockAttrs(attr: string, at?: number): Command {
+  const tokens = parseAttrLine(attr)
+  if (!tokens) throw new Error(`applyBlockAttrs: 不是合法属性行：${attr}`)
+  const text = formatAttrLine(tokens)
+
+  return (view) => {
+    const { state } = view
+    /*
+     * `at` 给了就用它（悬停「＋」菜单：作用于**鼠标所在块**，而不是光标所在块 ——
+     * 用户鼠标悬停列表、光标可能还在别处）。没给则用当前选区（工具栏按钮）。
+     */
+    const target = findBlock(state, at ?? state.selection.main.head)
+    if (!target) return false
+
+    const { node, kind } = target
+    /*
+     * ⚠️ `node.to` 是**排他**的，表格/围栏可能正好落在下一行行首 ——
+     * 直接 `lineAt(to)` 会把插入点放到下一行（甚至空行）末尾。
+     * 减 1 取「最后一个内容行」的行尾，和 `features/table.ts` 的 `lastPos` 同一个坑。
+     */
+    const endLine = state.doc.lineAt(node.to > node.from ? node.to - 1 : node.to)
+
+    // 已有属性行？列表/段落允许隔一个空行。
+    let probe = endLine.number + 1
+    if (kind === 'list' || kind === 'paragraph') {
+      if (probe <= state.doc.lines && state.doc.line(probe).text.trim() === '') probe += 1
+    }
+
+    let edit: Edit
+    if (probe <= state.doc.lines) {
+      const line = state.doc.line(probe)
+      const existing = parseAttrLine(line.text)
+      if (existing) {
+        const merged = [...existing]
+        for (const token of tokens) {
+          if (!merged.some((t) => t.kind === token.kind && t.name === token.name)) merged.push(token)
+        }
+        edit = { from: line.from, to: line.to, insert: formatAttrLine(merged) }
+      } else {
+        edit = { from: endLine.to, to: endLine.to, insert: separatorFor(kind) + text }
+      }
+    } else {
+      edit = { from: endLine.to, to: endLine.to, insert: separatorFor(kind) + text }
+    }
+
+    /*
+     * 光标怎么处理，按块类型分开：
+     *
+     * - **列表 / 段落**：**留在原处**（让 changeByRange 映射原选区）。用户刚点的是列表，
+     *   光标却跳到下面的属性行会像"被踢走"；列表的序号不依赖光标位置，留在原处
+     *   效果立刻可见。
+     * - **表格 / 围栏**：落到属性行末尾 —— 光标留在块里的话块会保持揭示态（源码），
+     *   挪出去之后 widget 才会重新渲染，`.fields` / 标题才看得见。
+     */
+    const keepSelection = kind === 'list' || kind === 'paragraph'
+    const cursor = Math.min(edit.from + edit.insert.length, state.doc.length + edit.insert.length)
+
+    const changes = state.changeByRange((range) => ({
+      changes: edit,
+      range: keepSelection ? range : EditorSelection.cursor(cursor),
+    }))
+    if (changes.changes.empty) return false
+
+    view.dispatch({ ...changes, userEvent: 'format.nexusdown' })
+    return true
+  }
+}
+
+/**
+ * 列表 / 段落 / **表格**要空一行；围栏紧跟。
+ *
+ * ⚠️ 表格必须空行：markdown-it 的表格规则会把紧贴的 `{.fields}` 当成**一行数据**
+ * （实测：`| a | b |\n| - | - |\n| 1 | 2 |\n{.fields}` → 多一行 `{.fields}`），
+ * 只有空行才能让它结束表格、变成属性行。
+ */
+function separatorFor(kind: BlockKind): string {
+  return kind === 'fence' ? '\n' : '\n\n'
 }

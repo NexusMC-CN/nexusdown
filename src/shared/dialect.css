@@ -32,7 +32,7 @@
  * 也会诱使后来的人给编辑器另抄一份（正是本次要消灭的那件事）。
  * "方言"（dialect）才是这层东西的准确名字 —— 它是**这套方言产出的标记的视觉契约**。
  *
- * ## ⚠️ 本次只做 `mention`
+ * ## ⚠️ 目前这里有两族：`mention` 和 `callout`
  *
  * `nd-card`（link-card）/ `nd-embed` / `nd-carousel` 目前仍然没有共享样式 ——
  * **那是另一件事，别顺手补**。要加的时候按同一套路：
@@ -54,6 +54,180 @@
  * ⚠️ **每个字面量都必须写** —— 渲染侧可能只引了本文件（没引 theme.css），
  * 少了兜底的 `var()` 会解析失败 → **整条声明失效且零报错**。
  */
+
+/* =========================================================================
+ * callout —— 提示块 `> [!NOTE]`（契约 `docs/dialect-extensions.md` 第 9 节）
+ *
+ * 两侧产出的类名**逐个相同**：
+ *
+ * | 谁 | 结构 |
+ * | --- | --- |
+ * | 渲染器（`render/features/callout.ts`） | `<div class="nd-callout nd-callout--note"><p class="nd-callout__title">…</p><p>正文</p></div>` |
+ * | 编辑器（`cm/decorate/blockquote.ts`） | 每行 `.cm-line.nd-callout.nd-callout--note` + 首行标记换成 `<span class="nd-callout__title">…</span>` |
+ *
+ * 唯一的结构差异：渲染侧的外层是 `<div>`、标题是 `<p>`；编辑器侧外层是**行**、
+ * 标题是 `<span>`（行内 widget）。所以下面把「块级盒子的内边距 / 圆角」和
+ * 「行内的几何」分开写，两侧各吃自己那份。
+ * ======================================================================= */
+
+/*
+ * 基础：左侧色条 + 浅底。
+ *
+ * ⚠️ **不写 margin / 上下 padding** —— 这条规则两侧共用，而编辑器侧它挂在
+ * `.cm-line` 上：行盒的外边距和纵向内边距会改变行高，CM6 的高度表按行测量，
+ * 一改就出现「光标浮在文字上下」（同 `theme.css` 里 `.nd-code-header` 那堆注释）。
+ * 块级外观（margin / 圆角 / 纵向 padding）放在下面 `div.nd-callout` 那一条里，
+ * 编辑器侧的 `.cm-line` 不是 `<div>`，天然不吃。
+ *
+ * 默认色板是 `note` 的：万一有人手写了 `class="nd-callout"`（没有 `--类型`），
+ * 至少是个正常的蓝底提示块，而不是一条无色条。
+ */
+.nd-callout {
+  --nd-callout-accent: var(--nd-callout-note, var(--info, #0969da));
+  --nd-callout-bg: var(--nd-callout-note-bg, rgb(9 105 218 / 6%));
+  padding-left: 0.9em;
+  border-left: 3px solid var(--nd-callout-accent);
+  background: var(--nd-callout-bg);
+}
+
+/*
+ * 渲染侧的块级外观：那个 `<div>` 需要上下留白和圆角。
+ *
+ * ⚠️ **`div.nd-callout` 会命中编辑器！** CM6 的 `.cm-line` **就是** `<div>` ——
+ * 只写 `div.nd-callout` 时，`margin: 0.8em` / 纵向 padding / 圆角会一起落到
+ * **每一行**上：行距被撑开、背景变成一段段圆角色块，而且 `.cm-line` 的 margin
+ * 不进 CM6 的高度表（光标会浮在文字上下，且零报错）。
+ * 所以必须排除 `.cm-line`：`div.nd-callout:not(.cm-line)`。
+ */
+div.nd-callout:not(.cm-line) {
+  margin: 0.8em 0;
+  padding: 0.55em 0.85em 0.55em 0.9em;
+  border-radius: var(--nd-radius, 6px);
+}
+
+/*
+ * 10 种类型的色板。
+ *
+ * 颜色一律 `var(--nd-*, var(--站令牌, 字面量))` 两级回退：
+ * - 编辑器侧 `theme.css` 的 `:root` 定义了 `--nd-*`，第一级就命中；
+ * - 站点若定义了语义色（`--info` / `--warning` / `--danger` / `--success`），
+ *   第二级命中，自动跟随站点主题；
+ * - 都没有 → 字面量兜底。
+ *
+ * ⚠️ 字面量**每个都要写**：渲染侧可能只引了本文件（没引 theme.css），
+ * 少了兜底的 `var()` 会解析失败 → **整条声明失效且零报错**。
+ */
+.nd-callout--note {
+  --nd-callout-accent: var(--nd-callout-note, var(--info, #0969da));
+  --nd-callout-bg: var(--nd-callout-note-bg, rgb(9 105 218 / 6%));
+}
+
+.nd-callout--tip {
+  --nd-callout-accent: var(--nd-callout-tip, var(--success, #0f7b6c));
+  --nd-callout-bg: var(--nd-callout-tip-bg, rgb(15 123 108 / 6%));
+}
+
+.nd-callout--important {
+  --nd-callout-accent: var(--nd-callout-important, var(--brand-ink, #8250df));
+  --nd-callout-bg: var(--nd-callout-important-bg, rgb(130 80 223 / 6%));
+}
+
+.nd-callout--warning {
+  --nd-callout-accent: var(--nd-callout-warning, var(--warning, #9a6700));
+  --nd-callout-bg: var(--nd-callout-warning-bg, rgb(154 103 0 / 7%));
+}
+
+.nd-callout--caution {
+  --nd-callout-accent: var(--nd-callout-caution, var(--warning, #bc4c00));
+  --nd-callout-bg: var(--nd-callout-caution-bg, rgb(188 76 0 / 7%));
+}
+
+.nd-callout--danger {
+  --nd-callout-accent: var(--nd-callout-danger, var(--danger, #cf222e));
+  --nd-callout-bg: var(--nd-callout-danger-bg, rgb(207 34 46 / 6%));
+}
+
+.nd-callout--info {
+  --nd-callout-accent: var(--nd-callout-info, var(--info, #0a7ea4));
+  --nd-callout-bg: var(--nd-callout-info-bg, rgb(10 126 164 / 6%));
+}
+
+.nd-callout--success {
+  --nd-callout-accent: var(--nd-callout-success, var(--success, #1a7f37));
+  --nd-callout-bg: var(--nd-callout-success-bg, rgb(26 127 55 / 6%));
+}
+
+.nd-callout--question {
+  --nd-callout-accent: var(--nd-callout-question, var(--brand-ink, #6639ba));
+  --nd-callout-bg: var(--nd-callout-question-bg, rgb(102 57 186 / 6%));
+}
+
+.nd-callout--example {
+  --nd-callout-accent: var(--nd-callout-example, var(--ink-3, #57606a));
+  --nd-callout-bg: var(--nd-callout-example-bg, rgb(87 96 106 / 6%));
+}
+
+/*
+ * 标题：图标 + 类型名。
+ *
+ * 渲染侧是 `<p>`（块级，独占一行）；编辑器侧是行内 widget 里的 `<span>`，
+ * 所以这里用 `display: flex`（`<p>` 的自然形态），编辑器那份在下面改成 `inline-flex`。
+ */
+.nd-callout__title {
+  display: flex;
+  align-items: center;
+  gap: 0.4em;
+  margin: 0 0 0.35em;
+  color: var(--nd-callout-accent);
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.nd-callout__icon {
+  flex: none;
+  font-size: 0.95em;
+  line-height: 1;
+}
+
+.nd-callout__label {
+  letter-spacing: 0.02em;
+}
+
+/* =========================================================================
+ * 编辑器侧的几何差异（只有 `.cm-editor` 里才生效）
+ *
+ * ⚠️ 这里的规则**渲染侧永远不吃**（渲染出来的 HTML 不在 `.cm-editor` 里），
+ * 所以"一份文件同时服务两侧"不会互相污染。
+ * ======================================================================= */
+
+/*
+ * 块级外观：渲染侧那个 `<div>` 已经由上面 `div.nd-callout` 负责，
+ * 编辑器侧是**行**，一律不许加 margin / 纵向 padding（见上面 `.nd-callout` 的注释）。
+ */
+
+/* 首行圆上角、末行圆下角 —— 整块看起来是一张卡片（同 `.nd-code-block-first/last`）。 */
+.cm-editor .nd-callout-first {
+  border-top-left-radius: var(--nd-radius, 6px);
+  border-top-right-radius: var(--nd-radius, 6px);
+}
+
+.cm-editor .nd-callout-last {
+  border-bottom-left-radius: var(--nd-radius, 6px);
+  border-bottom-right-radius: var(--nd-radius, 6px);
+}
+
+/*
+ * ⚠️ **`inline-flex` 不是 `flex`。**
+ *
+ * 徽章是 `Decoration.replace` 的 widget，**前后各有 CM6 插的一个
+ * `<img class="cm-widgetBuffer">`**（行内元素）。widget 一旦是**块级**，
+ * 几个元素就垂直堆起来，把 CM6 的高度表搞坏（同 `.nd-mention-card` 那条）。
+ */
+.cm-editor .nd-callout__title {
+  display: inline-flex;
+  margin: 0;
+  vertical-align: baseline;
+}
 
 /* =========================================================================
  * mention —— 站内实体提及（契约 `docs/dialect-extensions.md` 第 8 节）
@@ -212,4 +386,72 @@
   display: inline-flex;
   width: 100%;
   vertical-align: top;
+}
+
+/* =========================================================================
+ * carousel —— 连续图片独占一段（渲染侧独有，编辑器侧仍是单张 ImageWidget）
+ *
+ * 结构（`render/features/carousel.ts`）：
+ *
+ *     <div class="nd-carousel">
+ *       <ul class="nd-carousel__track"><li class="nd-carousel__slide" id="…"><img/></li>…</ul>
+ *       <ol class="nd-carousel__dots"><li><a class="nd-carousel__dot" href="#…">1</a></li>…</ol>
+ *     </div>
+ *
+ * ⚠️ 这是**零 JS** 的 `scroll-snap` 轮播：`ul` 必须去掉列表符号，
+ * `ol` 也必须去掉——否则圆点会渲染成 "1. 1 / 2. 2"（实测踩过）。
+ * 锚点跳转由浏览器原生处理，不需要运行时。
+ * ======================================================================= */
+
+.nd-carousel {
+  margin: 1em 0;
+}
+
+.nd-carousel__track {
+  display: flex;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  scrollbar-width: thin;
+}
+
+.nd-carousel__slide {
+  flex: 0 0 auto;
+  max-width: 100%;
+  scroll-snap-align: start;
+}
+
+.nd-carousel__slide img {
+  display: block;
+  max-width: 100%;
+  border-radius: var(--nd-radius, 6px);
+}
+
+.nd-carousel__dots {
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+  margin: 0.5em 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.nd-carousel__dot {
+  display: block;
+  min-width: 1.5em;
+  padding: 0 0.3em;
+  font-size: 0.75em;
+  line-height: 1.5;
+  text-align: center;
+  text-decoration: none;
+  color: var(--nd-text-3, var(--ink-3, #6b7280));
+  border: 1px solid var(--nd-border, var(--border, #e4e7ea));
+  border-radius: 999px;
+}
+
+.nd-carousel__dot:hover {
+  color: var(--nd-text, var(--ink-1, #1f2328));
 }

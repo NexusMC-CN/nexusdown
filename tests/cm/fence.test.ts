@@ -152,15 +152,15 @@ describe('decorateFencedCode —— 围栏按行藏 + 卡片式背景', () => {
     }
   })
 
-  it('揭示态：围栏可见（没有 HIDE），背景 line 装饰保留', () => {
+  it('揭示态：围栏可见（没有 HIDE），且**没有行装饰**（纯源码，不套代码块壳）', () => {
     const c = collectFence(DOC, 6)
 
     expect(c.ranges.filter(isHide)).toHaveLength(0)
     expect(c.ranges.filter(isWidget)).toHaveLength(0)
     expect(c.atomicRanges).toHaveLength(0)
-    expect(spans(c.ranges.filter((r) => isLine(r, FIRST)))).toEqual([[0, 0]])
-    expect(spans(c.ranges.filter((r) => isLine(r, PLAIN)))).toEqual([[6, 6]])
-    expect(spans(c.ranges.filter((r) => isLine(r, LAST)))).toEqual([[11, 11]])
+    expect(c.ranges.filter((r) => isLine(r, FIRST))).toHaveLength(0)
+    expect(c.ranges.filter((r) => isLine(r, PLAIN))).toHaveLength(0)
+    expect(c.ranges.filter((r) => isLine(r, LAST))).toHaveLength(0)
   })
 
   it('选区跨进代码块也算揭示（多行选区必须揭示被跨越的行）', () => {

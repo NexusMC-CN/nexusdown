@@ -27,6 +27,20 @@ const HIGHLIGHT = /^==([\s\S]+?)==/
 
 const EQUALS = 0x3d
 
+/**
+ * 高亮的**契约类名** —— 和编辑器侧（以后实现时）共用同一个。
+ *
+ * 为什么渲染侧也要类名：`<mark>` 是浏览器默认的黄底黑字，样式没法跟站点主题走；
+ * 而编辑器里高亮迟早要用 `.nd-highlight` 这个类做 mark + 揭示。
+ * 两侧共用类名之后，样式只需要在 `src/shared/blocks.css` 写一条
+ * `mark, .nd-highlight { … }` —— 渲染侧没有这个类时靠标签选择器兜住，
+ * 加上了就自动一致，**不靠人工同步**。
+ *
+ * ⚠️ 编辑器侧**还没实现**高亮（lezer 不产这个节点，要走行内正则扫描）——
+ * 见 `docs/2026-10-19-render-contract.md` 的 phase 2 清单。
+ */
+const HIGHLIGHT_CLASS = 'nd-highlight'
+
 export function markPlugin(md: MarkdownIt): void {
   // Before `emphasis` so backticks (registered earlier) still win:
   // `` `==x==` `` is a code span, not a highlight.
@@ -41,7 +55,11 @@ export function markPlugin(md: MarkdownIt): void {
     const contentEnd = pos + match[0].length - 2
 
     if (!silent) {
-      state.push('mark_open', 'mark', 1).markup = '=='
+      // ⚠️ `attrSet()` 在 markdown-it 15 里**不返回 token**（返回 `undefined`）——
+      // 不能链式调用，否则报 `Cannot set properties of undefined (setting 'markup')`。
+      const open = state.push('mark_open', 'mark', 1)
+      open.attrSet('class', HIGHLIGHT_CLASS)
+      open.markup = '=='
       // Tokenise the inner range in place, the way markdown-it's own `sub`/`sup`
       // plugins do: `tokenize` only walks `[pos, posMax)`, and the post-process
       // pass (`ruler2`) still runs exactly once, on the outer `parse`.

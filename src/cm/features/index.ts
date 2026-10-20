@@ -1,17 +1,21 @@
-import { indexFeatures, type EditorFeature } from '../feature';
+import { indexFeatures, type EditorFeature, type NormalizedFeatureIndex } from '../feature';
+import { attrsFeature } from './attrs';
 import { emojiFeature } from './emoji';
 import { embedFeature } from './embed';
+import { highlightFeature } from './highlight';
 import { createMathFeature, mathFeature, type MathRenderer } from './math';
 import { createMentionFeature, mentionFeature, type MentionResolutions } from './mention';
 import { tableFeature } from './table';
+import { tabsFeature } from './tabs';
 
 /**
  * 所有**编辑器侧**功能模块。
  *
  * ⚠️ 加一个新功能 = 加一行 `import` + 数组里加一项。**不要改 `plugin.ts`。**
  *
- * 数组顺序 = 注册顺序。`indexFeatures` 会拒绝「同一个节点名被两个功能认领」，
- * 所以顺序本身不影响正确性 —— 但按字母排方便查。
+ * 数组顺序 = 注册顺序 = **同一节点上多个功能的执行顺序**（`priority` 相同时）。
+ * 一个节点可以被多个功能认领（见 `feature.ts` 的 `EditorFeature.nodes`），
+ * 所以顺序不再只是"方便查" —— 按字母排仍然是好习惯，但真正决定先后的是 `priority`。
  *
  * ⚠️ 这里用的是 math 的**默认实例**（没有注入渲染函数）。真实装配走
  * `createEditorFeatureMap()`，它会把消费方注入的渲染函数带进去。
@@ -22,15 +26,19 @@ export const EDITOR_FEATURES: readonly EditorFeature[] = [
   tableFeature,
   embedFeature,
   mentionFeature,
+  highlightFeature,
+  attrsFeature,
+  tabsFeature,
 ];
 
 /**
- * `节点名 → 认领它的功能`。`plugin.ts` 用它分发。
+ * `节点名 → 认领它的功能列表`。`plugin.ts` 用它分发。
  *
- * 建索引时就会检查冲突：两个功能认领同一个节点名会**直接抛错**（而不是悄悄后者覆盖前者）——
- * 这种冲突表现出来是"某个元素突然不渲染了"，很难查，所以宁可在启动时炸。
+ * 建索引时只拦一种冲突：**同一个功能重复认领同一节点**（装配错了，表现是同区间
+ * 推两条 replace → CM6 崩）。不同功能共享节点是**允许**的 —— `math` 与 `mention`
+ * 都认 `Paragraph`，各看各的文本判据（见 `feature.ts` 的 `EditorFeature.nodes`）。
  */
-export const EDITOR_FEATURE_BY_NODE = indexFeatures(EDITOR_FEATURES);
+export const EDITOR_FEATURE_BY_NODE: NormalizedFeatureIndex = indexFeatures(EDITOR_FEATURES);
 
 /**
  * 按选项装配功能表 —— 把消费方注入的**装配期配置**交给对应功能。
@@ -49,7 +57,7 @@ export const EDITOR_FEATURE_BY_NODE = indexFeatures(EDITOR_FEATURES);
  */
 export function createEditorFeatureMap(
   opts: { mathRenderer?: MathRenderer; mentions?: MentionResolutions } = {},
-): ReadonlyMap<string, EditorFeature> {
+): NormalizedFeatureIndex {
   if (!opts.mathRenderer && !opts.mentions) return EDITOR_FEATURE_BY_NODE;
   return indexFeatures([
     emojiFeature,
@@ -57,5 +65,8 @@ export function createEditorFeatureMap(
     tableFeature,
     embedFeature,
     opts.mentions ? createMentionFeature(opts.mentions) : mentionFeature,
+    highlightFeature,
+    attrsFeature,
+    tabsFeature,
   ]);
 }

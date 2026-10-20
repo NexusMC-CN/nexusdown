@@ -40,6 +40,12 @@ export class CodeFenceHeaderWidget extends WidgetType {
     private readonly folded = false,
     /** 开围栏的文档位置 —— 折叠状态用它当 key（见 `fold.ts`）。 */
     private readonly from = -1,
+    /**
+     * 标题覆盖 —— 来自围栏后一行的 `{title="…"}` 属性行
+     * （`docs/dialect-extensions.md` §0）。和显示侧用同一个 `renderCodeHeaderHtml`，
+     * 所以两侧标题栏逐字一致。
+     */
+    private readonly title?: string,
   ) {
     super()
   }
@@ -51,7 +57,12 @@ export class CodeFenceHeaderWidget extends WidgetType {
    * 三个字段都要比：`folded` 变了要换箭头，`from` 变了按钮会 dispatch 到错的位置。
    */
   override eq(other: CodeFenceHeaderWidget): boolean {
-    return other.info === this.info && other.folded === this.folded && other.from === this.from
+    return (
+      other.info === this.info &&
+      other.folded === this.folded &&
+      other.from === this.from &&
+      other.title === this.title
+    )
   }
 
   override toDOM(view?: EditorView): HTMLElement {
@@ -67,6 +78,7 @@ export class CodeFenceHeaderWidget extends WidgetType {
     holder.innerHTML = renderCodeHeaderHtml(this.info, {
       interactive,
       folded: this.folded,
+      title: this.title,
     })
     const header = holder.firstElementChild as HTMLElement
     if (interactive && view) this.wireToggle(header, view)

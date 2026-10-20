@@ -1,0 +1,46 @@
+/**
+ * 步骤列表（`{.steps}`）—— **编辑器侧**的序号圆点。
+ *
+ * 渲染侧用 CSS counter（`src/shared/blocks.css` 的 `.nd-steps`）；
+ * 编辑器侧每个 `ListMark` 被替换成 `StepMarkerWidget`，序号由 `decorate/list.ts`
+ * 按 ListItem 兄弟顺序算出来。两边的数字必须一致 —— 这是「编辑时看到的 = 发布出来的」
+ * 在变体上的延伸。
+ */
+.nd-step-marker {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.35em;
+  height: 1.35em;
+  margin-right: 0.3em;
+  font-size: 0.74em;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--nd-brand, #0b6bcb);
+  background: var(--nd-brand-soft, #e8f0fe);
+  border-radius: 50%;
+  vertical-align: 0.15em;
+}
+
+/* 步骤项的整行稍微左移一点，让圆点和正文的基线更稳（不写 padding 之外的几何）。 */
+.cm-line.nd-step-item {
+  padding-left: 0.15em;
+}
+
+
+/* ---------------------------------------------------------------- 卡片列表 */
+
+/**
+ * `{.cards}`：整行画成一张卡片。
+ *
+ * ⚠️ 用 `box-shadow: inset` 而不是 `border` —— border 会改变行盒尺寸，
+ * CM6 的高度表按行测量，能不改就不改（同 `.nd-code-header` 的教训）。
+ * 纵向不写 padding：那会改行高；横向 padding 只影响文字起点。
+ */
+.cm-line.nd-card-item {
+  background: var(--nd-surface, #fff);
+  box-shadow: inset 0 0 0 1px var(--nd-border, #e4e7ea);
+  border-radius: 8px;
+  padding-left: 0.6em;
+  padding-right: 0.6em;
+}

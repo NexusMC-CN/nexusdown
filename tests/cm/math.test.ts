@@ -30,7 +30,8 @@ import {
   MathWidget,
   type MathRenderer,
 } from '../../src/cm/features/math.js'
-import type { EditorFeature } from '../../src/cm/feature.js'
+import { createMentionFeature } from '../../src/cm/features/mention.js'
+import type { EditorFeature, FeatureIndex } from '../../src/cm/feature.js'
 import { nexusdownLivePreview } from '../../src/cm/plugin.js'
 
 type Kind = 'line' | 'mark' | 'replace' | 'widget'
@@ -64,7 +65,7 @@ function mount(doc: string, cursor: number = doc.length) {
  * 每次访问都现取，所以 dispatch 之后再读也是最新的。
  */
 function mountWith(
-  features: ReadonlyMap<string, EditorFeature>,
+  features: FeatureIndex,
   doc: string,
   cursor: number = doc.length,
 ) {
@@ -262,7 +263,7 @@ describe('math —— 不该被当成公式的写法', () => {
     expect(read(instance)).toHaveLength(0)
   })
 
-  it('`$$block$$` 不产生装饰（块级用围栏，`$$` 不是行内公式）', () => {
+  it('没注入渲染函数时 `$$x$$` 不产生装饰（源码原样 —— `$$` 的降级形态）', () => {
     const { instance } = mount('$$block$$\n\n尾部')
     expect(read(instance)).toHaveLength(0)
   })
@@ -550,5 +551,161 @@ describe('math —— 与 embed 的分流（同一个文档里各走各的）', 
     expect(ctors.filter((c) => c === 'MathBlockWidget')).toHaveLength(1)
     expect(ctors.filter((c) => c === 'CodeFenceHeaderWidget')).toHaveLength(1)
     expect(ctors.filter((c) => c === 'EmbedCardWidget')).toHaveLength(0)
+  })
+})
+
+/* ==========================================================================
+ * 块级 `$$` 正典（契约 §2）
+ *
+ * lezer 把整个 `$$…$$` 解析成**一个 `Paragraph`**，所以 `math` 除了 `Document`
+ * 还认领 `Paragraph` —— 而 `Paragraph` **已经被 `mention` 认领**。
+ * 这两条 describe 一起守着「注册表支持同一节点多个功能」这件事：
+ *
+ * 1. 本节：`$$` 能被识别；
+ * 2. 下面那节：同一个节点上的 `mention` **没有**被 `$$` 挤掉。
+ *
+ * `DOLLAR_DOC` 的坐标：
+ *   行1 `$$` [0,2)；行2 `x^2` [3,6)；行3 `$$` [7,9)。
+ *   整块 = [0,9)（首行行首 → 末行行尾）。
+ * ======================================================================== */
+const DOLLAR_DOC = '$$\nx^2\n$$\n\n尾部'
+
+/** 注入渲染函数的 math（**两个节点都认**，和真实装配表一致）。 */
+function dollarFeatures(render: MathRenderer) {
+  const math = createMathFeature(render)
+  return new Map([
+    ['Document', math],
+    ['Paragraph', math],
+  ])
+}
+
+describe('math —— 块级 `$$`（注入了渲染函数）', () => {
+  it('★ 整块 → 一个 block:true 的跨行 replace，tex 是开闭围栏之间的内容', () => {
+    const render = makeRenderer()
+    const { view, instance } = mountWith(dollarFeatures(render), DOLLAR_DOC)
+    const ds = read(instance)
+
+    expect(ds).toHaveLength(1)
+    expect(ds[0]!.kind).toBe('widget')
+    expect([ds[0]!.from, ds[0]!.to]).toEqual([0, 9])
+    expect(view.state.doc.sliceString(0, 9)).toBe('$$\nx^2\n$$')
+
+    const spec = values(instance)[0]!.spec as { block?: boolean; widget?: unknown }
+    expect(spec.block).toBe(true)
+    expect(spec.widget).toBeInstanceOf(MathBlockWidget);
+    expect(render.calls.at(-1)!.tex).toBe('x^2')
+    expect(render.calls.at(-1)!.options!.displayMode).toBe(true)
+  })
+
+  it('块级 replace 不登记原子区间（同围栏 / 表格）', () => {
+    const { instance } = mountWith(dollarFeatures(makeRenderer()), DOLLAR_DOC)
+    expect(instance.atomicDecorations.size).toBe(0)
+  })
+
+  it('单行 `$$x^2$$` 也整块替换（区间是那一整行）', () => {
+    const { instance } = mountWith(dollarFeatures(makeRenderer()), '$$x^2$$\n\n尾部')
+    expect(spans(read(instance), 'widget')).toEqual([[0, 7]])
+  })
+
+  it('★ 行尾空白不影响单行形式（`$$x^2$$   ` 也算公式）', () => {
+    const { instance } = mountWith(dollarFeatures(makeRenderer()), '$$x^2$$   \n\n尾部')
+    expect(spans(read(instance), 'widget')).toEqual([[0, 10]])
+  })
+
+  it('★ 光标落进块里 → 不推任何装饰（源码原样，用户要能改）', () => {
+    const { instance } = mountWith(dollarFeatures(makeRenderer()), DOLLAR_DOC, 4)
+    expect(read(instance)).toHaveLength(0)
+  })
+
+  it('★ 点 widget → 光标落到门口并记下 editingBlock（揭示态）', () => {
+    const { view, instance } = mountWith(dollarFeatures(makeRenderer()), '前言\n\n' + DOLLAR_DOC)
+    expect(read(instance)).toHaveLength(1)
+
+    view.dom.querySelector('.nd-math-block')!.dispatchEvent(
+      new MouseEvent('mousedown', { bubbles: true, cancelable: true }),
+    )
+
+    // `前言\n\n` 是 4 个字符 → 块从 4 开始，门口是 3。
+    expect(view.state.selection.main.head).toBe(3)
+    expect(read(instance)).toHaveLength(0)
+  })
+})
+
+describe('math —— 块级 `$$` 的边界（不装饰的写法）', () => {
+  it('★ 没注入渲染函数 → 源码原样（`$$` 没有围栏可退，露着源码就是最接近的形态）', () => {
+    const math = mathFeature
+    const { instance } = mountWith(
+      new Map([
+        ['Document', math],
+        ['Paragraph', math],
+      ]),
+      DOLLAR_DOC,
+    )
+    expect(read(instance)).toHaveLength(0)
+  })
+
+  it('★ `$$5` 不是公式（`$$` 后紧跟普通文本）', () => {
+    const { instance } = mountWith(dollarFeatures(makeRenderer()), '$$5\nx\n$$\n\n尾部')
+    expect(read(instance)).toHaveLength(0)
+  })
+
+  it('未闭合的 `$$` 不是公式', () => {
+    const { instance } = mountWith(dollarFeatures(makeRenderer()), '$$\nx^2\n\n尾部')
+    expect(read(instance)).toHaveLength(0)
+  })
+
+  it('空内容 `$$\\n$$` 不装饰（否则是一个点不到的空块）', () => {
+    const { instance } = mountWith(dollarFeatures(makeRenderer()), '$$\n$$\n\n尾部')
+    expect(read(instance)).toHaveLength(0)
+  })
+
+  it('★ 引用块里的 `$$` **不**在编辑器里渲染（只认顶层段落；渲染侧会渲染）', () => {
+    const { instance } = mountWith(dollarFeatures(makeRenderer()), '> $$\n> x\n> $$\n\n尾部')
+    // 这条钉的是**已知的覆盖差异**（契约 §2）：块级 replace 会盖掉整行，
+    // 而引用块的行上已经有 `Decoration.line`，两者叠加的表现没实测过，所以不做。
+    expect(spans(read(instance), 'widget')).toEqual([])
+  })
+})
+
+describe('math —— `$$` 与 mention 共用 `Paragraph`（注册表改造的回归）', () => {
+  /**
+   * ★★ **这一条是「同一节点多个功能」的核心回归**。
+   *
+   * `$$` 块在 lezer 里是一个 `Paragraph`，而 `Paragraph` 早就被 `mention` 认领了。
+   * 以前 `indexFeatures` 会拒绝第二个认领者（启动即抛），于是 `$$` 只能另起炉灶。
+   * 现在注册表允许共享节点 —— 这条测试保证：**加了 `$$` 之后，提及照旧工作**。
+   */
+  it('★ 同一份功能表里，提及卡片和 `$$` 公式各画各的', () => {
+    const math = createMathFeature(makeRenderer())
+    const { instance } = mountWith(
+      new Map<string, EditorFeature | readonly EditorFeature[]>([
+        ['Document', math],
+        ['Paragraph', [math, createMentionFeature()]],
+      ]),
+      '@nexus-optimizer\n\n$$\nx^2\n$$\n\n尾部',
+    )
+    const ctors = widgetCtors(instance)
+
+    // 提及：独占一段 → 卡片（没注入解析结果也画，只是没有图标）。
+    expect(ctors).toContain('MentionCardWidget')
+    // 公式：`$$` 块 → 块级公式 widget。
+    expect(ctors).toContain('MathBlockWidget')
+  })
+
+  it('★ 段落里没有 `$$` 时 math 什么都不推（按文本前缀 no-op，不干扰 mention）', () => {
+    const render = makeRenderer()
+    const { instance } = mountWith(
+      new Map<string, EditorFeature | readonly EditorFeature[]>([
+        ['Document', createMathFeature(render)],
+        ['Paragraph', [createMathFeature(render), createMentionFeature()]],
+      ]),
+      '这句话提到 @nexus-optimizer 很好用\n\n尾部',
+    )
+    const ctors = widgetCtors(instance)
+
+    expect(ctors).toContain('MentionWidget')
+    expect(ctors).not.toContain('MathBlockWidget')
+    // math 的段落分支一次渲染都没触发（行内/围栏那条路在这个文档里也没有东西）。
+    expect(render.calls).toHaveLength(0)
   })
 })

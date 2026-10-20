@@ -113,10 +113,130 @@ describe('math 渲染侧 —— 行内公式', () => {
     expect(katex.calls).toHaveLength(0)
   })
 
-  it('`$$x$$` 不算行内公式（块级走围栏）', () => {
+  it('★ `$$x$$` 不是行内公式 —— 它走 `$$` 的 **block rule**（见下面那一组）', () => {
     const katex = makeStub()
-    build(katex).render('$$x$$')
+    const html = build(katex).render('$$x$$')
+
+    // 只有一次调用，而且是**块级**（displayMode: true），不是行内那条路。
+    expect(katex.calls).toHaveLength(1)
+    expect(katex.calls[0]!.options!.displayMode).toBe(true)
+    expect(html).toContain('<div class="nd-math nd-math-block">')
+  })
+})
+
+describe('math 渲染侧 —— 块级 `$$` 正典', () => {
+  it('★ 多行 `$$ … $$` → KaTeX displayMode，包在 `.nd-math-block` 里', () => {
+    const katex = makeStub()
+    const html = build(katex).render('$$\n\\int_0^1 x\\,dx\n$$')
+
+    expect(katex.calls).toHaveLength(1)
+    expect(katex.calls[0]!.tex).toBe('\\int_0^1 x\\,dx')
+    expect(katex.calls[0]!.options!.displayMode).toBe(true)
+    expect(html).toBe(
+      '<div class="nd-math nd-math-block">' +
+        '<span class="katex-stub" data-tex="\\int_0^1 x\\,dx" data-display="true"></span>' +
+        '</div>',
+    )
+  })
+
+  it('★ 单行 `$$x^2$$` 也是块级公式', () => {
+    const katex = makeStub()
+    build(katex).render('$$x^2$$')
+
+    expect(katex.calls).toHaveLength(1)
+    expect(katex.calls[0]!.tex).toBe('x^2')
+    expect(katex.calls[0]!.options!.displayMode).toBe(true)
+  })
+
+  it('★ 行尾空白不影响单行形式（`$$x^2$$   ` 也算公式）', () => {
+    const katex = makeStub()
+    build(katex).render('$$x^2$$   ')
+    expect(katex.calls).toHaveLength(1)
+    expect(katex.calls[0]!.tex).toBe('x^2')
+  })
+
+  it('★ `$$` 与 ` ```math ` 产出**逐字节一致**的 HTML（围栏是别名）', () => {
+    const dollar = build(makeStub()).render('$$\nE = mc^2\n$$')
+    const fence = build(makeStub()).render('```math\nE = mc^2\n```')
+    expect(dollar).toBe(fence)
+
+    // 没注入 KaTeX 的降级形态也必须一致（`<pre class="nd-math-source">`）。
+    const dollarFallback = build().render('$$\nE = mc^2\n$$')
+    const fenceFallback = build().render('```math\nE = mc^2\n```')
+    expect(dollarFallback).toBe(fenceFallback)
+    expect(dollarFallback).toContain('<pre class="nd-math-source">E = mc^2</pre>')
+  })
+
+  it('★ `$$5` 不是公式（`$$` 后不能紧跟普通文本，避免把价格吞进公式块）', () => {
+    const katex = makeStub()
+    // 首行是 `$$5`：`$$` 后面跟着正文 → 不是开围栏，后面那个 `$$` 也就配不上。
+    const html = build(katex).render('$$5\nx\n$$')
     expect(katex.calls).toHaveLength(0)
+    expect(html).toContain('$$5')
+  })
+
+  it('★ 行首 `$$5` 单独成段也不开公式', () => {
+    const katex = makeStub()
+    const html = build(katex).render('$$5')
+    expect(katex.calls).toHaveLength(0)
+    expect(html).toContain('$$5')
+  })
+
+  it('未闭合的 `$$` 不是公式（源码原样）', () => {
+    const katex = makeStub()
+    const html = build(katex).render('$$\nx^2')
+    expect(katex.calls).toHaveLength(0)
+    expect(html).toContain('$$')
+    expect(html).toContain('x^2')
+  })
+
+  it('★ 空内容 `$$\\n$$` 不是公式（否则产出看不见的空 div）', () => {
+    const katex = makeStub()
+    const html = build(katex).render('$$\n$$')
+    expect(katex.calls).toHaveLength(0)
+    expect(html).not.toContain('nd-math-block')
+  })
+
+  it('`$$x$$ 后面还有字` 不是公式（闭合 `$$` 必须在行尾）', () => {
+    const katex = makeStub()
+    const html = build(katex).render('$$x$$ 后面还有字')
+    expect(katex.calls).toHaveLength(0)
+    expect(html).toContain('后面还有字')
+  })
+
+  it('行内 `$x$` 不受影响（`$$` 走块级，单 `$` 还是行内）', () => {
+    const katex = makeStub()
+    build(katex).render('行内 $x$ 与块级：\n\n$$\ny\n$$')
+    expect(katex.calls).toHaveLength(2)
+    expect(katex.calls[0]!.options!.displayMode).toBe(false)
+    expect(katex.calls[1]!.options!.displayMode).toBe(true)
+  })
+
+  it('★ 引用块 / 列表里的 `$$` 也能渲染（block rule 在容器里同样生效）', () => {
+    const katex = makeStub()
+    build(katex).render('> $$\n> x\n> $$')
+    expect(katex.calls).toHaveLength(1)
+    expect(katex.calls[0]!.tex).toBe('x')
+
+    const katex2 = makeStub()
+    build(katex2).render('- $$\n  y\n  $$')
+    expect(katex2.calls).toHaveLength(1)
+    expect(katex2.calls[0]!.tex).toBe('y')
+  })
+
+  it('缩进 4 格 = 缩进代码块，里面的 `$$` 是字面量', () => {
+    const katex = makeStub()
+    const html = build(katex).render('    $$\n    x\n    $$')
+    expect(katex.calls).toHaveLength(0)
+    expect(html).toContain('<pre><code>')
+  })
+
+  it('`$$` 块之间的普通段落不被吞掉', () => {
+    const katex = makeStub()
+    const html = build(katex).render('前\n\n$$\nx\n$$\n\n后')
+    expect(katex.calls).toHaveLength(1)
+    expect(html).toContain('<p>前</p>')
+    expect(html).toContain('<p>后</p>')
   })
 })
 

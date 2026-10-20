@@ -140,6 +140,14 @@ export interface CodeHeaderRenderOptions {
   interactive?: boolean
   /** 当前折叠状态 —— 决定按钮画哪个箭头。 */
   folded?: boolean
+  /**
+   * 标题覆盖 —— 来自 `{title="…"}` 属性行（`docs/dialect-extensions.md` §0）。
+   *
+   * 属性行比 info string 更晚出现、也更明确，所以**优先于** `parseFenceInfo`
+   * 从 info 里切出来的 title。编辑器侧的标题栏暂时不读它（属性行还是 chip），
+   * 所以这个字段目前只给显示侧用。
+   */
+  title?: string
 }
 
 /**
@@ -163,7 +171,8 @@ export interface CodeHeaderRenderOptions {
  * （不会出现空徽章）。
  */
 export function renderCodeHeaderHtml(info: string, opts: CodeHeaderRenderOptions = {}): string {
-  const { lang, title } = parseFenceInfo(info)
+  const { lang, title: infoTitle } = parseFenceInfo(info)
+  const title = opts.title ?? infoTitle
   const parts: string[] = [
     '<span class="nd-code-dots" aria-hidden="true"><i></i><i></i><i></i></span>',
   ]

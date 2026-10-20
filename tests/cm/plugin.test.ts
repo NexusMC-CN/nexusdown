@@ -7,6 +7,7 @@ import { decorateBlockquote } from '../../src/cm/decorate/blockquote';
 import { decorateHeading } from '../../src/cm/decorate/heading';
 import { decorateInline } from '../../src/cm/decorate/inline';
 import { HIDE, MARK_CLASS } from '../../src/cm/decorate/shared';
+import { indexFeatures, type EditorFeature } from '../../src/cm/feature';
 import { foldedBlocks, toggleFold } from '../../src/cm/fold';
 import { nexusdownLivePreview, type LivePreviewPluginValue } from '../../src/cm/plugin';
 import type {
@@ -357,5 +358,32 @@ describe('nexusdownLivePreview', () => {
     expect(calls).toHaveLength(1);
     expect(view.visibleRanges.length).toBeGreaterThan(0);
     expect(instance.decorations.size).toBe(2); // line + HIDE `# `
+  });
+
+  it('★ 同一节点上的多个功能都会跑到，顺序 = 注册表里的列表顺序', () => {
+    /*
+     * 这条守着「一个 lezer 节点可以被多个功能认领」（`feature.ts` 的
+     * `EditorFeature.nodes`）：`math` 与 `mention` 都认 `Paragraph`。
+     * 骨架必须**遍历整个列表**，不能只取第一个 —— 只取第一个的表现是
+     * 「加了 `$$` 之后提及突然不渲染了」，而且零报错。
+     */
+    const order: string[] = [];
+    const feature = (name: string): EditorFeature => ({
+      name,
+      nodes: ['Paragraph'],
+      decorate: () => order.push(name),
+    });
+
+    const plugin = nexusdownLivePreview({ features: indexFeatures([feature('first'), feature('second')]) });
+    const state = EditorState.create({
+      doc: '一个段落\n',
+      extensions: [markdown({ base: markdownLanguage, addKeymap: false }), plugin],
+    });
+    const parent = document.createElement('div');
+    document.body.appendChild(parent);
+    const view = new EditorView({ state, parent });
+    views.push(view);
+
+    expect(order).toEqual(['first', 'second']);
   });
 });

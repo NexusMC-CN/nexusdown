@@ -21,6 +21,7 @@
  */
 import type { MarkdownIt, RendererRule } from 'markdown-it'
 import { renderCodeHeaderHtml } from '../cm/widgets/code-header-parts.js'
+import { ATTRS_META, parseLineRanges } from '../shared/attrs.js'
 import { RENDER_FEATURES } from './features/index.js'
 import type { RenderFeatureContext } from './feature.js'
 import { TASK_ITEM_META } from './task-list.js'
@@ -109,17 +110,44 @@ export function applyNexusdownRenderer(md: MarkdownIt): void {
      *
      * 显示侧**不带折叠按钮**：这里的 HTML 是死的，没人接事件。
      */
-    const header = renderCodeHeaderHtml(info)
+    // 属性行（见 render/features/attrs.ts）：title / lines / highlight。
+    const attrs = token.meta?.[ATTRS_META] as
+      | { title?: string; lines?: unknown; highlight?: string }
+      | undefined
+    const header = renderCodeHeaderHtml(info, attrs?.title ? { title: attrs.title } : {})
+
+    const content = withoutTrailingNewline(token.content)
+    const showLines = attrs?.lines !== undefined
+    const highlighted = parseLineRanges(attrs?.highlight)
+
+    /*
+     * 行号 / 行高亮需要**逐行元素**：`<code>` 里是一整段文本，CSS counter 数不了行。
+     * 所以只在真的用到这两个属性时才把内容拆成 `<span class="nd-code-line">`
+     * （普通代码块的 HTML 保持原样，快照/消费方 CSS 不受影响）。
+     */
+    let body: string
+    if (showLines || highlighted.size > 0) {
+      body = content
+        .split('\n')
+        .map((line, index) => {
+          const hl = highlighted.has(index + 1) ? ' nd-code-line--hl' : ''
+          return `<span class="nd-code-line${hl}">${escapeHtml(line)}</span>`
+        })
+        .join('')
+    } else {
+      body = escapeHtml(content)
+    }
+
     return (
       `<div class="nd-code-fence">${header}` +
-      `<pre><code${className}>${escapeHtml(withoutTrailingNewline(token.content))}</code></pre></div>`
+      `<pre${showLines ? ' class="nd-code-lines"' : ''}><code${className}>${body}</code></pre></div>`
     )
   }
 
   rules.code_block = (tokens, idx) =>
     `<pre><code>${escapeHtml(withoutTrailingNewline(tokens[idx]!.content))}</code></pre>`
 
-  applyTableRules(rules)
+  applyTableRules(rules, escapeHtml)
 
   /*
    * ★ **功能模块**（`src/render/features/`）。
@@ -164,8 +192,24 @@ function applyNoBlockSeparators(md: MarkdownIt): void {
  * `<tbody>` pair is dropped; a table with no body rows still gets its `<tbody>`
  * because markdown-it always emits the header pair.
  */
-function applyTableRules(rules: Record<string, RendererRule>): void {
-  rules.table_open = () => '<table>'
+function applyTableRules(
+  rules: Record<string, RendererRule>,
+  escapeHtml: (value: string) => string,
+): void {
+  /*
+   * 表格开标签要带 `class`/`id`（来自 `{.fields}` / `{#tbl-1}`）。
+   * 属性由 `render/features/attrs.ts` 挂在 `token.meta[ATTRS_META]` 上，
+   * 这里只负责把 token 自己的 attrs 渲染出来。
+   *
+   * `caption="…"` 会渲染成 `<caption>`（`render/features/attrs.ts` 挂在 meta 上）；
+   * 编辑器侧的 `TableWidget` 读同一行属性并插同一个 `<caption>`，两侧同构。
+   */
+  rules.table_open = (tokens, idx, options, env, self) => {
+    const token = tokens[idx]!
+    const attrs = token.meta?.[ATTRS_META] as { caption?: string } | undefined
+    const caption = attrs?.caption ? `<caption>${escapeHtml(attrs.caption)}</caption>` : ''
+    return `<table${self.renderAttrs(token)}>${caption}`
+  }
   rules.table_close = () => '</table>'
   rules.thead_open = () => '<tbody>'
   rules.thead_close = () => ''

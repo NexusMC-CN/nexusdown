@@ -1,6 +1,6 @@
 import type { EditorSelection, Text } from '@codemirror/state';
 
-import type { DecorateContext, DecorationRanges, MarkdownNode } from './types';
+import type { DecorateContext, DecorationRanges, MarkdownNode, SourceRange } from './types';
 
 /**
  * 一个**编辑器侧功能模块**。
@@ -44,8 +44,43 @@ export interface EditorFeature {
    *
    * 想看某个语法会产出什么节点名，可以在 `tests/cm/tree.test.ts` 里加一条，
    * 它会打印整棵语法树。
+   *
+   * ## ★ 一个节点可以被**多个**功能认领（本次改动）
+   *
+   * 以前这里是一条硬约束：`indexFeatures` 发现两个功能认领同一节点名就**启动即抛**。
+   * 那条规则本意是好的（悄悄覆盖的表现是「某个元素突然不渲染」，极难查），但它把
+   * 一个**正常需求**也堵死了：两个语法落在**同一个 lezer 节点**上。
+   *
+   * 实测的两个例子：
+   *
+   * - `$$…$$` 块级数学（`features/math.ts`）—— lezer 把它整个解析成**一个 `Paragraph`**；
+   * - `@slug` 提及（`features/mention.ts`）—— 也认 `Paragraph`。
+   *
+   * 两者**互不相干**（一个看行首是不是 `$$`，一个找 `@`），天然可以共存。
+   * 所以注册表改成 `节点名 → 功能列表`，各功能按**自己的文本判据 no-op**。
+   *
+   * ⚠️ 但「同一个功能**重复**认领同一节点」仍然会抛 —— 那一定是装配错了
+   * （同一个功能注册两遍），表现是**同一条 replace 推两次**、CM6 直接崩。
    */
   nodes: readonly string[];
+
+  /**
+   * 同一节点上多个功能的**执行顺序**。数值**大的先跑**，默认 `0`；
+   * 同优先级按**注册顺序**（`EDITOR_FEATURES` 数组里的先后），也就是稳定的。
+   *
+   * ## 为什么需要它
+   *
+   * 多个功能认领同一节点之后，「谁先推装饰」变成可观察的行为：后推的 `replace`
+   * 会盖住先推的区间，而 `Decoration.set(ranges, true)` 的自动排序**不解决**
+   * 「同区间谁赢」—— 那是插入顺序决定的。不把它定死，就是「加一个功能、
+   * 另一个功能的行为悄悄变了」。
+   *
+   * ## 为什么是「大的先跑」而不是「小的先跑」
+   *
+   * `priority` 读作「优先级」：**更重要的先跑**。写成「小的先跑」的话，
+   * 想插到最前面得给一个负数，读代码的人会先怀疑自己看错了符号。
+   */
+  priority?: number;
 
   /**
    * 这个功能产出的是**块级替换**（`Decoration.replace({ block: true })`）。
@@ -97,24 +132,86 @@ export interface EditorFeature {
      * （带 `folded` 等 ✓），而这个是**状态层**的 ✓；混在一起会让"谁负责填它"变得含糊 ✓。
      */
     blockEditing?: number | null,
+    /**
+     * 正在「看源码」的区间（见 `types.ts` 的 `SourceRange`）。
+     *
+     * 块级功能如果**包含**这段区间，应该跳过自己 —— 典型是 `tabs`（它认领
+     * `Document`，中心跳过的判据管不到它）。
+     */
+    editingRange?: SourceRange | null,
   ) => void;
 }
 
-/** 按节点名建索引：`节点名 → 认领它的功能`。后注册的覆盖先注册的。 */
-export function indexFeatures(
-  features: readonly EditorFeature[],
-): ReadonlyMap<string, EditorFeature> {
-  const map = new Map<string, EditorFeature>();
+/**
+ * 注册表的**输入**形态：`节点名 → 一个功能` 或 `节点名 → 功能列表`。
+ *
+ * 为什么允许「单个功能」这种形态：`nexusdownLivePreview({ features })` 是**公开**
+ * 选项，消费方和本仓库的单测都是手写 `new Map([['Document', mathFeature]])` 这种表。
+ * 改注册表只应该让**多认领**成为可能，不该顺手把所有现有调用方改成数组 ——
+ * 那是一次没有收益的破坏性变更。`plugin.ts` 在入口处统一归一化（`toFeatureList`）。
+ */
+export type FeatureIndex = ReadonlyMap<string, EditorFeature | readonly EditorFeature[]>;
+
+/** 归一化之后的形态：**一定是数组**。`plugin.ts` 内部只认这个。 */
+export type NormalizedFeatureIndex = ReadonlyMap<string, readonly EditorFeature[]>;
+
+/** 把 `FeatureIndex` 的两种取值形态统一成数组。 */
+export function toFeatureList(value: EditorFeature | readonly EditorFeature[]): readonly EditorFeature[] {
+  return Array.isArray(value) ? value : [value as EditorFeature];
+}
+
+/** 把（可能是宽松形态的）功能表归一化成「节点名 → 功能列表」。 */
+export function normalizeFeatures(features: FeatureIndex): NormalizedFeatureIndex {
+  const out = new Map<string, readonly EditorFeature[]>();
+  for (const [node, value] of features) out.set(node, toFeatureList(value));
+  return out;
+}
+
+/**
+ * 按节点名建索引：`节点名 → 认领它的功能列表`。
+ *
+ * ## 列表顺序 = 执行顺序（稳定）
+ *
+ * 先按 `priority` 降序（大的先跑），**同优先级按注册顺序** ——
+ * `Array.prototype.sort` 自 ES2019 起是**稳定排序**，所以这里不需要自己记下标。
+ *
+ * ## 两种冲突，两种处理
+ *
+ * | 情况 | 处理 | 理由 |
+ * | --- | --- | --- |
+ * | 两个**不同**功能认领同一节点 | **允许**，进同一个列表 | `math` 与 `mention` 都要 `Paragraph`，各看各的文本前缀 |
+ * | 同一个功能**重复**认领同一节点 | **抛错** | 装配错了，表现是同区间推两条 replace → CM6 崩 |
+ *
+ * ⚠️ 第一种以前也是抛错的。见 `EditorFeature.nodes` 的注释：那条规则把
+ * 「两个语法落在同一个 lezer 节点上」这个**正常需求**也堵死了。
+ */
+export function indexFeatures(features: readonly EditorFeature[]): NormalizedFeatureIndex {
+  const map = new Map<string, EditorFeature[]>();
   for (const feature of features) {
     for (const node of feature.nodes) {
-      if (map.has(node)) {
-        throw new Error(
-          `[nexusdown] 节点 ${node} 被多个功能认领：` +
-            `${map.get(node)!.name} 与 ${feature.name}`,
-        );
+      const list = map.get(node);
+      if (!list) {
+        map.set(node, [feature]);
+        continue;
       }
-      map.set(node, feature);
+      /*
+       * 同一个功能重复认领同一节点 = 装配错误（不是「两个功能共享节点」）。
+       *
+       * ⚠️ 按 **`name`** 判而不是按对象标识：`name` 是约定好的唯一名字，
+       * 而装配错误最常见的样子恰恰是**造了两个不同对象**——
+       * 比如 `createEditorFeatureMap()` 里把 `createMathFeature()` 写了两遍。
+       * 只比对象标识的话那种错误查不出来，症状是「同一条 replace 推两次」。
+       */
+      if (list.some((claimed) => claimed.name === feature.name)) {
+        throw new Error(`[nexusdown] 功能 ${feature.name} 重复认领了节点 ${node}`);
+      }
+      list.push(feature);
     }
+  }
+
+  for (const list of map.values()) {
+    // 稳定排序：同 priority 保持注册顺序。
+    list.sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0));
   }
   return map;
 }

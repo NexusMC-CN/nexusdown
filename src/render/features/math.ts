@@ -1,7 +1,21 @@
 /**
  * `math` —— 渲染侧（契约：`docs/dialect-extensions.md` 第 2 节）。
  *
- * 语法：行内 `$E = mc^2$`；块级用 **` ```math ` 围栏**（不是 `$$`）。
+ * 语法：行内 `$E = mc^2$`；块级**正典是 `$$…$$`**，` ```math ` 围栏保留为**别名**
+ * （两者产出**逐字节一致**的 HTML，有测试锁着）。
+ *
+ * ## `$$` 为什么现在能做了（以前写的是「不做」）
+ *
+ * 老版本的理由是「`$$` 要两侧各写一个块级解析器，而围栏两侧都已经解析好了」。
+ * 那个理由只在**两侧各写一套判定**时成立 —— 现在的做法是：
+ *
+ * - **判定**只写一份，放 `src/shared/math-block.ts`，编辑器与渲染器共用；
+ * - 渲染侧这条 block rule 只负责「把行交给判定、把结果包成 token」；
+ * - 产出复用**围栏那条渲染路径**（`renderMath` + 同一个 `.nd-math-block` 外壳），
+ *   所以两种写法的 HTML 天然一致，不存在「两套渲染逻辑慢慢漂开」。
+ *
+ * 换来的收益是作者视角的：**一套语法记一件事**，而且 `$$` 在 GitHub / 绝大多数
+ * Markdown 工具里都认（` ```math ` 不认）。
  *
  * ## 最难的设计点：KaTeX 是可选依赖，而渲染是同步的
  *
@@ -59,8 +73,13 @@
  *   返回值，不再二次转义（二次转义会把公式里的 `<` 变成 `&lt;` 显示错）。
  *   降级路径则必须走 `ctx.escapeHtml`。
  */
-import type { MarkdownIt as MarkdownItInstance, RendererRule, StateInline } from 'markdown-it'
+import type { MarkdownIt as MarkdownItInstance, RendererRule, StateBlock, StateInline } from 'markdown-it'
 
+import {
+  isMathBlockFenceLine,
+  joinMathBlockLines,
+  parseSingleLineMathBlock,
+} from '../../shared/math-block.js'
 import type { RenderFeature, RenderFeatureContext } from '../feature.js'
 
 /**
@@ -135,9 +154,125 @@ export const KATEX_OPTIONS = {
 export const mathFeature: RenderFeature = {
   name: 'math',
   install(ctx) {
+    installDollarMathBlock(ctx)
     installInlineMath(ctx)
     installBlockMath(ctx)
   },
+}
+
+/** `$$…$$` 块的 token 类型。 */
+const DOLLAR_BLOCK_TOKEN = 'nd_math_block'
+
+/**
+ * 块级 `$$…$$` 的 block rule（正典形态）。
+ *
+ * ## 为什么是 block rule 而不是 core 后处理
+ *
+ * `$$` 跨行，而且**行数不定**。`rules.text` / inline 规则都只能在一行里活动；
+ * core 后处理拿到 token 流时，段落已经被切开了（`$$\n…\n$$` 会变成段落里带
+ * `softbreak` 的若干文本 token），再从 token 里还原「哪一行是围栏」既脆又慢。
+ * block rule 是 markdown-it 里唯一能在**分行阶段**吃掉整块的位置 ——
+ * 围栏（` ``` `）就是这么做出来的。
+ *
+ * ## 判定全部委托给 `shared/math-block.ts`
+ *
+ * 边界规则（`$$` 后不能紧跟普通文本、单行形式必须行尾闭合、空内容不算公式）
+ * 写在那一个文件里，**编辑器侧用的是同几个函数**。这里只做三件事：
+ * 把首行/末行切出来交给判定、用 `getLines` 取内容、把结果包成 token。
+ *
+ * ## ⚠️ 两个容易写错的点
+ *
+ * - **`silent` 必须给准确答案**：`paragraph` 规则会先用 `silent: true` 问「这一行
+ *   是不是块的开头」来决定段落到哪结束。这里**先把闭合行找完**再回 `true`，
+ *   否则「没闭合的 `$$`」会被判成块开头 → 段落被硬切两半 → 多出一个 `<p>`。
+ * - **`indent` 用 `state.sCount[startLine]`**（和围栏一致）：`getLines` 要按这个
+ *   宽度剥掉**容器前缀**（引用块的 `> `、列表缩进），否则内容里会带上 `> `。
+ *   代价是「缩进的 `$$` 块」内容会像围栏一样被 dedent —— 编辑器侧也按同样宽度
+ *   剥，所以两侧的 tex 仍然一致（见 `cm/features/math.ts`）。
+ */
+function installDollarMathBlock(ctx: RenderFeatureContext): void {
+  const { md } = ctx
+
+  md.block.ruler.before(
+    'fence',
+    DOLLAR_BLOCK_TOKEN,
+    (state: StateBlock, startLine: number, endLine: number, silent: boolean) => {
+      const pos = state.bMarks[startLine]! + state.tShift[startLine]!
+      const max = state.eMarks[startLine]!
+      // 4 个及以上前导空格 = 缩进代码块，那里的 `$$` 是字面量（同 `fence` 的守卫）。
+      if (state.sCount[startLine]! - state.blkIndent >= 4) return false
+
+      const first = state.src.slice(pos, max)
+
+      // ① 单行形式 `$$x^2$$`。
+      const single = parseSingleLineMathBlock(first)
+      if (single !== null) {
+        if (silent) return true
+        pushMathBlock(state, single, startLine, startLine + 1)
+        return true
+      }
+
+      // ② 多行形式：首行必须是光秃秃的 `$$`（`$$5` 这种不算，见 shared 的边界规则）。
+      if (!isMathBlockFenceLine(first)) return false
+
+      let nextLine = startLine
+      let closed = false
+      for (;;) {
+        nextLine++
+        if (nextLine >= endLine) break
+        const lineStart = state.bMarks[nextLine]! + state.tShift[nextLine]!
+        const lineEnd = state.eMarks[nextLine]!
+        // 缩进回到容器外面 → 块在这里结束（同 `fence` 的判据）。
+        if (lineStart < lineEnd && state.sCount[nextLine]! < state.blkIndent) break
+        if (state.sCount[nextLine]! - state.blkIndent >= 4) continue
+        if (!isMathBlockFenceLine(state.src.slice(lineStart, lineEnd))) continue
+        closed = true
+        break
+      }
+      if (!closed) return false
+
+      const content = state.getLines(startLine + 1, nextLine, state.sCount[startLine]!, false)
+      const tex = joinMathBlockLines(content === '' ? [] : content.split('\n'))
+      // 内容全空白（`$$\n$$`）→ 不是公式：否则会产出一个看不见的空 div。
+      if (tex === null) return false
+      if (silent) return true
+
+      pushMathBlock(state, tex, startLine, nextLine + 1)
+      return true
+    },
+  )
+
+  /*
+   * 渲染规则：**和围栏那条逐字节一致**（`<div class="nd-math nd-math-block">` +
+   * 同一个 `renderMath`）。这不是巧合 —— 两条路都只是把 tex 交给 `renderMath`，
+   * 外壳字符串只写了一遍（`renderBlockMath`）。
+   */
+  ctx.rules[DOLLAR_BLOCK_TOKEN] = (tokens, idx) =>
+    renderBlockMath(md, tokens[idx]!.content, ctx.escapeHtml)
+}
+
+/** 把一段 TeX 推成一个块级 token（`state.line` 也一起推进）。 */
+function pushMathBlock(state: StateBlock, tex: string, startLine: number, nextLine: number): void {
+  const token = state.push(DOLLAR_BLOCK_TOKEN, 'math', 0)
+  token.block = true
+  token.content = tex
+  token.markup = '$$'
+  token.map = [startLine, nextLine]
+  state.line = nextLine
+}
+
+/**
+ * 块级公式的外壳 —— **`$$` 与 ` ```math ` 共用的唯一一处**。
+ *
+ * 契约要求两种写法产出**逐字节一致**的 HTML。共享这个函数就是那条要求的实现：
+ * 只要两边都把 tex 原样交进来，输出必然相同（`renderMath` 也是同一个）。
+ */
+function renderBlockMath(
+  md: MarkdownItInstance,
+  tex: string,
+  escapeHtml: (value: string) => string,
+): string {
+  return `<div class="nd-math nd-math-block">${renderMath(md, tex, true, escapeHtml)}</div>`
 }
 
 /**
@@ -160,7 +295,8 @@ function installInlineMath(ctx: RenderFeatureContext): void {
     const src = state.src
 
     if (src.charCodeAt(start) !== 0x24 /* $ */) return false
-    // `$$…$$` 不是行内公式（契约：块级用围栏）。
+    // `$$…$$` 不是行内公式 —— 它由 `nd_math_block` 那条 **block rule** 吃掉
+    // （`installDollarMathBlock`）。行内规则只认单 `$`。
     if (src.charCodeAt(start + 1) === 0x24) return false
     /*
      * ⚠️ 开 `$` 前面**也不能**紧跟 `$`。
@@ -211,7 +347,7 @@ function installInlineMath(ctx: RenderFeatureContext): void {
 }
 
 /**
- * 块级 ` ```math ` 围栏。
+ * 块级 ` ```math ` 围栏 —— **别名形态**（正典是 `$$…$$`，见 `installDollarMathBlock`）。
  *
  * ⚠️ **不能直接覆盖 `rules.fence`** —— 那是 `renderer.ts` 给**普通代码块**装的
  * 标题栏规则，覆盖掉的话所有代码块都会变成公式。这里把原规则**包一层**：
@@ -234,8 +370,8 @@ function installBlockMath(ctx: RenderFeatureContext): void {
         : self.renderToken(tokens, idx, options)
     }
 
-    const tex = withoutTrailingNewline(token.content)
-    return `<div class="nd-math nd-math-block">${renderMath(md, tex, true, ctx.escapeHtml)}</div>`
+    // 外壳与 `$$` 那条**共用**（`renderBlockMath`），所以两种写法逐字节一致。
+    return renderBlockMath(md, withoutTrailingNewline(token.content), ctx.escapeHtml)
   }
 }
 

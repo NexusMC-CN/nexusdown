@@ -195,7 +195,7 @@ describe('table —— 集成层：真编辑器里渲染成 <table>', () => {
     expect(parent.querySelector('.cm-content')!.textContent).not.toContain('| - | - |')
   })
 
-  it('★ 点 widget → 光标落到 `from - 1`（门口），表格换回源码', () => {
+  it('★ 点 widget → 只放一个光标 + 记「看源码」区间（不选整段），表格换回源码', () => {
     const { view, parent } = mount(DOC)
     expect(parent.querySelector('.nd-table')).not.toBeNull()
 
@@ -203,7 +203,9 @@ describe('table —— 集成层：真编辑器里渲染成 <table>', () => {
       new MouseEvent('mousedown', { bubbles: true, cancelable: true }),
     )
 
-    expect(view.state.selection.main.head).toBe(FROM - 1)
+    // 不选整段（用户实测：点一下怎么全选了）—— 光标落在块首，区间单独记。
+    expect(view.state.selection.main.empty).toBe(true)
+    expect(view.state.selection.main.from).toBe(FROM)
     expect(parent.querySelector('.nd-table')).toBeNull()
     expect(parent.querySelector('.cm-content')!.textContent).toContain('| - | - |')
   })
@@ -246,10 +248,7 @@ describe('table —— 集成层：真编辑器里渲染成 <table>', () => {
     expect(parent.querySelector('.nd-table')).toBeNull()
   })
 
-  it('★ 表格就在文档开头：点 widget 也不能抛（`from - 1` 会被夹到 0）', () => {
-    // `from === 0` 时 `from - 1 === -1` —— 直接 dispatch 会抛
-    // `Selection points outside of document`。夹到 0 之后落在表格首行行首，
-    // 一样是揭示态。
+  it('★ 表格就在文档开头：点 widget 也不能抛（选中整段，from 从 0 开始）', () => {
     const doc = '| a | b |\n| - | - |\n| c | d |\n\n尾部'
     const { view, parent } = mount(doc, doc.length)
 
@@ -257,7 +256,7 @@ describe('table —— 集成层：真编辑器里渲染成 <table>', () => {
     parent.querySelector('.nd-table')!.dispatchEvent(
       new MouseEvent('mousedown', { bubbles: true, cancelable: true }),
     )
-    expect(view.state.selection.main.head).toBe(0)
+    expect(view.state.selection.main.from).toBe(0)
     expect(parent.querySelector('.nd-table')).toBeNull()
   })
 

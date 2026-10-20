@@ -112,6 +112,63 @@ describe('embed 渲染侧 —— 围栏', () => {
   })
 })
 
+describe('embed 渲染侧 —— URL 形式（正典）', () => {
+  it('★ ```embed <长链> → 与三段式产出**同一份** HTML', () => {
+    const url = render('```embed https://www.bilibili.com/video/' + BILI_ID + '\n```')
+    const legacy = render('```embed bilibili video ' + BILI_ID + '\n```')
+
+    expect(url).toBe(legacy)
+    expect(url).toContain('data-nd-embed="bilibili:video"')
+    expect(url).toContain('bvid=' + BILI_ID)
+  })
+
+  it('无 scheme 的写法也认（`music.163.com/song?id=…`）', () => {
+    const html = render('```embed music.163.com/song?id=110761\n```')
+    expect(html).toContain('data-nd-embed="netease:song"')
+    expect(html).toContain('type=2&amp;id=110761')
+  })
+
+  it('★ 与「独占一段的长链自动识别」走同一条解析路径（产出逐字节一致）', () => {
+    const bare = 'https://www.bilibili.com/video/' + BILI_ID
+    expect(render('```embed ' + bare + '\n```')).toBe(render(bare))
+  })
+
+  it('★ 非法 URL / 未知平台 → 降级成普通代码块，不产出 iframe', () => {
+    for (const info of [
+      '```embed https://evil.com/video/' + BILI_ID + '\n```',
+      '```embed 不是链接\n```',
+      '```embed javascript:alert(1)\n```',
+    ]) {
+      const html = render(info)
+      expect(html).not.toContain('<iframe')
+      expect(html).not.toContain('nd-embed')
+      expect(html).toContain('class="language-embed"')
+    }
+  })
+
+  it('★ 短链：没数据 → 降级成代码块；有数据（`RenderData.links`）→ 出播放器', () => {
+    const src = '```embed https://b23.tv/abcdefg\n```'
+    expect(render(src)).not.toContain('nd-embed')
+    expect(render(src)).toContain('class="language-embed"')
+
+    const data: RenderData = {
+      links: new Map([['https://b23.tv/abcdefg', { url: 'https://www.bilibili.com/video/' + BILI_ID }]]),
+    }
+    const html = render(src, data)
+    expect(html).toContain('data-nd-embed="bilibili:video"')
+    expect(html).toContain('bvid=' + BILI_ID)
+  })
+
+  it('`parseEmbedFence` 两种写法的分支判据是段数', () => {
+    // 2 段但不是 URL → 解不出 spec
+    expect(parseEmbedFence('embed ' + BILI_ID)).toBeNull()
+    // 3 段 / 5 段都不认（以前只有「恰好 4 段」这一条）
+    expect(parseEmbedFence('embed bilibili ' + BILI_ID)).toBeNull()
+    expect(parseEmbedFence('embed https://www.bilibili.com/video/' + BILI_ID)?.id).toBe(BILI_ID)
+    expect(parseEmbedFence('embedded https://www.bilibili.com/video/' + BILI_ID)).toBeNull()
+  })
+})
+
 describe('embed 渲染侧 —— ID 校验（安全底线）', () => {
   it('★ 路径穿越 / 含空格 / 超长 ID 一律拒绝，绝不进 URL', () => {
     // 路径穿越：`../..` 里的 `/` 过不了 `BV[0-9A-Za-z]{10}`。

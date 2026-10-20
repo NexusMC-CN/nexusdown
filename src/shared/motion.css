@@ -1,0 +1,78 @@
+/**
+ * 动效令牌 —— 全库唯一的时间/曲线来源。
+ *
+ * 设计参照（2026-10-19 讨论 + Endfield UI 的 motion 系统）：
+ *
+ * - **三条曲线，分工明确**：
+ *   - `snap`：出现、列表行、FLIP 补位 —— 快到位，然后稳住；
+ *   - `mech`：快门、擦入、灌满、面板、**所有退出** —— 慢起、硬停，像闸门；
+ *   - `ease`：普通过渡（颜色、扫过）。
+ * - **时长分档**：一次操作 100–400ms；单个入场 ≤650ms；整段序列 ≤1000ms。
+ * - **退出 = 进入的 60–70%，一律 mech**。
+ * - **只动 transform / opacity / clip-path / background-size / stroke-dashoffset**；
+ *   布局变化用 FLIP，不写 width/height/margin/font-size 的过渡。
+ * - `prefers-reduced-motion: reduce` 时直接呈现终态（不是回到初始态）。
+ *
+ * ⚠️ 这些是**新**令牌（`--nd-motion-*`），不改既有的 `--nd-dur` / `--nd-ease` ——
+ * 后者被 Toolbar.vue 的既有过渡引用，一次性改名会牵动 3800 行，先并存、逐步迁移。
+ */
+
+:root {
+  /* ------------------------------------------------------------ 时长 */
+
+  /** 即时反馈：按下、勾选 */
+  --nd-motion-dur-1: 60ms;
+  /** 小状态：hover、focus、颜色 */
+  --nd-motion-dur-2: 100ms;
+  /** 浮层、展开 */
+  --nd-motion-dur-3: 160ms;
+  /** 卡片、面板 */
+  --nd-motion-dur-4: 240ms;
+  /** 折叠（仅限小块；大块直接瞬时） */
+  --nd-motion-dur-5: 280ms;
+
+  /* ------------------------------------------------------------ 曲线 */
+
+  /** 出现、行、FLIP —— 快到位后稳住 */
+  --nd-motion-snap: cubic-bezier(0.16, 1, 0.3, 1);
+  /** 快门、擦入、灌满、面板、所有退出 —— 慢起硬停 */
+  --nd-motion-mech: cubic-bezier(0.7, 0, 0.2, 1);
+  /** 普通过渡、颜色 */
+  --nd-motion-ease: cubic-bezier(0.2, 0.7, 0.1, 1);
+
+  /* ------------------------------------------------------------ 位移与缩放 */
+
+  --nd-motion-dist-1: 2px;
+  --nd-motion-dist-2: 4px;
+  --nd-motion-dist-3: 8px;
+
+  --nd-motion-scale-1: 0.98;
+  --nd-motion-scale-2: 0.96;
+
+  /* ------------------------------------------------------------ 错开 */
+
+  /** 列表行 / 演示拍点 */
+  --nd-motion-stagger-row: 38ms;
+  /** 分段 / 圆盘 */
+  --nd-motion-stagger-segment: 45ms;
+  /** 大块内容 */
+  --nd-motion-stagger-block: 100ms;
+}
+
+/**
+ * 减少动效：全局兜底。
+ *
+ * ⚠️ 这里是**最后一道**保险，不是唯一一道 —— 具体组件仍应在自己的动画里
+ * 包 `@media (prefers-reduced-motion: no-preference)`，因为这里只能把
+ * `animation-duration` 压到 0，没法保证"停在终态"而不是"回到初始态"。
+ * 演示类动画（Toolbar）已经自己处理成"直接第 4 拍"，不要依赖这条。
+ */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --nd-motion-dur-1: 0ms;
+    --nd-motion-dur-2: 0ms;
+    --nd-motion-dur-3: 0ms;
+    --nd-motion-dur-4: 0ms;
+    --nd-motion-dur-5: 0ms;
+  }
+}

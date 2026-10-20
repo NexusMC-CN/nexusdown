@@ -1,0 +1,75 @@
+/**
+ * 块悬停「＋ 变体」与它的菜单（`src/cm/features/variant-hover.ts`）。
+ *
+ * 按钮**绝对定位**在 `.cm-editor` 里（`.cm-editor` 是 `position: relative`），
+ * 不占布局；菜单是 `body` 下的 fixed 浮层。
+ */
+
+.nd-variant-hover {
+  position: absolute;
+  z-index: 40;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  font: 13px/18px var(--nd-font-body, system-ui, -apple-system, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif);
+  color: var(--nd-text-3, #6b7280);
+  white-space: nowrap;
+  background: var(--nd-surface, #fff);
+  border: 1px solid var(--nd-border, #e4e7ea);
+  border-radius: 999px;
+  box-shadow: 0 2px 8px rgb(0 0 0 / 8%);
+  cursor: pointer;
+  transition:
+    color var(--nd-motion-dur-2, 100ms) var(--nd-motion-ease, cubic-bezier(0.2, 0.7, 0.1, 1)),
+    border-color var(--nd-motion-dur-2, 100ms) var(--nd-motion-ease, cubic-bezier(0.2, 0.7, 0.1, 1));
+}
+
+.nd-variant-hover:hover {
+  color: var(--nd-text, #1f2328);
+  border-color: var(--nd-border-strong, #d0d7de);
+}
+
+.nd-variant-hover[hidden] {
+  display: none;
+}
+
+.nd-variant-menu {
+  position: fixed;
+  z-index: 1000;
+  min-width: 176px;
+  padding: 4px;
+  background: var(--nd-surface, #fff);
+  border: 1px solid var(--nd-border, #e4e7ea);
+  border-radius: var(--nd-radius, 6px);
+  box-shadow: 0 6px 24px rgb(0 0 0 / 12%);
+}
+
+.nd-variant-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  padding: 6px 8px;
+  font: 12.5px/1.4 var(--nd-font-body, system-ui, -apple-system, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif);
+  color: var(--nd-text, #1f2328);
+  text-align: left;
+  background: none;
+  border: 0;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.nd-variant-item:hover,
+.nd-variant-item:focus-visible {
+  background: var(--nd-surface-2, #f3f4f6);
+  outline: none;
+}
+
+.nd-variant-item code {
+  font: 11px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  color: var(--nd-text-3, #6b7280);
+}

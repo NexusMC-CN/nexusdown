@@ -58,7 +58,8 @@ import type { EditorView } from '@codemirror/view'
 import { Decoration, WidgetType } from '@codemirror/view'
 
 import { renderMarkdown } from '../../render/index.js'
-import { setEditingBlock } from '../plugin.js';
+import { parseAttrLine } from '../../shared/attrs.js'
+import { setEditingBlock, setEditingRange } from '../plugin.js';
 import type { EditorFeature } from '../feature.js'
 import type { DecorationRanges, MarkdownNode } from '../types.js'
 import { selectionHoversBlock, selectionTouchesLineRange } from '../util/selection.js'
@@ -91,7 +92,8 @@ import { selectionHoversBlock, selectionTouchesLineRange } from '../util/selecti
  *
  * ## 体积取舍（实测，不是估的）
  *
- * 直接 `import { renderMarkdown } from '../../render/index.js'`（方案 A）。
+ * 直接 `import { renderMarkdown } from '../../render/index.js'
+import { parseAttrLine } from '../../shared/attrs.js'`（方案 A）。
  *
  * | | 之前 | 之后 | 差 |
  * | --- | --- | --- | --- |
@@ -112,14 +114,34 @@ import { selectionHoversBlock, selectionTouchesLineRange } from '../util/selecti
  * 表格是这个库的招牌功能（「编辑时看到的 = 发布出来的」），+11% 的产物换它值得。
  * math 之所以走注入，是因为 katex 是 ~4 MB 的 peer（体积差 20 倍，性质不同）。
  */
+interface SourceLine {
+  start: number
+  text: string
+}
+
 export class TableWidget extends WidgetType {
+  /** 表格源码按行切好 + 每行在源码里的起点（点单元格时映射光标用）。 */
+  private readonly lines: SourceLine[]
+
   constructor(
     /** 表格源码（`| a | b |\n| - | - |\n…`），也参与 `eq`。 */
     private readonly source: string,
     /** 表格块首行行首的位置。点 widget 时把光标放到 `from - 1`（见文件头「紧邻即揭示」）。 */
     private readonly from: number,
+    /** 表格后是否跟着 `{.fields}` —— 决定外层类名（`nd-table--fields`）。 */
+    readonly fields = false,
+    /** 整块 replace 的结束位置（含属性行）—— 点开时选中整段源码。 */
+    readonly to = -1,
+    /** `caption="…"` —— 渲染成 `<caption>`，和显示侧同一个标签。 */
+    readonly caption?: string,
   ) {
     super()
+    this.lines = []
+    let offset = 0
+    for (const text of source.split('\n')) {
+      this.lines.push({ start: offset, text })
+      offset += text.length + 1
+    }
   }
 
   /**
@@ -129,15 +151,36 @@ export class TableWidget extends WidgetType {
    * `mousedown` 要落到新位置，也必须重建。
    */
   override eq(other: TableWidget): boolean {
-    return other.source === this.source && other.from === this.from
+    return (
+      other.source === this.source &&
+      other.from === this.from &&
+      other.fields === this.fields &&
+      other.caption === this.caption &&
+      other.to === this.to
+    )
   }
 
   override toDOM(view: EditorView): HTMLElement {
     const wrap = document.createElement('div')
-    wrap.className = 'nd-table'
+    wrap.className = this.fields ? 'nd-table nd-table--fields' : 'nd-table'
 
     try {
       wrap.innerHTML = renderMarkdown(this.source)
+      wrap.dataset.line = String(view.state.doc.lineAt(this.from).number)
+      window.requestAnimationFrame(() => {
+        const gutter = view.dom.querySelector('.cm-gutters')
+        if (!gutter) return
+        const left = gutter.getBoundingClientRect().left - wrap.getBoundingClientRect().left
+        wrap.style.setProperty('--nd-block-line-left', `${Math.round(left)}px`)
+      })
+      if (this.caption) {
+        const table = wrap.querySelector('table')
+        if (table) {
+          const caption = document.createElement('caption')
+          caption.textContent = this.caption
+          table.prepend(caption)
+        }
+      }
     } catch (e) {
       /*
        * 渲染失败**降级成源码**，绝不抛（同 math / embed 的契约）。
@@ -164,15 +207,51 @@ export class TableWidget extends WidgetType {
      */
     wrap.addEventListener('mousedown', (e) => {
       e.preventDefault()
+      /*
+       * 点哪个单元格，光标就落到那个单元格的源码位置 —— 不是永远落到表格开头。
+       * 否则用户点第二行第二列、一打字却插到了表头（实测）。
+       */
+      const cell = (e.target as HTMLElement | null)?.closest('td, th') ?? null
+      let offset = 0
+      if (cell) {
+        const tr = cell.closest('tr')
+        const tbody = tr?.closest('tbody') ?? null
+        const rowIndex = tr && tbody ? [...tbody.querySelectorAll('tr')].indexOf(tr) + 1 : 0
+        const colIndex = tr ? [...tr.children].indexOf(cell) : 0
+        // 源码第 0 行是表头，第 1 行是分隔行；tbody 第 r 行对应源码第 r+1 行。
+        const sourceRow = rowIndex === 0 ? 0 : rowIndex + 1
+        const line = this.lines[sourceRow]
+        if (line) {
+          const segments = line.text.split('|')
+          let cursor = 0
+          for (let i = 0; i < segments.length; i += 1) {
+            const segment = segments[i]!
+            const start = cursor
+            cursor += segment.length + 1
+            if (i === colIndex + 1) {
+              const lead = segment.length - segment.trimStart().length
+              offset = line.start + start + lead
+              break
+            }
+          }
+        }
+      }
+
       view.dispatch({
-        selection: EditorSelection.cursor(Math.max(0, this.from - 1)),
+        // 只放光标，不选整段（选区会让用户以为全选了）。
+        selection: EditorSelection.cursor(this.from + offset),
         /*
          * ★ **记下"用户点开了这个块"** ✓ —— 光把光标放到门口不够 ✗：
          * 门口是**位置**判据 ✓，而**空行整行都等于门口** ✓
          * → 会被当成"路过" ✓ → 块莫名其妙不渲染 ✓（用户实测 ✓）。
+         * 同时记整段「看源码」区间：区间内所有装饰统一跳过（见 plugin.ts）。
          */
-        effects: setEditingBlock.of(this.from),
+        effects: [
+          setEditingRange.of({ from: this.from, to: this.to }),
+          setEditingBlock.of(this.from),
+        ],
       })
+      view.focus()
     })
 
     return wrap
@@ -217,8 +296,46 @@ function decorateTable(
   const from = doc.lineAt(node.from).from
   // `node.to` 是**排他**的：正好落在下一行行首时，不减 1 会多算一行（同 fence.ts）。
   const lastPos = node.to > node.from ? node.to - 1 : node.to
-  const to = doc.lineAt(lastPos).to
+  const lastLine = doc.lineAt(lastPos)
+  const to = lastLine.to
   if (to <= from) return
+
+  /*
+   * ⚠️ **lezer 会把表格后的 `{…}` 属性行也并进 `Table` 节点**（实测：
+   * `| a | b |
+| - | - |
+| c | d |
+{.fields}` 的 Table.to 落在 `{.fields}` 行尾），
+   * 而 markdown-it 在 `{.fields}` 处就结束表格。两边对"表格到哪为止"的看法不同。
+   *
+   * 所以这里手动把**最后一行如果是属性行**剥出来：
+   * - `source` 不含它（否则 `renderMarkdown` 会把 `{.fields}` 当表格行渲染）；
+   * - `fields` 从它读；
+   * - replace 区间仍然包含它（把它一起藏进 widget，点开表格时才看到源码）。
+   */
+  const lastAttrs = parseAttrLine(lastLine.text)
+  const hasFields = (attrs: ReturnType<typeof parseAttrLine>): boolean =>
+    Boolean(attrs?.some((attr) => attr.kind === 'class' && attr.name === 'fields'))
+
+  /*
+   * 正典写法是**空一行**再写属性行（markdown-it 的表格规则会把紧贴的行当成数据行）。
+   * 所以先跳过空行找下一行；同时兼容 lezer 把紧贴属性行并进 Table 的情况。
+   */
+  let fields = hasFields(lastAttrs)
+  let caption = lastAttrs?.find((attr) => attr.kind === 'key' && attr.name === 'caption')
+  if (caption?.kind !== 'key') caption = undefined
+
+  let probe = doc.lineAt(to).number + 1
+  if (probe <= doc.lines && doc.line(probe).text.trim() === '') probe += 1
+  if (probe <= doc.lines) {
+    const next = parseAttrLine(doc.line(probe).text)
+    if (hasFields(next)) fields = true
+    const nextCaption = next?.find((attr) => attr.kind === 'key' && attr.name === 'caption')
+    if (nextCaption?.kind === 'key') caption = nextCaption
+  }
+
+  const sourceTo = lastAttrs ? doc.lineAt(lastLine.from - 1).to : to
+  if (sourceTo <= from) return
 
   // 揭示态 → **什么都不推**，源码原样（用户要能改）。
   if (isTableRevealed(doc, selection, from, to, blockEditing)) return
@@ -226,7 +343,7 @@ function decorateTable(
   ranges.push(
     Decoration.replace({
       block: true,
-      widget: new TableWidget(doc.sliceString(from, to), from),
+      widget: new TableWidget(doc.sliceString(from, sourceTo), from, fields, to, caption?.value),
     }).range(from, to),
   )
 }
@@ -263,3 +380,5 @@ function isTableRevealed(
    */
   return selectionHoversBlock(doc, selection, from, to)
 }
+
+

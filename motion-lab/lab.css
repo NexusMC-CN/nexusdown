@@ -1,0 +1,425 @@
+/**
+ * Motion Lab 的外壳样式。
+ *
+ * ⚠️ **只写 `.lab-*`**，不碰 `.demo-*`（那些在 `src/editor/demos/demos.css` 里，
+ * 是生产代码）。这里唯一一条"跨界"的规则是播放开关（见文件末尾），
+ * 因为它管的是**审片台怎么驱动动画**，不是演示长什么样。
+ */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+}
+
+body {
+  font: 13px/1.6 system-ui, -apple-system, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  color: var(--nd-text, #16181c);
+  background: var(--nd-surface, #f6f7f8);
+}
+
+button {
+  font: inherit;
+  color: inherit;
+}
+
+/* ---------------------------------------------------------------- 骨架 */
+
+.lab {
+  display: grid;
+  grid-template-columns: 232px minmax(0, 1fr);
+  height: 100vh;
+}
+
+/* ---------------------------------------------------------------- 左：画廊 */
+
+.lab-gallery {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: #fff;
+  border-right: 1px solid var(--nd-border, #e6e8eb);
+}
+
+.lab-gallery__head {
+  flex: none;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 12px 14px 10px;
+  border-bottom: 1px solid var(--nd-line, #eef0f2);
+}
+
+.lab-gallery__title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+/**
+ * 覆盖徽章：**19/19 是最重要的一个数字**。
+ * 少一条就是"工具栏不会教那条语法"，而这件事在代码里看不出来，只有数出来才知道。
+ */
+.lab-badge {
+  flex: none;
+  padding: 1px 7px;
+  font: 600 11px/1.7 ui-monospace, Consolas, monospace;
+  color: #1a7f37;
+  background: #e8f5ec;
+  border-radius: 999px;
+}
+
+.lab-badge--bad {
+  color: #b42318;
+  background: #fde8e6;
+}
+
+.lab-gallery__list {
+  min-height: 0;
+  overflow-y: auto;
+  padding: 6px 8px 20px;
+}
+
+.lab-group {
+  margin-top: 10px;
+}
+
+.lab-group__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 0 6px 3px;
+  font-size: 11px;
+  color: var(--nd-text-3, #6b7280);
+}
+
+.lab-group__id {
+  font-family: ui-monospace, Consolas, monospace;
+  color: var(--nd-text-4, #9aa1ab);
+}
+
+.lab-group__empty {
+  padding: 2px 6px 4px;
+  font-size: 11px;
+  color: #b42318;
+}
+
+.lab-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  width: 100%;
+  padding: 4px 8px;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+.lab-item:hover {
+  background: rgb(22 24 28 / 4%);
+}
+
+.lab-item.on {
+  color: var(--nd-brand, #2f6feb);
+  background: var(--nd-brand-soft, #eaf1ff);
+}
+
+.lab-item__id {
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 11px;
+  color: var(--nd-text-4, #9aa1ab);
+}
+
+.lab-item.on .lab-item__id {
+  color: inherit;
+  opacity: 0.7;
+}
+
+/* ---------------------------------------------------------------- 右：控制台 */
+
+.lab-console {
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 16px 20px 40px;
+}
+
+.lab-console__head {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.lab-console__title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.lab-meta {
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 11px;
+  color: var(--nd-text-3, #6b7280);
+}
+
+/**
+ * 画布台。
+ *
+ * `zoom: 2.5` 是**审片放大**：演示是 120×44 的小画布，1x 下"1px 的跳"根本看不见。
+ * 用 `zoom` 而不是 `transform: scale()` —— 后者是先把 1x 栅格化再放大，字会糊；
+ * `zoom` 让浏览器按放大后的尺寸重新排版、重新栅格化。
+ * ⚠️ 它只放大**看**，不影响任何动画（动画都在演示元素自己身上）。
+ */
+.lab-stage {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  margin-bottom: 12px;
+  background: #fff;
+  border: 1px solid var(--nd-border, #e6e8eb);
+  border-radius: 8px;
+}
+
+.lab-canvas {
+  zoom: 2.5;
+}
+
+/* ---------------------------------------------------------------- 控制条 */
+
+.lab-controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.lab-btn {
+  min-width: 30px;
+  height: 26px;
+  padding: 0 9px;
+  background: #fff;
+  border: 1px solid var(--nd-border, #e6e8eb);
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+.lab-btn:hover {
+  background: rgb(22 24 28 / 4%);
+}
+
+.lab-btn:active {
+  transform: translateY(1px);
+}
+
+.lab-btn.on {
+  color: var(--nd-brand, #2f6feb);
+  background: var(--nd-brand-soft, #eaf1ff);
+  border-color: var(--nd-brand-soft-border, #c8daff);
+}
+
+.lab-btn--icon {
+  min-width: 34px;
+  font-family: ui-monospace, Consolas, monospace;
+}
+
+.lab-readout {
+  margin-left: auto;
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 11px;
+  color: var(--nd-text-3, #6b7280);
+}
+
+.lab-readout b {
+  color: var(--nd-text, #16181c);
+}
+
+/* 时间轴：滑轨 + 拍点刻度 */
+.lab-timeline {
+  position: relative;
+  padding-bottom: 16px;
+  margin-bottom: 18px;
+}
+
+.lab-timeline input[type='range'] {
+  width: 100%;
+  margin: 0;
+  accent-color: var(--nd-brand, #2f6feb);
+}
+
+.lab-beat {
+  position: absolute;
+  bottom: 0;
+  width: 1px;
+  height: 8px;
+  background: var(--nd-text-4, #9aa1ab);
+}
+
+.lab-beat__label {
+  position: absolute;
+  bottom: 8px;
+  font: 10px/1 ui-monospace, Consolas, monospace;
+  color: var(--nd-text-4, #9aa1ab);
+  transform: translateX(-50%);
+}
+
+/* ---------------------------------------------------------------- 属性审计 */
+
+.lab-section {
+  margin-top: 18px;
+}
+
+.lab-section__title {
+  margin: 0 0 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--nd-text-2, #4b5563);
+}
+
+.lab-verdict {
+  padding: 7px 10px;
+  margin-bottom: 8px;
+  font-size: 12px;
+  border-radius: 6px;
+}
+
+.lab-verdict--ok {
+  color: #1a7f37;
+  background: #e8f5ec;
+}
+
+.lab-verdict--bad {
+  color: #b42318;
+  background: #fde8e6;
+}
+
+.lab-audit {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11.5px;
+}
+
+.lab-audit th,
+.lab-audit td {
+  padding: 4px 8px;
+  text-align: left;
+  border-bottom: 1px solid var(--nd-line, #eef0f2);
+  vertical-align: top;
+}
+
+.lab-audit th {
+  font-weight: 500;
+  color: var(--nd-text-3, #6b7280);
+}
+
+.lab-audit__name {
+  font-family: ui-monospace, Consolas, monospace;
+  color: var(--nd-text-2, #4b5563);
+  white-space: nowrap;
+}
+
+.lab-prop {
+  display: inline-block;
+  padding: 0 5px;
+  margin: 1px 3px 1px 0;
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 11px;
+  border-radius: 3px;
+}
+
+/* 合成属性：绿。动了它，浏览器只重组图层 */
+.lab-prop--composited {
+  color: #1a7f37;
+  background: #e8f5ec;
+}
+
+/* 重绘属性：黄。不排版，但要重新光栅化 */
+.lab-prop--paint {
+  color: #8a6100;
+  background: #fff5d6;
+}
+
+/* layout 属性：红。**这就是"抖"的来源** */
+.lab-prop--layout {
+  color: #fff;
+  background: #b42318;
+}
+
+.lab-empty {
+  font-size: 12px;
+  color: var(--nd-text-3, #6b7280);
+}
+
+/* ---------------------------------------------------------------- 三条曲线 */
+
+.lab-curves {
+  display: flex;
+  align-items: flex-start;
+  gap: 18px;
+  flex-wrap: wrap;
+}
+
+.lab-curve {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.lab-curve svg {
+  width: 92px;
+  height: 92px;
+  background: #fff;
+  border: 1px solid var(--nd-border, #e6e8eb);
+  border-radius: 6px;
+}
+
+.lab-curve__legend {
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 10.5px;
+  line-height: 1.5;
+  color: var(--nd-text-3, #6b7280);
+}
+
+.lab-curve__name {
+  font-weight: 600;
+  color: var(--nd-text, #16181c);
+}
+
+.lab-curve__dot {
+  display: inline-block;
+  width: 8px;
+  height: 2px;
+  margin-right: 4px;
+  vertical-align: middle;
+}
+
+/* ---------------------------------------------------------------- 播放开关 */
+
+/**
+ * ⚠️ **唯一一条跨到 `.demo-*` 的规则，而且它只负责"放行"。**
+ *
+ * `demos.css` 里所有演示动画默认 `animation-play-state: paused`
+ * （工具栏靠 hover 才放行）。Lab 没有 hover，靠 WAAPI 的 `play()` / `pause()`
+ * 驱动 —— 这条类是**第二道保险**：有些情况下样式重算会把 WAAPI 的 running
+ * 覆盖回 CSS 的 paused（尤其是带 `animation-delay` 的那几条），
+ * 加了类之后两边一致，不会出现"点了播放只有一半动画在跑"。
+ */
+.lab-playing .demo-stage *,
+.lab-playing .demo-stage *::before,
+.lab-playing .demo-stage *::after {
+  animation-play-state: running;
+}

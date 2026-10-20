@@ -54,3 +54,27 @@ export class OrderedMarkerWidget extends WidgetType {
     return span
   }
 }
+
+/**
+ * 步骤列表的序号圆点（`{.steps}`）。
+ *
+ * 和圆点/数字标记一样是 `Decoration.replace` 的 widget —— 序号由调用方按
+ * ListItem 的兄弟顺序算出来（见 `decorate/list.ts`），CSS 只管画圆。
+ */
+export class StepMarkerWidget extends WidgetType {
+  constructor(readonly index: number) {
+    super()
+  }
+
+  /** 序号变了必须重建 DOM，否则 1 永远是 1。 */
+  override eq(other: StepMarkerWidget): boolean {
+    return other instanceof StepMarkerWidget && other.index === this.index
+  }
+
+  override toDOM(): HTMLElement {
+    const span = document.createElement('span')
+    span.className = 'nd-list-marker nd-step-marker'
+    span.textContent = String(this.index)
+    return span
+  }
+}

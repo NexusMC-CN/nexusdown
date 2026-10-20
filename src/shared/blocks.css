@@ -1,0 +1,746 @@
+/**
+ * **显示侧规范样式**（blocks.css）—— 「编辑时看到的 = 发布出来的」的视觉契约。
+ *
+ * ## 为什么需要它
+ *
+ * 库里原本只有两份样式：
+ *
+ * | 文件 | 谁在用 | 装什么 |
+ * | --- | --- | --- |
+ * | `src/cm/theme.css` | 编辑器 | `.cm-*` 的几何 + `.nd-*` 的视觉（混在一起） |
+ * | `src/shared/dialect.css` | 两侧 | mention / 以后的卡片、嵌入、轮播 |
+ *
+ * 渲染侧（`src/render/**`）**一个 `.css` 都没有** —— 消费方 `import` 了渲染器，
+ * 拿到的是**裸标签**（`<h1>` / `<table>` / `<blockquote>`），样式全靠站点自己的
+ * `.md` 那一套。于是「编辑器里的标题是 2em、发出来是浏览器默认的 2em」这种巧合
+ * 能对上，「引用块的左边线、行内码的底色、表格的边框」这些就必然各写一份。
+ *
+ * 本文件是**显示侧的唯一出处**：只写「一段 Markdown 排版出来该长什么样」。
+ *
+ * ## 怎么被引到
+ *
+ * - **编辑器**：`src/cm/theme.css` 顶部 `@import './../shared/blocks.css'`。
+ *   编辑器自己的几何（`.cm-line` 的 padding、块 widget 的负 margin、光标…）
+ *   仍然在 `theme.css` / `features/*.css` 里，**不进本文件**。
+ * - **渲染侧（消费方）**：`import '@nexusmc-cn/nexusdown/blocks.css'`。
+ *   ⚠️ 这条导出**还没加**进 `package.json#exports` —— 本阶段 `package.json` 归另一个
+ *   代理，见 `docs/2026-10-19-render-contract.md` 的 phase 2 清单。
+ *
+ * ## 三条硬规则（违反任何一条都会让「两侧长得一样」重新变成人工同步）
+ *
+ * ### ① 双选择器：`标签, .nd-*`
+ *
+ * 可编辑节点两侧**不共享 DOM**（编辑器里标题是 `.cm-line.nd-h1`，渲染侧是 `<h1>`），
+ * 只共享**语义**。所以每条规则都写成 `h1, .nd-h1 { … }`：
+ *
+ * - 渲染侧今天还是裸标签 → `h1` 这一半先兜住，**立刻**就和编辑器一致；
+ * - phase 2 给渲染侧加上 `class="nd-h1"` → 类名那一半自动接上，**样式一行都不用改**；
+ * - 消费方要单独调「发布出来的标题」→ 命中 `.nd-h1`，不会误伤编辑器。
+ *
+ * ### ② 共享类名上**绝不写垂直外边距**
+ *
+ * 编辑器里这些类挂在 `.cm-line` 或块 widget 上。CM6 的高度表按元素盒测量，
+ * **不含垂直 margin**（`@codemirror/view` 的 `Decoration` 文档明确要求 block 装饰
+ * 「should not have vertical margins」）—— 写了就是「光标浮在文字上下」，
+ * 而且零报错。所以：
+ *
+ * - **垂直节奏（`margin-block`）只写在标签选择器上**（`h1 { margin: … }`），
+ *   编辑器里由源码里的空行负责，渲染侧由 margin 还原；
+ * - 共享类名只写**行内排版**（字号 / 字重 / 行高 / 颜色 / 水平 padding / 左边线）。
+ *
+ * ### ③ 颜色一律 `var(--nd-*, var(--站令牌, 字面量))`，字面量必须写
+ *
+ * 和 `theme.css` / `dialect.css` 同一条约定：
+ *
+ * 1. 消费方覆盖 `--nd-*`（最直接）；
+ * 2. 消费方在 `:root` 定义了站里的令牌（`--ink-1` / `--border` / `--surface` /
+ *    `--brand-ink`）→ 自动跟随站点主题；
+ * 3. 都没有 → 用字面量，白底黑字也读得下去。
+ *
+ * ⚠️ **每个字面量都要写**。渲染侧可能**只**引了本文件（没引 `theme.css`，
+ * 所以 `--nd-*` 一个都没定义）—— 少了兜底，`var()` 解析失败会让**整条声明失效**，
+ * 而且**零报错**（表现是「样式没生效」，最难查的那种）。
+ *
+ * ## ⚠️ 与 `theme.css` 暂时重复
+ *
+ * `.nd-h1` / `.nd-strong` / `.nd-code` / `.nd-hr` 这些在 `theme.css` 里**还有一份**
+ * （阶段 1 规定 `theme.css` 只许加 `@import` 那一行）。两份值目前逐字相同；
+ * **phase 2 要把 `theme.css` 里那些「显示侧」的规则删掉，只留编辑器几何** ——
+ * 否则迟早一边改了另一边没改，契约就又变成人工同步了。
+ */
+
+/* =========================================================================
+ * 0. 正文与段落
+ *
+ * 段落的字号 / 行高 / 颜色**故意不写**：编辑器里的正文就是 `.cm-line` 的文本，
+ * 完全继承消费方的页面样式；渲染侧跟着继承同一份，才是「一样」。
+ * 这里只补渲染侧必须有、而编辑器里由**空行**表达的东西：段间距。
+ * ======================================================================= */
+
+p {
+  /*
+   * 渲染侧没有「空行」这个概念（markdown-it 把它吃掉了），段间距只能由 margin 还原。
+   * 取 1em ≈ 编辑器里一个空行的高度（空行 = 一整行 line-height）。
+   *
+   * ⚠️ 只写标签选择器 —— 见文件头规则 ②。
+   */
+  margin: 1em 0;
+}
+
+/*
+ * 段落的**契约类名**（phase 2 才决定要不要真的加）。
+ *
+ * 现状：编辑器里段落没有类名（`.cm-line` 就是段落），渲染侧是裸 `<p>`。
+ * phase 2 二选一：要么给段落行加 `.nd-p`（成本：每段一条 line 装饰），
+ * 要么明确「段落不共享类名，只共享 `p` 的排版」——**写进契约再动手**。
+ *
+ * 现在不写声明：`.nd-p` 一旦有样式，就等于偷偷替 phase 2 做了决定。
+ */
+
+/* =========================================================================
+ * 1. 标题
+ *
+ * 编辑器里是 `Decoration.line` 落在 `.cm-line` 上（行级放大），
+ * 渲染侧是 `<h1>`–`<h6>`。字号两档必须逐字相同，否则「编辑时 2em、发出来 1.8em」。
+ * ======================================================================= */
+
+/*
+ * 垂直节奏（**只有标签**）：编辑器里标题前后的空行是真实的行，渲染侧要靠 margin 还原。
+ * ⚠️ 共享类名 `.nd-h1` 上不能有 margin —— 见文件头规则 ②。
+ */
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  margin: 1.2em 0 0.5em;
+}
+
+h1,
+.nd-h1 {
+  /*
+   * ⚠️ 字号以**编辑器实际渲染值**为准：`Editor.vue` 的 scoped 样式把
+   * `.nd-h1/.nd-h2/.nd-h3` 覆盖成了 1.5 / 1.3 / 1.15em（theme.css 里的
+   * 2 / 1.6 / 1.35 是更早的默认值，被它盖掉了）。这里必须跟编辑器一致 ——
+   * 否则「编辑时 1.5em、发出来 2em」，WYSIWYG 当场破功。
+   */
+  font-size: 1.5em;
+  font-weight: 700;
+  line-height: 1.3;
+  /* Setext 标题（`标题\n===`）的 `===` 在揭示态会露出来，别让它看起来像下划线 */
+  text-decoration: none;
+}
+
+h2,
+.nd-h2 {
+  font-size: 1.3em;
+  font-weight: 700;
+  line-height: 1.3;
+  text-decoration: none;
+}
+
+h3,
+.nd-h3 {
+  font-size: 1.15em;
+  font-weight: 700;
+  line-height: 1.3;
+  text-decoration: none;
+}
+
+h4,
+.nd-h4 {
+  font-size: 1.15em;
+  font-weight: 700;
+  line-height: 1.3;
+  text-decoration: none;
+}
+
+h5,
+.nd-h5 {
+  font-size: 1em;
+  font-weight: 700;
+  line-height: 1.3;
+  text-decoration: none;
+}
+
+h6,
+.nd-h6 {
+  font-size: 0.9em;
+  font-weight: 700;
+  line-height: 1.3;
+  text-decoration: none;
+  /* 六级标题是「最弱的标题」，用次级色而不是继续放大 */
+  color: var(--nd-text-3, var(--ink-3, #6b7280));
+}
+
+/* =========================================================================
+ * 2. 行内标记
+ *
+ * 编辑器里是 `Decoration.mark` 覆盖**整个节点（含定界符）**，揭示态由
+ * `.nd-mark`（`theme.ts` 的 baseTheme）把定界符的样式中和掉。所以这里只写
+ * 「这个语义长什么样」，不用管定界符。
+ * ======================================================================= */
+
+strong,
+.nd-strong {
+  font-weight: 700;
+}
+
+em,
+.nd-em {
+  font-style: italic;
+}
+
+/*
+ * 删除线。
+ *
+ * ⚠️ 渲染侧的标签是 `<s>`（markdown-it 的 GFM 删除线规则），不是 `<del>` ——
+ * 两个都写上：消费方自己写的 Markdown 插件可能产 `<del>`，不该两副面孔。
+ * 契约类名沿用编辑器已有的 `.nd-strike`。
+ */
+s,
+del,
+.nd-strike {
+  color: var(--nd-text-3, var(--ink-3, #6b7280));
+  text-decoration: line-through;
+}
+
+/*
+ * 高亮（`==text==`，本库自己的方言）。
+ *
+ * ★ 渲染侧从阶段 1 起产 `<mark class="nd-highlight">`（`src/render/mark.ts`），
+ * 编辑器侧**还没实现**（lezer 不产高亮节点）—— 所以类名那一半今天只有渲染侧吃，
+ * `mark` 那一半保证「发出来至少是黄的」，不会退化成浏览器默认的黄底黑字。
+ *
+ * ⚠️ 站里没有「高亮」令牌，所以这里没有中间层：`var(--nd-highlight-bg, 字面量)`。
+ * 要跟主题走就覆盖 `--nd-highlight-bg`（或等站点补一个 `--highlight-bg`）。
+ */
+mark,
+.nd-highlight {
+  padding: 0.1em 0.2em;
+  border-radius: 3px;
+  background: var(--nd-highlight-bg, #fdf3b8);
+}
+
+/*
+ * 行内码。
+ *
+ * ⚠️ `pre > code` 必须**单独复位**（见下面「代码块」一节）：否则代码块里的
+ * `<code>` 会吃到这里的胶囊底色和 padding，套一层「码中码」。
+ */
+code,
+.nd-code {
+  padding: 0.15em 0.35em;
+  border-radius: 4px;
+  color: var(--nd-text, var(--ink-1, #16181c));
+  background: var(--nd-surface, var(--surface, #f6f7f8));
+  font-family: var(--nd-font-mono, ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace);
+  font-size: 0.9em;
+}
+
+/*
+ * 链接。
+ *
+ * 编辑器里它是**真实可编辑文本**（`Decoration.mark` + `data-href`），只有
+ * Cmd/Ctrl + 点击才跳转 —— 所以 `cursor: pointer` 不在这里给（见 `theme.css`）。
+ * 渲染侧是 `<a target="_blank" rel="noopener noreferrer nofollow">`。
+ */
+a,
+.nd-link {
+  color: var(--nd-brand, var(--brand-ink, #0b6bcb));
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* =========================================================================
+ * 3. 引用
+ * ======================================================================= */
+
+/* 垂直节奏（**只有标签**）。UA 默认是 `margin: 1em 40px`，左边 40px 必须清掉。 */
+blockquote {
+  margin: 1em 0;
+}
+
+blockquote,
+.nd-blockquote {
+  padding-left: 0.9em;
+  border-left: 3px solid var(--nd-border, var(--border, #e4e7ea));
+  color: var(--nd-text-3, var(--ink-3, #6b7280));
+}
+
+/* =========================================================================
+ * 4. 列表
+ *
+ * ⚠️ 渲染侧**恒有** `<li><p>…</p></li>`（`renderer.ts` 的 `paragraph_open`
+ * 无条件发 `<p>`，为了和编辑器的「列表项内容就是段落」逐字一致）。
+ * 所以列表项里的 `<p>` 必须压平，否则每项都多一段行距。
+ * ======================================================================= */
+
+/*
+ * `.nd-list` 是**渲染侧**的契约类名（phase 2 给 `<ul>` / `<ol>` 加上），
+ * 编辑器侧产不出来 —— CM6 的行没法被一个 `<ul>` 包住（列表项是**逐行**的
+ * `.nd-list-item`）。这正是「可编辑节点只共享语义、不共享 DOM」的典型例子。
+ */
+ul,
+ol,
+.nd-list {
+  margin: 1em 0;
+  padding-left: 1.5em;
+}
+
+li {
+  margin: 0.25em 0;
+}
+
+/* 列表项里的段落压平（见上面 ⚠️）；任务项多一层 `<div>` 包裹，也要压。 */
+li > p,
+li > div > p {
+  margin: 0;
+}
+
+/* 嵌套列表别再吃一份 1em 的上下留白 */
+ul ul,
+ul ol,
+ol ul,
+ol ol {
+  margin: 0.25em 0;
+}
+
+/*
+ * 任务列表（GFM `- [ ]` / `- [x]`）。
+ *
+ * 渲染侧的形状是 Tiptap 那一套（`render/task-list.ts` 刻意对齐编辑器）：
+ *
+ *     <ul data-type="taskList">
+ *       <li data-type="taskItem" data-checked="false">
+ *         <label><input type="checkbox"/><span/></label><div><p>todo</p></div>
+ *       </li>
+ *
+ * 没有这几条的话：`<label>` 是行内、`<div>` 是块级 → 复选框单独占一行，
+ * 正文掉到下一行 —— 和编辑器里「☐ 文本」并排差得很远。
+ *
+ * ⚠️ 这里**不写** `.nd-task-checkbox`（那是编辑器 widget 的类，几何在
+ * `theme.css`）：两边靠**同样的数值**（15px / `accent-color`）长得一样，
+ * 而不是靠共享选择器。phase 2 可以让渲染侧也带上那个类，就能真正共用一条规则。
+ */
+li[data-type='taskItem'] {
+  display: flex;
+  gap: 0.5em;
+  align-items: baseline;
+}
+
+li[data-type='taskItem'] > label {
+  display: inline-flex;
+  flex: none;
+}
+
+li[data-type='taskItem'] > div {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+li[data-type='taskItem'] input[type='checkbox'] {
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  accent-color: var(--nd-brand, var(--brand-ink, #0b6bcb));
+  vertical-align: -2px;
+}
+
+/* =========================================================================
+ * 5. 表格
+ *
+ * 渲染侧：`<table><tbody><tr><th><p>a</p></th>…</tr>…</tbody></table>`
+ * （没有 `<thead>` —— `renderer.ts` 把 thead 改写成 tbody 了，别写 thead 选择器）。
+ * 编辑器侧：整块是 `TableWidget`，内层 HTML **就是** `renderMarkdown()` 的输出，
+ * 外面套一个 `.nd-table` 的块级外壳（结构决定，不是抄漏）。
+ * ======================================================================= */
+
+table {
+  width: 100%;
+  margin: 1em 0;
+  border-collapse: collapse;
+  font-size: 0.95em;
+}
+
+th,
+td {
+  padding: 0.4em 0.6em;
+  border: 1px solid var(--nd-border, var(--border, #e4e7ea));
+  text-align: left;
+  vertical-align: top;
+}
+
+th {
+  background: var(--nd-surface, var(--surface, #f6f7f8));
+  font-weight: 700;
+}
+
+/* 单元格里的段落压平（同列表项，见上）。 */
+th > p,
+td > p {
+  margin: 0;
+}
+
+/*
+ * `.nd-table` —— **编辑器块 widget 的外壳**（渲染侧没有这个容器：
+ * 原子节点共用 HTML 投影器，但**不**共用 DOM 结构）。
+ *
+ * 所以这里只放「两种投影都成立」的两条：不超宽、宽表自己滚。
+ * 左右内边距要和 `.cm-line` 对齐（`6px`），那是**编辑器几何**，留在
+ * `theme.css` / `features/table.css`，本文件不碰。
+ */
+.nd-table {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+/*
+ * ⚠️ 外壳已经用 padding 给了上下留白（`features/table.css`），这里把 `table`
+ * 标签上的 margin 在外壳内清掉 —— 否则同一个间距付两遍，编辑器里的表格
+ * 会比别处多出一截空白。
+ */
+.nd-table table {
+  margin-block: 0;
+}
+
+/* =========================================================================
+ * 6. 分割线
+ * ======================================================================= */
+
+/*
+ * 渲染侧是 `<hr/>`；编辑器侧**没有 `<hr>` 元素** —— 非揭示态把整行字符藏掉，
+ * 线由 `.cm-line.nd-hr` 的 `border-top` 画出来（`decorate/block.ts`）。
+ * 所以两边是**同一个视觉**、两套 DOM：这里共享的是「一条 1px 的线」。
+ */
+hr {
+  margin: 1.5em 0;
+  border: 0;
+  border-top: 1px solid var(--nd-border, var(--border, #e4e7ea));
+}
+
+/*
+ * ⚠️ 只写 `border-top`，**不要**写 `height` / `padding`：
+ * 编辑器里这个类挂在 `.cm-line` 上，高度由 `theme.css` 的 `padding-top` 撑开
+ * （藏掉字符后行高是 0，不给点高度线会贴着上一行）。
+ */
+.nd-hr {
+  border-top: 1px solid var(--nd-border, var(--border, #e4e7ea));
+}
+
+/* =========================================================================
+ * 7. 代码块（`pre` / `code`）
+ *
+ * ⚠️ 渲染侧的围栏是 `<div class="nd-code-fence">` 包着**共用标题栏**
+ * （`renderCodeHeaderHtml`）+ `<pre><code>`。标题栏的类名（`.nd-code-header`）
+ * 两侧逐字相同，样式在 `theme.css`；这里只负责「没有标题栏的裸 `<pre>`」
+ * （缩进代码块、消费方自己的预览）也要能看。
+ * ======================================================================= */
+
+pre {
+  margin: 1em 0;
+  padding: 0.85em 0.9em;
+  border-radius: var(--nd-radius, 6px);
+  background: var(--nd-surface, var(--surface, #f6f7f8));
+  /* 代码行不折行，横向滚动 —— 和编辑器里 `white-space: pre` 的行为一致 */
+  overflow-x: auto;
+  font-family: var(--nd-font-mono, ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace);
+  font-size: 0.92em;
+  line-height: 1.55;
+}
+
+/*
+ * 代码块里的 `<code>` **复位**成「只是等宽文本」：不吃行内码的胶囊底色 / padding。
+ * （`code, .nd-code` 那条是给正文里单个词用的。）
+ */
+pre > code {
+  padding: 0;
+  border-radius: 0;
+  background: none;
+  color: inherit;
+  font-size: inherit;
+  line-height: inherit;
+}
+
+/*
+ * 围栏容器。
+ *
+ * ⚠️⚠️ **这一段在 `theme.css` 里还有一份**（`.nd-code-fence` 那一节，带很长的
+ * 注释）。阶段 1 规定 `theme.css` 只许加 `@import`，所以这里只能先抄一份 ——
+ * 值必须逐字相同。**phase 2 第一件事就是把 `theme.css` 那份删掉**，
+ * 显示侧的代码块只留这里一份。
+ *
+ * 两边同时加载时不会打架：`@import` 进来的表排在导入者自己的规则**之前**，
+ * 所以 `theme.css` 那份（同值）覆盖本文件，视觉不变。
+ */
+.nd-code-fence {
+  margin: 1em 0;
+  border: 1px solid var(--nd-border, var(--border, #e4e7ea));
+  border-radius: var(--nd-radius, 6px);
+  background: var(--nd-surface, var(--surface, #f6f7f8));
+  /* 圆角裁住里面的标题栏底色和 `<pre>` 的横向滚动条 */
+  overflow: hidden;
+}
+
+.nd-code-fence > pre {
+  margin: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+/*
+ * 标题栏字号：编辑器里标题栏在 `.cm-line.nd-code-block` 内，行字号是 `0.92em`，
+ * 标题栏跟着变成 13.34px；显示侧 `.nd-code-fence` 不缩字号，会大 8%。
+ * 这里把显示侧也对齐到 `0.92em` —— 只命中 `.nd-code-fence`（编辑器没有这个容器），
+ * 顺带让标题栏的 `em` 内边距也一起对齐。
+ */
+.nd-code-fence > .nd-code-header {
+  font-size: 0.92em;
+}
+
+/* =========================================================================
+ * 8. 图片
+ *
+ * 编辑器侧是 `ImageWidget`（`<img class="nd-image-widget">`，`Decoration.replace`），
+ * 渲染侧是裸 `<img>`。共享的语义是 **`img` 标签本身**，不是类名 ——
+ * 所以这里只写「图不该撑破正文、圆角一致」，widget 的几何（`inline-block` +
+ * `vertical-align: top`，防 CM6 高度表错位）留在 `theme.css`。
+ * ======================================================================= */
+
+img {
+  max-width: 100%;
+  height: auto;
+  border-radius: var(--nd-radius, 6px);
+  vertical-align: top;
+}
+
+/* =========================================================================
+ * 9. 不在这里的东西
+ *
+ * - **mention / 卡片 / 嵌入 / 轮播 / 数学**：两侧共用同一套 `nd-*` 类名，
+ *   样式在 `src/shared/dialect.css`（见那个文件的文件头）。本文件不重复。
+ * - **编辑器几何**：`.cm-line` 的 padding、块 widget 的负 margin、光标、
+ *   滚动条 —— 一律在 `theme.css`。本文件里**不许出现 `.cm-editor` 前缀**。
+ * ======================================================================= */
+
+/* =========================================================================
+ * 9. 步骤列表（`.nd-steps`，来自 `{.steps}` 属性行）
+ *
+ * 渲染侧：`<ul class="nd-steps"><li><p>…</p></li>…</ul>`
+ * 编辑器侧：`decorate/list.ts` 把 ListMark 换成 `StepMarkerWidget`（`features/steps.css`）。
+ *
+ * 两侧都用「圆形序号 + 正文左缩进」，数字来源分别是 CSS counter 和 ListItem 顺序。
+ * ⚠️ 只对**直接子项**计数（`.nd-steps > li`），嵌套列表不参与父列表的序号。
+ * ======================================================================= */
+
+ul.nd-steps,
+ol.nd-steps {
+  list-style: none;
+  counter-reset: nd-step;
+  padding-left: 0;
+  margin: 1em 0;
+}
+
+ul.nd-steps > li,
+ol.nd-steps > li {
+  counter-increment: nd-step;
+  position: relative;
+  padding-left: 2.2em;
+}
+
+ul.nd-steps > li::before,
+ol.nd-steps > li::before {
+  content: counter(nd-step);
+  position: absolute;
+  left: 0;
+  top: 0.15em;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.6em;
+  height: 1.6em;
+  font-size: 0.8em;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--nd-brand, var(--brand-ink, #0b6bcb));
+  background: var(--nd-brand-soft, #e8f0fe);
+  border-radius: 50%;
+}
+
+
+/* =========================================================================
+ * 10. 卡片列表（`.nd-cards`，来自 `{.cards}`）
+ *
+ * 渲染侧：`<ul class="nd-cards"><li><p>…</p></li>…</ul>`
+ * 编辑器侧：`decorate/list.ts` 藏掉 ListMark + 给整行挂 `.nd-card-item`。
+ *
+ * 竖排单列（不是网格）：编辑器里一行就是一张卡片，网格会和编辑器的行模型对不上。
+ * ======================================================================= */
+
+ul.nd-cards,
+ol.nd-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  list-style: none;
+  padding-left: 0;
+  margin: 1em 0;
+}
+
+ul.nd-cards > li,
+ol.nd-cards > li {
+  padding: 2px 12px;
+  border: 1px solid var(--nd-border, var(--border, #e4e7ea));
+  border-radius: 8px;
+  background: var(--nd-surface, var(--surface, #fff));
+}
+
+ul.nd-cards > li > p,
+ol.nd-cards > li > p {
+  margin: 0;
+}
+
+/* =========================================================================
+ * 11. 参数表（`.nd-fields`，来自 `{.fields}`）
+ *
+ * 渲染侧：`<table class="nd-fields">`
+ * 编辑器侧：`TableWidget` 外层 `.nd-table--fields`（内层 HTML 就是 renderMarkdown 的产出）。
+ * ======================================================================= */
+
+table.nd-fields,
+.nd-table--fields table {
+  font-size: 0.9em;
+}
+
+table.nd-fields th,
+.nd-table--fields th {
+  font-weight: 600;
+  color: var(--nd-text-3, var(--ink-3, #6b7280));
+  background: var(--nd-surface-2, #f6f7f8);
+}
+
+table.nd-fields td:first-child,
+table.nd-fields th:first-child,
+.nd-table--fields td:first-child,
+.nd-table--fields th:first-child {
+  font-family: var(--nd-font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+
+/* 表格标题（`caption="…"`）—— 两侧共用同一个 `<caption>` 标签。 */
+caption {
+  caption-side: top;
+  padding: 0 0 0.4em;
+  font-size: 0.85em;
+  color: var(--nd-text-3, var(--ink-3, #6b7280));
+  text-align: left;
+}
+
+
+/* =========================================================================
+ * 12. 代码块行号 / 行高亮（`{lines}` / `{highlight="2-3"}`）
+ *
+ * 渲染侧：`.nd-code-lines` 在 `<pre>` 上，每个内容行一个 `.nd-code-line` span。
+ * 编辑器侧：`decorate/fence.ts` 给内容行挂 `nd-code-lines` / `nd-code-hl`
+ * （`features/code-lines.css`）。两侧都用 CSS counter，数字一致。
+ * ======================================================================= */
+
+.nd-code-line {
+  display: block;
+}
+
+.nd-code-lines {
+  counter-reset: nd-code-line;
+}
+
+.nd-code-lines .nd-code-line {
+  position: relative;
+  counter-increment: nd-code-line;
+  padding-left: 2.2em;
+}
+
+.nd-code-lines .nd-code-line::before {
+  content: counter(nd-code-line);
+  position: absolute;
+  left: 0;
+  width: 1.6em;
+  text-align: right;
+  font-size: 0.85em;
+  color: var(--nd-text-4, var(--ink-4, #9aa1a9));
+  pointer-events: none;
+}
+
+.nd-code-line--hl {
+  background: var(--nd-code-hl, #fff8c5);
+}
+
+
+/* =========================================================================
+ * 13. 页签组（`{tab="…"}`，相邻围栏）
+ *
+ * 结构由 `render/features/tabs.ts` 生成：radio + panel 成对，bar 里的 label 用
+ * `order: -1` 排到最前。零 JS。
+ * ======================================================================= */
+
+.nd-tabs {
+  display: flex;
+  flex-direction: column;
+  margin: 1em 0;
+}
+
+.nd-tabs > input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.nd-tabs > .nd-tabs__panel {
+  display: none;
+}
+
+.nd-tabs > input:checked + .nd-tabs__panel {
+  display: block;
+}
+
+.nd-tabs > .nd-tabs__bar {
+  order: -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 6px;
+}
+
+.nd-tabs > .nd-tabs__bar label {
+  padding: 4px 12px;
+  font-size: 0.85em;
+  color: var(--nd-text-3, var(--ink-3, #6b7280));
+  background: var(--nd-surface-2, #f6f7f8);
+  border: 1px solid var(--nd-border, var(--border, #e4e7ea));
+  border-radius: 6px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.nd-tabs > .nd-tabs__bar label:hover {
+  color: var(--nd-text, var(--ink-1, #1f2328));
+}
+
+/* 当前页签的 label（最多 6 个，够用） */
+.nd-tabs:has(> input:nth-of-type(1):checked) > .nd-tabs__bar > label:nth-child(1),
+.nd-tabs:has(> input:nth-of-type(2):checked) > .nd-tabs__bar > label:nth-child(2),
+.nd-tabs:has(> input:nth-of-type(3):checked) > .nd-tabs__bar > label:nth-child(3),
+.nd-tabs:has(> input:nth-of-type(4):checked) > .nd-tabs__bar > label:nth-child(4),
+.nd-tabs:has(> input:nth-of-type(5):checked) > .nd-tabs__bar > label:nth-child(5),
+.nd-tabs:has(> input:nth-of-type(6):checked) > .nd-tabs__bar > label:nth-child(6) {
+  color: var(--nd-text, var(--ink-1, #1f2328));
+  background: var(--nd-surface, #fff);
+  border-color: var(--nd-border-strong, #d0d7de);
+}
+
+/* 面板里的代码块不要再叠一层外边距 */
+.nd-tabs__panel > .nd-code-fence {
+  margin: 0;
+}

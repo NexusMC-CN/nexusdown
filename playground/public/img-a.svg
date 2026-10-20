@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="320" height="200" viewBox="0 0 320 200">
+  <rect width="320" height="200" rx="8" fill="#eef4ff"/>
+  <circle cx="70" cy="100" r="36" fill="#c7dbff"/>
+  <text x="160" y="112" font-family="system-ui, sans-serif" font-size="30" text-anchor="middle" fill="#3b6fd4">图 A</text>
+</svg>

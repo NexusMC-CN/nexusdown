@@ -25,3 +25,6 @@ pnpm-workspace.yaml
 
 # 本地诊断脚手架（光标/坐标测量台、一次性脚本），不入库
 tests/_harness/
+
+# 本地 QA 截图 / 录屏（scripts/qa-*.mjs 的产物，不入库）
+.local/

@@ -39,7 +39,10 @@ describe('renderMarkdown', () => {
     // Markdown preset understands it.
     const html = renderMarkdown('==高亮==')
 
-    expect(html).toContain('<mark')
+    // `nd-highlight` is the **contract class name**: the editor side will use the
+    // same one once it implements `==` (see docs/2026-10-19-render-contract.md),
+    // so `src/shared/blocks.css` can style both with one `mark, .nd-highlight` rule.
+    expect(html).toContain('<mark class="nd-highlight"')
     expect(html).toMatch(/<mark[^>]*>高亮<\/mark>/)
   })
 
@@ -48,9 +51,11 @@ describe('renderMarkdown', () => {
     // *first* `==` and refuses an empty span. `[^=]+` (the stock Tiptap rule)
     // would drop `==a=b==` on the floor, and `====` must stay text rather than
     // becoming an empty mark.
-    expect(renderMarkdown('==a=b==')).toBe('<p><mark>a=b</mark></p>')
+    expect(renderMarkdown('==a=b==')).toBe('<p><mark class="nd-highlight">a=b</mark></p>')
     expect(renderMarkdown('====')).toBe('<p>====</p>')
-    expect(renderMarkdown('==a==b==c==')).toBe('<p><mark>a</mark>b<mark>c</mark></p>')
+    expect(renderMarkdown('==a==b==c==')).toBe(
+      '<p><mark class="nd-highlight">a</mark>b<mark class="nd-highlight">c</mark></p>',
+    )
     // A code span still wins over the highlight.
     expect(renderMarkdown('`==x==`')).toBe('<p><code>==x==</code></p>')
   })

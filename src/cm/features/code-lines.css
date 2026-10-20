@@ -1,0 +1,36 @@
+/**
+ * 代码块行号 / 行高亮（`{lines}` / `{highlight="2-3"}`）—— **编辑器侧**。
+ *
+ * 行号用 CSS counter：每个内容行一个 `.cm-line.nd-code-lines`，
+ * 首个内容行 `counter-reset`，其余 `counter-increment`。
+ * 渲染侧在 `src/shared/blocks.css` 用同样的 counter 规则。
+ */
+
+.cm-editor .cm-line.nd-code-lines {
+  position: relative;
+}
+
+/*
+ * ⚠️ 必须带 `.nd-code-block`：`theme.css` 里 `.cm-editor .cm-line.nd-code-block`
+ * 给代码行设了 `padding-left: 0.9em`，同特异度且排在后面，会盖掉这里。
+ */
+.cm-editor .cm-line.nd-code-block.nd-code-lines {
+  padding-left: 2.8em;
+}
+
+/* 行号 widget（`CodeLineNumberWidget`）—— 绝对定位，不占文本流 */
+.nd-code-line-no {
+  position: absolute;
+  left: 0.35em;
+  top: 0.2em;
+  width: 1.8em;
+  text-align: right;
+  font-size: 0.82em;
+  line-height: inherit;
+  color: var(--nd-text-4, var(--ink-4, #9aa1a9));
+  pointer-events: none;
+}
+
+.cm-line.nd-code-hl {
+  background: var(--nd-code-hl, #fff8c5);
+}

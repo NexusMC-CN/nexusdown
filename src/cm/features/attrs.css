@@ -1,0 +1,54 @@
+/**
+ * 属性行 chip —— **编辑器侧专属**（`src/cm/features/attrs.ts`）。
+ *
+ * 隐藏态：整行内容被 `Decoration.replace` 换成 `.nd-attrs-chip`；
+ * 揭示态：露出 `{…}` 原文，整行加 `.nd-attrs-line` 变淡。
+ *
+ * ⚠️ 只写视觉，不写几何：chip 是**行内**元素（`inline-flex`），
+ * 绝不能变成块级 —— 否则 CM6 会在它前后插的 `cm-widgetBuffer` 把行撑成三行
+ * （同 `dialect.css` 里 `.nd-mention-card` 的注释）。
+ */
+
+.nd-attrs-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35em;
+  padding: 0.05em 0.55em;
+  font-size: 0.78em;
+  line-height: 1.7;
+  color: var(--nd-text-3, #6b7280);
+  background: var(--nd-surface-2, #f3f4f6);
+  border: 1px solid var(--nd-border, #e4e7ea);
+  border-radius: 999px;
+  cursor: pointer;
+  user-select: none;
+  vertical-align: middle;
+  /* 只过渡颜色与位移：不碰字号/尺寸（属性行在正文流里，改尺寸会顶行） */
+  transition:
+    color var(--nd-motion-dur-2, 100ms) var(--nd-motion-ease, cubic-bezier(0.2, 0.7, 0.1, 1)),
+    border-color var(--nd-motion-dur-2, 100ms) var(--nd-motion-ease, cubic-bezier(0.2, 0.7, 0.1, 1));
+}
+
+.nd-attrs-chip::before {
+  content: '{}';
+  font-family: var(--nd-font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+  font-size: 0.9em;
+  opacity: 0.65;
+}
+
+.nd-attrs-chip:hover {
+  color: var(--nd-text, #1f2328);
+  border-color: var(--nd-border-strong, #d0d7de);
+}
+
+/* 按下反馈：整数位移，不用 0.5px（亚像素会让 chip 里的字发虚） */
+.nd-attrs-chip:active {
+  transform: translateY(1px);
+}
+
+/* 揭示态：源码行整体变淡，和正文区分开 */
+.cm-line.nd-attrs-line {
+  color: var(--nd-text-3, #6b7280);
+}
+
+

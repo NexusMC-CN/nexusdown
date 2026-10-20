@@ -20,15 +20,18 @@ import {
   Decoration,
   type DecorationSet,
   EditorView,
+  keymap,
   type PluginValue,
   ViewPlugin,
   type ViewUpdate,
 } from '@codemirror/view';
 
-import type { EditorFeature } from './feature.js';
+import type { EditorFeature, FeatureIndex, NormalizedFeatureIndex } from './feature.js';
+import { normalizeFeatures } from './feature.js';
 import { foldedBlocks } from './fold.js';
 import type {
   DecorationBuild,
+  SourceRange,
   DecorationRanges,
   LinkReferences,
   LivePreviewDecorators,
@@ -73,7 +76,7 @@ export const INLINE_NODES: ReadonlySet<string> = new Set([
 export const BLOCK_NODES: ReadonlySet<string> = new Set(['Image', 'HorizontalRule']);
 
 const NOOP_DECORATOR: LivePreviewDecorators['heading'] = () => {};
-const NO_FEATURES: ReadonlyMap<string, EditorFeature> = new Map();
+const NO_FEATURES: NormalizedFeatureIndex = new Map();
 const NOOP_LINK_DECORATOR: LivePreviewDecorators['link'] = () => {};
 
 export interface LivePreviewOptions {
@@ -87,12 +90,16 @@ export interface LivePreviewOptions {
   /** 引用式链接（`[text][ref]`）索引；不传则由 link 装饰器从 doc 现算。 */
   references?: LinkReferences;
   /**
-   * 功能模块：`节点名 → 认领它的功能`。
+   * 功能模块：`节点名 → 认领它的功能`（**一个或多个**）。
    *
    * 由装配层（`index.ts`）注入 `EDITOR_FEATURE_BY_NODE`；不传就是空表。
    * 骨架**不认识任何具体元素**，所以可以脱离实现单测（同 `decorators`）。
+   *
+   * ⚠️ 取值允许是**单个功能**（历史形态，消费方和单测都这么写）或**数组**：
+   * 一个 lezer 节点可以被多个功能认领（见 `feature.ts` 的 `EditorFeature.nodes`），
+   * 但没必要为此把所有现有调用方都改成数组。入口处统一归一化（`normalizeFeatures`）。
    */
-  features?: ReadonlyMap<string, EditorFeature>;
+  features?: FeatureIndex;
 }
 
 /** 插件实例的形状（测试里用它断言装饰数量）。 */
@@ -111,7 +118,11 @@ export interface LivePreviewPluginValue extends PluginValue {
  * `decorations` / `atomicDecorations` 两个桶**。每个元素长什么样不归它管。
  */
 export function nexusdownLivePreview(opts: LivePreviewOptions = {}): Extension {
-  const features = opts.features ?? NO_FEATURES;
+  /*
+   * ⚠️ 先归一化成「节点名 → 功能列表」。`features` 是公开选项，取值允许是单个功能
+   * 或数组（见 `LivePreviewOptions.features`），下面两拨分流都只认数组。
+   */
+  const features = opts.features ? normalizeFeatures(opts.features) : NO_FEATURES;
   /*
    * ★ **按「装饰能不能从 ViewPlugin 出来」把功能分成两拨。**
    *
@@ -172,9 +183,12 @@ export function nexusdownLivePreview(opts: LivePreviewOptions = {}): Extension {
       // 新建 Set，没变时返回的是同一个对象。
       const foldChanged =
         u.startState.field(foldedBlocks, false) !== u.state.field(foldedBlocks, false);
+      const sourceChanged =
+        u.startState.field(editingRange, false) !== u.state.field(editingRange, false);
 
       if (
         foldChanged ||
+        sourceChanged ||
         justEndedComposing ||
         u.docChanged ||
         u.viewportChanged ||
@@ -222,6 +236,7 @@ export function nexusdownLivePreview(opts: LivePreviewOptions = {}): Extension {
       const tree = syntaxTree(view.state);
       const doc = view.state.doc;
       const selection = view.state.selection;
+      const source = view.state.field(editingRange, false);
 
       // 折叠或多段可见区时，一个跨段节点会在两段里各被 enter 一次。
       // mark 装饰重复推无所谓（class 幂等），但 replace 装饰重复推会造出重叠区间、
@@ -248,20 +263,29 @@ export function nexusdownLivePreview(opts: LivePreviewOptions = {}): Extension {
             const name = node.name;
 
             /*
+             * ★ 正在「看源码」的区间：**整棵子树跳过** —— 里面不推任何装饰
+             * （行内标记、代码块、属性 chip 全不渲染）。`return false` = 不再下降。
+             */
+            if (source && ref.from >= source.from && ref.to <= source.to) return false;
+
+            /*
              * ★ **功能模块优先。**
              *
              * 新元素走 `features`（`src/cm/features/`），不再往下面那几张表里塞 ——
              * 那几张表是骨架的一部分，每加一个元素就要动一次骨架，多人同时改必然冲突。
              *
-             * 放最前面是**故意**的：功能可以认领内置节点。真冲突时
-             * `indexFeatures`（`feature.ts`）会在**启动时抛错**，不会悄悄覆盖 ——
-             * 悄悄覆盖的表现是"某个元素突然不渲染了"，极难查。
+             * 放最前面是**故意**的：功能可以认领内置节点。
+             *
+             * ★ **同一个节点可能有多个功能**（`math` 与 `mention` 都认 `Paragraph`，
+             * 见 `feature.ts` 的 `EditorFeature.nodes`）。列表顺序 = 执行顺序
+             * （`priority` 大的先跑，同优先级按注册顺序），由 `indexFeatures` 排好。
+             * 各功能**自己按文本前缀 no-op**，所以互不干扰。
              *
              * ⚠️ 命中后**不 return false**：认领父节点 ≠ 放弃子树，
              * 比如表格里还可能有行内标记。
              */
-            const feature = viewFeatures.get(name);
-            if (feature) {
+            const features = viewFeatures.get(name);
+            if (features) {
               /*
                * ⚠️ **`context` 必须传下去。**
                *
@@ -277,7 +301,9 @@ export function nexusdownLivePreview(opts: LivePreviewOptions = {}): Extension {
                 name === 'FencedCode'
                   ? { folded: view.state.field(foldedBlocks, false)?.has(node.from) ?? false }
                   : undefined;
-              feature.decorate(ranges, atomicRanges, node, doc, selection, context);
+              for (const feature of features) {
+                feature.decorate(ranges, atomicRanges, node, doc, selection, context);
+              }
               return;
             }
 
@@ -374,26 +400,64 @@ export function nexusdownLivePreview(opts: LivePreviewOptions = {}): Extension {
    * 实测：漏挂时**连 history / drawSelection 这些基础设施测试都会红** ✓，
    * 因为整个 state 建不起来 ✓。
    */
-  return [editingBlock, blockDecorations(blockFeatures), plugin];
+  /*
+   * 源码模式的清理：点区间外的正文 / 按 Escape → 退出源码，块重新渲染。
+   *
+   * ⚠️ 只对 `.cm-line` 生效：点的是块 widget 时不清理（那是另一个块的入口，
+   * 由 widget 自己设新的区间）。
+   */
+  const sourceModeHandlers: Extension = [
+    keymap.of([
+      {
+        key: 'Escape',
+        run: (view) => {
+          if (!view.state.field(editingRange, false)) return false;
+          view.dispatch({ effects: [setEditingRange.of(null), setEditingBlock.of(null)] });
+          return true;
+        },
+      },
+    ]),
+    EditorView.domEventHandlers({
+      mousedown(event, view) {
+        const range = view.state.field(editingRange, false);
+        if (!range) return false;
+        const target = event.target as HTMLElement | null;
+        if (!target?.closest('.cm-line')) return false;
+        const pos = view.posAtCoords({ x: event.clientX, y: event.clientY });
+        if (pos === null) return false;
+        if (pos < range.from || pos > range.to) {
+          view.dispatch({ effects: setEditingRange.of(null) });
+        }
+        return false;
+      },
+    }),
+  ];
+
+  return [editingBlock, editingRange, blockDecorations(blockFeatures), plugin, sourceModeHandlers];
 }
 
 /**
  * 把功能表按 `block` 标记分成两拨。没有块级功能时**原样返回同一个 Map** ——
  * 不制造一个内容相同的新对象（避免给「这个功能表变了吗」这类引用比较添乱）。
+ *
+ * ★ **一个节点名可以同时出现在两拨里**：`math` 是块级功能、`mention` 不是，两者都认
+ * `Paragraph` —— 于是块级通道拿 `Paragraph → [math]`、视图通道拿 `Paragraph → [mention]`，
+ * 各跑各的。这正是「一个节点多个装饰器」真正需要的地方：**跨通道**的重复认领
+ * （同一通道内的多个功能由列表顺序解决，见 `feature.ts` 的 `indexFeatures`）。
  */
-function splitFeatures(features: ReadonlyMap<string, EditorFeature>): {
-  view: ReadonlyMap<string, EditorFeature>;
-  block: ReadonlyMap<string, EditorFeature>;
+function splitFeatures(features: NormalizedFeatureIndex): {
+  view: NormalizedFeatureIndex;
+  block: NormalizedFeatureIndex;
 } {
-  const block = new Map<string, EditorFeature>();
-  for (const [name, feature] of features) {
-    if (feature.block) block.set(name, feature);
+  const block = new Map<string, readonly EditorFeature[]>();
+  const view = new Map<string, readonly EditorFeature[]>();
+  for (const [name, list] of features) {
+    const blockList = list.filter((feature) => feature.block);
+    const viewList = list.filter((feature) => !feature.block);
+    if (blockList.length > 0) block.set(name, blockList);
+    if (viewList.length > 0) view.set(name, viewList);
   }
   if (block.size === 0) return { view: features, block };
-  const view = new Map<string, EditorFeature>();
-  for (const [name, feature] of features) {
-    if (!feature.block) view.set(name, feature);
-  }
   return { view, block };
 }
 
@@ -484,8 +548,31 @@ export const editingBlock = StateField.define<number | null>({
   },
 });
 
+/**
+ * 「正在看源码」的区间 —— 块级 widget 点开后设置。
+ *
+ * 和 `editingBlock` 的区别：那个只记一个**位置**（块从哪开始），只能让块自己知道
+ * "我被点开了"；这个记**整段区间**，于是**区间内所有装饰**都可以统一跳过 ——
+ * 用户看到的是原样 Markdown，而不是"块替换撤了、行内标记和代码块外壳还在"的半渲染。
+ *
+ * ⚠️ 不靠"选区跨过区间"来实现：那会让用户看到一整片紫色选区（用户实测：
+ * "我没选整段啊，我就点它怎么能选整段啊"）。这里只放一个**光标**，区间单独记。
+ */
+export const setEditingRange = StateEffect.define<SourceRange | null>();
+
+export const editingRange = StateField.define<SourceRange | null>({
+  create: () => null,
+  update(value, tr) {
+    for (const e of tr.effects) if (e.is(setEditingRange)) return e.value;
+    if (!value) return null;
+    const from = tr.changes.mapPos(value.from, 1);
+    const to = tr.changes.mapPos(value.to, -1);
+    return to > from ? { from, to } : null;
+  },
+});
+
 function blockDecorations(
-  blockFeatures: ReadonlyMap<string, EditorFeature>,
+  blockFeatures: NormalizedFeatureIndex,
 ): Extension {
   const cache = new WeakMap<object, MarkdownNode[]>();
 
@@ -534,12 +621,24 @@ function blockDecorations(
      * 让它们把"位置判据"和"意图判据"合起来用 ✓。
      */
     const editing = state.field(editingBlock);
+    const source = state.field(editingRange, false);
     for (const node of nodes) {
-      blockFeatures.get(node.name)?.decorate(
-        ranges, atomicRanges, node, doc, selection,
-        undefined, // context：块级功能不需要视图层的 folded ✓
-        editing,
-      );
+      // 正在看源码的区间 → 块级功能也跳过（否则 tabs/table 的 widget 会重新盖上来）。
+      if (source && node.from >= source.from && node.to <= source.to) continue;
+      const list = blockFeatures.get(node.name);
+      if (!list) continue;
+      /*
+       * ★ 同一节点可能有多个块级功能（见 `splitFeatures` 的注释）——
+       * 顺序由 `indexFeatures` 排好（`priority` 大的先跑，同优先级按注册顺序）。
+       */
+      for (const feature of list) {
+        feature.decorate(
+          ranges, atomicRanges, node, doc, selection,
+          undefined, // context：块级功能不需要视图层的 folded ✓
+          editing,
+          source,
+        );
+      }
     }
     return {
       // `true` = 自动排序，同 ViewPlugin 那边（块级区间跨度大，顺序不保证单调）。
@@ -561,7 +660,8 @@ function blockDecorations(
       if (
         !tr.docChanged &&
         syntaxTree(tr.startState) === syntaxTree(tr.state) &&
-        tr.startState.selection.eq(tr.state.selection)
+        tr.startState.selection.eq(tr.state.selection) &&
+        tr.startState.field(editingRange, false) === tr.state.field(editingRange, false)
       ) {
         return deco;
       }

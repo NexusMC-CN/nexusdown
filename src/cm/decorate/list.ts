@@ -17,14 +17,21 @@ import type { EditorSelection, Range, Text } from '@codemirror/state'
 import type { SyntaxNode } from '@lezer/common'
 import { Decoration } from '@codemirror/view'
 
+import { parseAttrLine } from '../../shared/attrs.js'
 import { selectionTouchesLineRange } from '../util/selection.js'
 import { children, firstChildNamed } from '../util/tree.js'
-import { BulletMarkerWidget, OrderedMarkerWidget } from '../widgets/list.js'
+import { BulletMarkerWidget, OrderedMarkerWidget, StepMarkerWidget } from '../widgets/list.js'
 import { TaskCheckboxWidget } from '../widgets/task.js'
 import { MUTED_MARK, pushAtomicRange, pushRevealableMark } from './shared.js'
 
 /** 模块级单例（RangeSet 的等值比较依赖对象标识）。 */
 const LIST_ITEM_LINE = Decoration.line({ class: 'nd-list-item' })
+
+/** `{.steps}` 的列表项 —— 和 `.nd-list-item` 同时挂，CSS 只做额外调整。 */
+const STEP_ITEM_LINE = Decoration.line({ class: 'nd-step-item' })
+
+/** `{.cards}` 的列表项。 */
+const CARD_ITEM_LINE = Decoration.line({ class: 'nd-card-item' })
 
 /**
  * 无序列表的圆点。widget 无状态，所以连 `Decoration` 也做成单例 ——
@@ -38,6 +45,54 @@ const BULLET_MARKS = new Set(['-', '*', '+'])
 /** 有序列表的符号：数字 + 一个 `.` 或 `)`。 */
 const ORDERED_MARK = /^(\d+)[.)]$/
 
+/**
+ * 这个 ListItem 所在的列表后面是不是跟着 `{.steps}`。
+ *
+ * 列表 / 段落之间允许空一行（契约 §0.1），所以先跳过空行再解析属性行。
+ */
+function listHasSteps(doc: Text, node: SyntaxNode): boolean {
+  const list = node.parent
+  if (!list || (list.name !== 'BulletList' && list.name !== 'OrderedList')) return false
+  /*
+   * ⚠️ 只认**顶层**列表：属性行是挂在最外层列表上的。嵌套列表的 parent 是
+   * `ListItem`，如果也去读下一行，就会把外层列表的 `{.steps}` 继承下来 ——
+   * 实测嵌套项会多出一个「1」，和外层序号打架。
+   */
+  if (list.parent?.name !== 'Document') return false
+
+  const end = doc.lineAt(list.to)
+  let probe = end.number + 1
+  if (probe <= doc.lines && doc.line(probe).text.trim() === '') probe += 1
+  if (probe > doc.lines) return false
+
+  const attrs = parseAttrLine(doc.line(probe).text)
+  return Boolean(attrs?.some((attr) => attr.kind === 'class' && attr.name === 'steps'))
+}
+
+/** 和 `listHasSteps` 同一条判定，只是类名换成 `cards`。 */
+function listHasCards(doc: Text, node: SyntaxNode): boolean {
+  const list = node.parent
+  if (!list || (list.name !== 'BulletList' && list.name !== 'OrderedList')) return false
+  if (list.parent?.name !== 'Document') return false
+
+  const end = doc.lineAt(list.to)
+  let probe = end.number + 1
+  if (probe <= doc.lines && doc.line(probe).text.trim() === '') probe += 1
+  if (probe > doc.lines) return false
+
+  const attrs = parseAttrLine(doc.line(probe).text)
+  return Boolean(attrs?.some((attr) => attr.kind === 'class' && attr.name === 'cards'))
+}
+
+/** 第几项（按 ListItem 兄弟顺序，从 1 开始）。 */
+function stepIndexOf(node: SyntaxNode): number {
+  let index = 1
+  for (let sibling = node.prevSibling; sibling; sibling = sibling.prevSibling) {
+    if (sibling.name === 'ListItem') index += 1
+  }
+  return index
+}
+
 export function decorateListItem(
   ranges: Range<Decoration>[],
   atomicRanges: Range<Decoration>[],
@@ -46,6 +101,11 @@ export function decorateListItem(
   sel: EditorSelection,
 ): void {
   ranges.push(LIST_ITEM_LINE.range(doc.lineAt(node.from).from))
+
+  const steps = listHasSteps(doc, node)
+  const cards = !steps && listHasCards(doc, node)
+  if (steps) ranges.push(STEP_ITEM_LINE.range(doc.lineAt(node.from).from))
+  if (cards) ranges.push(CARD_ITEM_LINE.range(doc.lineAt(node.from).from))
 
   // GFM 的树是 `ListItem > Task > TaskMarker`，所以 TaskMarker 要往下找一层。
   const task = children(node).find((child) => child.name === 'Task')
@@ -76,6 +136,17 @@ export function decorateListItem(
     return
   }
 
+  /*
+   * `{.cards}`：卡片不需要符号 —— 把 `- `（含尾随空格）藏掉，整行靠
+   * `.nd-card-item` 画卡片。和任务项同一条处理（藏掉、揭示态变淡）。
+   */
+  if (cards) {
+    const next = doc.sliceString(listMark.to, listMark.to + 1)
+    const markTo = next === ' ' ? listMark.to + 1 : listMark.to
+    pushRevealableMark(ranges, atomicRanges, revealed, listMark.from, markTo)
+    return
+  }
+
   if (revealed) {
     // 揭示态：符号留在文本流里（变淡），光标能一个字符一个字符走进去改。
     ranges.push(MUTED_MARK.range(listMark.from, listMark.to))
@@ -85,6 +156,19 @@ export function decorateListItem(
   // 非揭示态：换成 widget。区间不登记成 atomic —— 光标能落在这一行时符号已经被
   // 揭示了（上面那个分支），永远不会出现「光标停在被替换区间里」的情况。
   const raw = doc.sliceString(listMark.from, listMark.to)
+
+  /*
+   * `{.steps}`：符号换成序号圆点（**不是**圆点/`1.`）。序号按 ListItem 兄弟顺序算，
+   * 和渲染侧 CSS counter 的结果一致；揭示态仍然露出源码（上面那个分支），
+   * 用户能改 `-` / 数字。
+   */
+  if (steps) {
+    ranges.push(
+      Decoration.replace({ widget: new StepMarkerWidget(stepIndexOf(node)) }).range(listMark.from, listMark.to),
+    )
+    return
+  }
+
   const symbol = BULLET_MARKS.has(raw) ? BULLET_MARKER : orderedMarker(raw)
   ranges.push(symbol.range(listMark.from, listMark.to))
 }

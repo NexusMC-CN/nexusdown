@@ -201,17 +201,41 @@ export function buildSpec(provider: string, kind: string, id: string): EmbedSpec
 }
 
 /**
- * 解析围栏 info：`embed <provider> <kind> <id>`。
+ * 解析围栏 info。**两种写法**，正典在前：
  *
- * ⚠️ **必须恰好四段**。多一段（`embed bilibili video BV1xx411c7mD extra`）就说明
- * 作者写了他以为有意义的东西 —— 与其猜，不如返回 `null` 让上层降级成普通代码块，
- * 作者一眼就能看到自己写错了。
+ * ```md
+ * ```embed https://www.bilibili.com/video/BV1xx411c7mD     ← 正典：一个 URL
+ * ```embed bilibili video BV1xx411c7mD                     ← legacy：三段位置参数
+ * ```
+ *
+ * ## 为什么 URL 形式是正典
+ *
+ * 作者记不住 `provider kind id` 三段位置参数（`netease song 110761` 里哪段是 kind？），
+ * 而**链接是作者手里本来就有的东西**。更要紧的是：这条路径和「独占一段的平台链接
+ * 自动转 embed」用的是**同一个 `resolveEmbedFromText`** —— 于是「贴链接 → 自动 embed」
+ * 和「强制 embed」不再是两条解析逻辑，不会再出现「自动认得出、强制认不出」。
+ *
+ * ## 两种写法的分支判据是**段数**，不是「长得像不像 URL」
+ *
+ * `parts.length === 4` 是 legacy（`embed provider kind id`），`=== 2` 是 URL 形式。
+ * 段数不对（3 段 / 5 段）一律 `null` → 上层降级成**普通代码块**。理由同以前：
+ * 作者写了他以为有意义的东西，与其猜，不如让他一眼看到自己写错了。
+ *
+ * ⚠️ URL 形式复用 `resolveEmbedFromText`，所以**短链**（`b23.tv` 等）也能解 ——
+ * 前提是消费方通过 `RenderData.links` 把跳转结果预取好传进来（`env`）。
+ * 拿不到就 `null`（降级成普通代码块，不报错）。编辑器侧没有 `env`，
+ * 所以**编辑器里的短链形式会显示成代码块**（契约 §4 记了这一条）。
  */
-export function parseEmbedFence(info: string | null | undefined): EmbedSpec | null {
+export function parseEmbedFence(
+  info: string | null | undefined,
+  env?: unknown,
+): EmbedSpec | null {
   if (!info) return null
   const parts = info.trim().split(/\s+/)
-  if (parts.length !== 4 || parts[0] !== 'embed') return null
-  return buildSpec(parts[1]!, parts[2]!, parts[3]!)
+  if (parts[0] !== 'embed') return null
+  if (parts.length === 4) return buildSpec(parts[1]!, parts[2]!, parts[3]!)
+  if (parts.length === 2) return resolveEmbedFromText(parts[1]!, env)
+  return null
 }
 
 /**
@@ -330,13 +354,17 @@ export const embedFeature: RenderFeature = {
 }
 
 /**
- * 围栏：` ```embed bilibili video BV… `。
+ * 围栏：` ```embed <url> `（正典）或 ` ```embed provider kind id `（legacy）。
  *
  * ⚠️ **不能直接覆盖 `rules.fence`** —— 那是 `renderer.ts` 给普通代码块装的标题栏
  * 规则，覆盖掉所有代码块都会遭殃。这里和 `features/math.ts` 一样**包一层**：
  * 只有 `info` 能解析成 embed 才走 embed，其余原样交回 `baseFence`。
- * 非法 embed（provider/kind/id 不对）也走 `baseFence` —— 和编辑器侧「降级成普通
- * 代码块」是同一个决定，两侧行为因此一致。
+ * 非法 embed（URL 不是已知平台 / provider/kind/id 不对）也走 `baseFence` ——
+ * 和编辑器侧「降级成普通代码块」是同一个决定，两侧行为因此一致。
+ *
+ * ⚠️ 必须把 `env` 传给 `parseEmbedFence`：URL 形式要走 `resolveEmbedFromText`，
+ * 短链的跳转结果在 `RenderData.links` 里（`env.data`）。不传的话短链形式
+ * 在渲染侧也解不了 —— 那正是「自动识别能认、强制 embed 不认」的来源。
  */
 function installEmbedFence(ctx: RenderFeatureContext): void {
   const baseFence = ctx.rules.fence
@@ -345,7 +373,7 @@ function installEmbedFence(ctx: RenderFeatureContext): void {
     const token = tokens[idx]!
     // `info` 是开围栏后的自由文本，和 `renderer.ts` / `features/math.ts` 同一套取法。
     const info = token.info ? ctx.md.utils.unescapeAll(token.info).trim() : ''
-    const spec = parseEmbedFence(info)
+    const spec = parseEmbedFence(info, env)
     if (!spec) {
       return baseFence
         ? baseFence(tokens, idx, options, env, self)
