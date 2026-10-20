@@ -284,6 +284,7 @@ export class MathBlockWidget extends WidgetType {
          */
         effects: setEditingBlock.of(this.from),
       })
+      view.focus()
     })
 
     return div

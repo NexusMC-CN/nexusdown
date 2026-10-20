@@ -35,13 +35,18 @@ import type { MentionCandidate } from './commands.js'
 import type { MathRenderer } from './features/math.js'
 import type { MentionResolutions } from './features/mention.js'
 import { nexusdown } from './index.js'
+import { setEditingBlock, setEditingRange } from './plugin.js'
 
 export interface MountEditorOptions {
   /** CM6 往这个容器里塞 DOM。 */
   parent: HTMLElement
   /** 初始文档。 */
   doc: string
-  /** 文档变化时回调（对应 `v-model` 的回填）。 */
+  /**
+   * 文档变化时回调（对应 `v-model` 的原值回填）。
+   * 组字期间若有外部全文替换等待生效，该替换优先，暂不回流旧稿的后续组字变化；
+   * 组字结束应用新稿后再回调。不要借此在组字过程中逐步规范化并替换全文。
+   */
   onDocChange?: (value: string) => void
   /**
    * 数学渲染函数（可选）—— 注入后块级 ` ```math ` 围栏在编辑器里就显示成公式。
@@ -123,7 +128,9 @@ export function mountEditor(options: MountEditorOptions): EditorView {
          * `updateListener`，不加判断的话每动一下光标就重算整篇字符串。
          */
         EditorView.updateListener.of((u) => {
-          if (u.docChanged) options.onDocChange?.(u.state.doc.toString())
+          // 外部换稿等待组字结束时，旧稿的组字更新不能回填并覆盖这个请求。
+          // flush 会先清除等待值，再发布新稿，所以新稿仍只回调一次。
+          if (u.docChanged && !pendingSync.has(u.view)) options.onDocChange?.(u.state.doc.toString())
         }),
 
         /*
@@ -151,10 +158,14 @@ export function mountEditor(options: MountEditorOptions): EditorView {
 /**
  * 从外部换掉整篇内容。
  *
- * ⚠️ 内容相同就**什么都不做** —— 不比对的话会「回填 → 触发 `onDocChange` →
- * 再 `setEditorValue`」死循环。
+ * 内容相同时不产生编辑事务，避免「回填 → onDocChange → 再回填」循环。
+ * 组字期间延迟应用最后一次全文替换，并暂停旧稿的后续 onDocChange 回流；
+ * 外部换稿优先于这些旧稿输入。本接口不支持组字中逐步自动规范化全文，
+ * 调用方应在组字结束后再做这类替换。实际换稿同时清除旧文档的源码编辑意图。
  */
 export function setEditorValue(view: EditorView, value: string): void {
+  // 每次调用都是最新外部值，值相同时也要取消已经过期的待同步内容。
+  pendingSync.delete(view)
   if (view.state.doc.toString() === value) return
 
   /*
@@ -171,29 +182,23 @@ export function setEditorValue(view: EditorView, value: string): void {
    * 所以组字期间**只记下"欠一次同步"** ✓，等 `compositionend` 再补 ✓
    * （见下面的 `compositionend` 监听 ✓）。
    */
-  if (view.composing) {
-    pendingSync = value
+  // `composing` 要等第一次 DOM 改动才为 true；compositionstart 后就必须让路。
+  if (view.compositionStarted) {
+    pendingSync.set(view, value)
     return
   }
 
-  /*
-   * ⚠️ **留一条日志** ✗ —— 这条路径本该**几乎不触发**（正常打字时父组件的值
-   * 和文档是同一个 ✓）。一旦它在打字过程中出现 ✓，就说明"外部值"和"文档"
-   * 对不上了 ✓ —— 那是**另一类 bug** ✓，不该被静默吞掉 ✓。
-   */
-  console.warn('[nexusdown] 外部值覆盖编辑器内容（光标会被重映射）：', {
-    原: view.state.doc.toString().slice(0, 40),
-    新: value.slice(0, 40),
+  view.dispatch({
+    changes: { from: 0, to: view.state.doc.length, insert: value },
+    effects: [setEditingRange.of(null), setEditingBlock.of(null)],
   })
-  view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: value } })
 }
 
 /**
- * 组字期间欠下的那次同步。
- *
- * `null` = 没有欠 ✓（和"欠一次空字符串"要区分开 ✗ —— 用户可能真的清空了 ✓）。
+ * 待同步值属于各自的编辑器；WeakMap 不阻止已销毁的实例回收。
+ * `undefined` 表示没有等待值，空字符串仍然是有效的同步内容。
  */
-let pendingSync: string | null = null
+const pendingSync = new WeakMap<EditorView, string>()
 
 /**
  * 补上组字期间欠下的同步。
@@ -202,8 +207,7 @@ let pendingSync: string | null = null
  * 这时候比对才有意义 ✓（组字中途比对一定不相等 ✗）。
  */
 export function flushPendingSync(view: EditorView): void {
-  if (pendingSync === null) return
-  const value = pendingSync
-  pendingSync = null
+  const value = pendingSync.get(view)
+  if (value === undefined) return
   setEditorValue(view, value)
 }

@@ -79,6 +79,21 @@ function mapPos(pos: number, edits: readonly Edit[]): number {
   return pos + delta
 }
 
+/** 非空选区的终点是排他的，落在下一行行首时不应格式化那一行。 */
+function lastSelectedLine(state: EditorState, range: SelectionRange) {
+  return state.doc.lineAt(range.empty ? range.to : range.to - 1)
+}
+
+/** 块语法需要独立成行；表格还需要空行，避免与相邻内容合并。 */
+function blockPadding(state: EditorState, from: number, to: number, breaks: number) {
+  const before = state.doc.sliceString(Math.max(0, from - breaks), from, '\n')
+  const after = state.doc.sliceString(to, Math.min(state.doc.length, to + breaks), '\n')
+  return {
+    before: from === 0 ? '' : '\n'.repeat(breaks - (/\n*$/.exec(before)?.[0].length ?? 0)),
+    after: to === state.doc.length ? '' : '\n'.repeat(breaks - (/^\n*/.exec(after)?.[0].length ?? 0)),
+  }
+}
+
 /* ==========================================================================
  * 行内标记 —— nexusdown/src/cm/shortcuts.ts 的移植
  * ========================================================================== */
@@ -275,7 +290,7 @@ function togglePrefix(target: PrefixTarget): Command {
 
     const changes = state.changeByRange((range) => {
       const first = state.doc.lineAt(range.from)
-      const last = state.doc.lineAt(range.to)
+      const last = lastSelectedLine(state, range)
       const edits: Edit[] = []
 
       for (let n = first.number; n <= last.number; n++) {
@@ -359,15 +374,16 @@ function wrapFence(info: string): Command {
 
     const changes = state.changeByRange((range) => {
       if (range.empty) {
+        const padding = blockPadding(state, range.head, range.head, 1)
         return {
-          changes: { from: range.head, to: range.head, insert: open + '\n```' },
+          changes: { from: range.head, to: range.head, insert: padding.before + open + '\n```' + padding.after },
           // `open` 之后就是那个空行，光标落在这一行的行首。
-          range: EditorSelection.cursor(range.head + open.length),
+          range: EditorSelection.cursor(range.head + padding.before.length + open.length),
         }
       }
 
       const first = state.doc.lineAt(range.from)
-      const last = state.doc.lineAt(range.to)
+      const last = lastSelectedLine(state, range)
       const block = state.sliceDoc(first.from, last.to)
 
       return {
@@ -452,10 +468,14 @@ const TABLE_CELL_END = TABLE_CELL_START + '列一'.length
 export const insertTable: Command = (view) => {
   const { state } = view
 
-  const changes = state.changeByRange((range) => ({
-    changes: { from: range.from, to: range.to, insert: TABLE_SKELETON },
-    range: EditorSelection.range(range.from + TABLE_CELL_START, range.from + TABLE_CELL_END),
-  }))
+  const changes = state.changeByRange((range) => {
+    const padding = blockPadding(state, range.from, range.to, 2)
+    const start = range.from + padding.before.length
+    return {
+      changes: { from: range.from, to: range.to, insert: padding.before + TABLE_SKELETON + padding.after },
+      range: EditorSelection.range(start + TABLE_CELL_START, start + TABLE_CELL_END),
+    }
+  })
 
   if (changes.changes.empty) return false
 

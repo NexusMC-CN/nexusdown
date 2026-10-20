@@ -153,6 +153,7 @@ export function nexusdownLivePreview(opts: LivePreviewOptions = {}): Extension {
 
     /** ★ 坑 ①：没有它就无法在 IME 组合结束的**边沿**强制重建一次装饰。 */
     private wasComposing = false;
+    private destroyed = false;
 
     constructor(view: EditorView) {
       const built = this.build(view);
@@ -164,6 +165,12 @@ export function nexusdownLivePreview(opts: LivePreviewOptions = {}): Extension {
       // IME 门控：组合期间**绝不重建**装饰 —— IME 依赖稳定的 DOM，重建会丢字。
       if (u.view.composing) {
         this.wasComposing = true;
+        // 暂缓重建不等于冻结坐标：输入和撤销仍会移动后面的源码。
+        // 不映射会让旧 replace 覆盖新文档的换行，直接破坏 CM 的布局。
+        if (u.docChanged) {
+          this.decorations = this.decorations.map(u.changes);
+          this.atomicDecorations = this.atomicDecorations.map(u.changes);
+        }
         return;
       }
       // ★ silkdown 只写了上面那个 if，于是「组合结束」这件事没有任何人负责：
@@ -195,39 +202,31 @@ export function nexusdownLivePreview(opts: LivePreviewOptions = {}): Extension {
         u.selectionSet ||
         syntaxTree(u.startState) !== syntaxTree(u.state)
       ) {
-        /**
-         * ⚠️ **重建前锁住滚动位置。**
-         *
-         * 装饰是**视觉层**，但它会改变行宽：`**` 在揭示态占约 12px，翻成隐藏态
-         * 变成 0。开着 `EditorView.lineWrapping` 时，行宽变化会改变**换行位置**、
-         * 进而改变**总行数** —— 浏览器于是重算滚动位置。
-         *
-         * 最明显的触发点就是 **IME 组合结束**：用户打完 `**粗体**` 提交组合，
-         * 装饰从揭示态翻成隐藏态，视口直接跳到文档末尾（用户实测反馈：
-         * "输入一次 `**xxxx**` 的时候用中文输入法，给我跳到底下去了"）。
-         *
-         * 恢复分两拍：同步一次（覆盖本帧就生效的情况），`requestMeasure`
-         * 里再一次（装饰的实际 DOM 写入发生在 CM6 的 measure/update 周期里，
-         * 那时才会真正引起回流）。只同步恢复是不够的。
-         */
-        const scroller = u.view.scrollDOM;
-        const keepTop = scroller.scrollTop;
-        const keepLeft = scroller.scrollLeft;
-
+        // 滚动锚定与光标跟随交给 CodeMirror 的布局周期处理。
+        // 在 requestMeasure.write 恢复旧位置会覆盖 scrollIntoView，
+        // 也会撤销排队之后发生的滚轮滚动；IME 期间仍由上面的门控保护 DOM。
         const built = this.build(u.view);
         this.decorations = built.decorations;
         this.atomicDecorations = built.atomicDecorations;
-
-        if (scroller.scrollTop !== keepTop) scroller.scrollTop = keepTop;
-        if (scroller.scrollLeft !== keepLeft) scroller.scrollLeft = keepLeft;
-        u.view.requestMeasure({
-          read: () => null,
-          write: () => {
-            if (scroller.scrollTop !== keepTop) scroller.scrollTop = keepTop;
-            if (scroller.scrollLeft !== keepLeft) scroller.scrollLeft = keepLeft;
-          },
-        });
       }
+    }
+
+    finishComposition(view: EditorView): void {
+      // CM 在测量开始时先提交尚未处理的 DOM 输入（包括 Android 延迟提交）。
+      // 直接排微任务可能早于 compositionend 的最终提交，空事务会丢掉那个字。
+      view.requestMeasure({
+        key: this,
+        read: () => null,
+        write: () => queueMicrotask(() => {
+          if (!this.destroyed && this.wasComposing && !view.compositionStarted) {
+            view.dispatch({});
+          }
+        }),
+      });
+    }
+
+    destroy(): void {
+      this.destroyed = true;
     }
 
     build(view: EditorView): DecorationBuild {
@@ -380,6 +379,11 @@ export function nexusdownLivePreview(opts: LivePreviewOptions = {}): Extension {
 
   const plugin = ViewPlugin.fromClass(NexusdownLivePreview, {
     decorations: (v) => v.decorations,
+    eventObservers: {
+      compositionend(_event, view) {
+        this.finishComposition(view);
+      },
+    },
     // ★ 必须给 `atomicDecorations` 这个**独立集合**，不是 `decorations`。
     //   把 decorations 直接当 atomicRanges，揭示态的标记也会被当成原子块，
     //   光标就没法一个字符一个字符走进 `**` 里。
@@ -661,6 +665,7 @@ function blockDecorations(
         !tr.docChanged &&
         syntaxTree(tr.startState) === syntaxTree(tr.state) &&
         tr.startState.selection.eq(tr.state.selection) &&
+        tr.startState.field(editingBlock) === tr.state.field(editingBlock) &&
         tr.startState.field(editingRange, false) === tr.state.field(editingRange, false)
       ) {
         return deco;

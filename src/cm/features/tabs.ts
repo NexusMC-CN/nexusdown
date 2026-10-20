@@ -38,17 +38,33 @@ interface PanelSource {
  */
 function parsePanels(source: string): PanelSource[] {
   const panels: PanelSource[] = []
-  const open = /^```[^\n]*\n/gm
-  let match: RegExpExecArray | null
-  while ((match = open.exec(source))) {
-    const contentStart = match.index + match[0].length
-    const close = source.indexOf('\n```', contentStart)
-    const contentEnd = close === -1 ? source.length : close
-    panels.push({
-      contentStart,
-      lines: source.slice(contentStart, contentEnd).split('\n'),
-    })
-    open.lastIndex = contentEnd
+  let open: { marker: string; contentStart: number } | null = null
+  let offset = 0
+
+  for (const line of source.split('\n')) {
+    const match = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line)
+    if (match) {
+      const marker = match[1]!
+      const info = match[2]!
+      if (open) {
+        // 闭围栏必须同类且不短于开围栏；消费整行后再找下一个面板。
+        // 否则闭围栏会被当作新的开围栏，让第二个页签指向第一个属性行。
+        if (marker[0] === open.marker[0] && marker.length >= open.marker.length && /^\s*$/.test(info)) {
+          panels.push({
+            contentStart: open.contentStart,
+            lines: source.slice(open.contentStart, Math.max(open.contentStart, offset - 1)).split('\n'),
+          })
+          open = null
+        }
+      } else if (marker[0] !== '`' || !info.includes('`')) {
+        open = { marker, contentStart: offset + line.length + 1 }
+      }
+    }
+    offset += line.length + 1
+  }
+
+  if (open) {
+    panels.push({ contentStart: open.contentStart, lines: source.slice(open.contentStart).split('\n') })
   }
   return panels
 }

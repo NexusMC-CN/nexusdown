@@ -777,9 +777,37 @@ function toolKey(title: string) {
  * ⚠️ 选择器是 `.demo-stage *` —— 演示的 DOM 由注册表用 `h()` 造出来，
  * 这一层壳（`DemoStage.vue`）是它和工具栏之间**唯一**约定的锚点。
  */
-function replayDemos(event: MouseEvent) {
+function positionDemo(wrap: HTMLElement) {
+  const popup = wrap.querySelector<HTMLElement>('.demo-pop')
+  if (!popup) return
+  const anchor = wrap.getBoundingClientRect()
+  const { width, height } = popup.getBoundingClientRect()
+  const viewport = document.documentElement
+  const left = Math.max(8, Math.min(anchor.left, viewport.clientWidth - width - 8))
+  const top = anchor.bottom + height + 14 <= viewport.clientHeight
+    ? anchor.bottom + 6
+    : Math.max(8, anchor.top - height - 6)
+  popup.style.setProperty('--nd-demo-left', `${left}px`)
+  popup.style.setProperty('--nd-demo-top', `${top}px`)
+}
+
+function positionActiveDemos() {
+  mentionRoot.value?.querySelectorAll<HTMLElement>('.tb-wrap:hover, .tb-wrap:focus-within').forEach(positionDemo)
+}
+
+onMounted(() => {
+  window.addEventListener('resize', positionActiveDemos)
+  window.addEventListener('scroll', positionActiveDemos, true)
+})
+onUnmounted(() => {
+  window.removeEventListener('resize', positionActiveDemos)
+  window.removeEventListener('scroll', positionActiveDemos, true)
+})
+
+function replayDemos(event: MouseEvent | FocusEvent) {
   const wrap = event.currentTarget as HTMLElement | null
   if (!wrap) return
+  positionDemo(wrap)
   wrap.querySelectorAll('.demo-stage *').forEach((el) => {
     for (const anim of el.getAnimations()) {
       anim.currentTime = 0
@@ -801,15 +829,14 @@ function replayDemos(event: MouseEvent) {
           短语内容（放 `<div>` 是非法 HTML），而且 `.tb:active` 的
           `transform: translateY(1px)` 会造出一个包含块，卡片会跟着按钮一起抖。
 
-          靠右的两组（链接/代码块、撤销/重做）的卡片改贴右边 —— 原因和代价见样式里
-          `.tb-wrap.pop-right .demo-pop` 那条注释。
+          卡片按按钮的实际位置定位，工具栏折行后也保持在视口内。
         -->
         <div
           v-for="b in group"
           :key="b.icon"
           class="tb-wrap"
-          :class="{ 'pop-right': gi >= GROUPS.length - 2 }"
           @mouseenter="replayDemos"
+          @focusin="replayDemos"
         >
           <button
             type="button"
@@ -1350,13 +1377,15 @@ function replayDemos(event: MouseEvent) {
  * ⚠️ `z-index: 40` —— 卡片要盖在编辑器和链接输入行上面。
  */
 .demo-pop {
-  position: absolute;
-  top: calc(100% + 6px);
-  left: 0;
+  /* 隐藏的 absolute 卡片也会撑宽页面；fixed 卡片不参与页面滚动范围。 */
+  position: fixed;
+  top: var(--nd-demo-top, 0px);
+  left: var(--nd-demo-left, 0px);
   z-index: 40;
 
   box-sizing: border-box;
   width: 168px;
+  max-width: calc(100vw - 16px);
   padding: 12px;
 
   background: #fff;
@@ -1374,22 +1403,6 @@ function replayDemos(event: MouseEvent) {
     transform var(--nd-dur) var(--nd-ease-out),
     visibility 0s linear var(--nd-dur);
 }
-
-/**
- * 靠右的两组（链接/代码块、撤销/重做）改贴按钮的右边缘、往左伸。
- *
- * 为什么需要：卡片 168px、按钮只有 28px，而工具栏在**一张 `overflow: hidden`
- * 的纸里**（`new.vue` 的 `.paper`）。纸宽 760px 时排得下（按钮排到 454px 就结束了），
- * 但纸窄到 476~620px 这一段时工具栏**不折行**、最后一个按钮却已经贴到纸的右边缘 ——
- * 靠左对齐的卡片会伸出纸外被裁掉。这是纯 CSS 能做的、不引定位库的做法。
- *
- * ⚠️ **已知代价**：纸再窄一点（< 476px）工具栏就会折行，而折行后每一行都是从左边
- * 开始排的 —— 那时「撤销/重做」会落在第二行的**左端**，右对齐的卡片反而会往左伸出纸外。
- * 也就是说这个启发式在"不折行但很窄"和"折行"两种窄屏下各对一半。
- * 真正的解法是 `position-try-fallbacks`（CSS 锚点定位），浏览器支持还不够，先不用；
- * 要用就得知道"这一行折没折"，而那是 CSS 拿不到的信息。
- */
-.tb-wrap.pop-right .demo-pop { right: 0; left: auto; }
 
 /**
  * 出现**等 400ms**，消失不等。

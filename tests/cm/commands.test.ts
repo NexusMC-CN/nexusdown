@@ -251,11 +251,11 @@ describe('insertTable', () => {
   it('★ 多光标：每个选区各插一份，第二份的选区跟着第一份的插入右移', () => {
     const v = editor('ab', 0, 2)
     const out = run(v, insertTable)
-    expect(out.doc).toBe(TABLE + 'ab' + TABLE)
-    // 第一份骨架（TABLE.length 字）+ 中间的 `ab`（2 字）+ 第二份里 `列一` 的偏移 [2, 4]
+    expect(out.doc).toBe(TABLE + '\n\nab\n\n' + TABLE)
+    // 第一份骨架 + 两侧空行和 `ab`（6 字）+ 第二份里 `列一` 的偏移 [2, 4]
     expect(out.ranges).toEqual([
       [2, 4],
-      [TABLE.length + 2 + 2, TABLE.length + 2 + 4],
+      [TABLE.length + 6 + 2, TABLE.length + 6 + 4],
     ])
     v.destroy()
   })
@@ -312,11 +312,11 @@ describe('insertBlockMath', () => {
   it('★ 多光标：每个选区各落一份围栏', () => {
     const v = editor('ab', 0, 2)
     const out = run(v, insertBlockMath)
-    expect(out.doc).toBe('```math\n\n```ab```math\n\n```')
-    // 第一份围栏 12 字 + `ab` 2 字 + 第二份里空行的偏移 8
+    expect(out.doc).toBe('```math\n\n```\nab\n```math\n\n```')
+    // 第一份围栏 12 字 + 两个换行和 `ab` 4 字 + 第二份里空行的偏移 8
     expect(out.ranges).toEqual([
       [8, 8],
-      [12 + 2 + 8, 12 + 2 + 8],
+      [12 + 4 + 8, 12 + 4 + 8],
     ])
     v.destroy()
   })
@@ -335,11 +335,11 @@ describe('insertEmbed', () => {
   it('★ 多光标：每个选区各落一份围栏', () => {
     const v = editor('ab', 0, 2)
     const out = run(v, insertEmbed)
-    expect(out.doc).toBe('```embed\n\n```ab```embed\n\n```')
-    // 第一份围栏 13 字 + `ab` 2 字 + 第二份里空行的偏移 9
+    expect(out.doc).toBe('```embed\n\n```\nab\n```embed\n\n```')
+    // 第一份围栏 13 字 + 两个换行和 `ab` 4 字 + 第二份里空行的偏移 9
     expect(out.ranges).toEqual([
       [9, 9],
-      [13 + 2 + 9, 13 + 2 + 9],
+      [13 + 4 + 9, 13 + 4 + 9],
     ])
     v.destroy()
   })
