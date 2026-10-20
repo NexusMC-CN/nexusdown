@@ -200,6 +200,7 @@ export const DEMO_IDS = [
   'taskList',
   'codeBlock', 'blockMath', 'embed',
   'image', 'carousel',
+  'diagram',
   'undo', 'redo',
 ] as const
 
@@ -697,6 +698,20 @@ export const DEMOS: readonly DemoSpec[] = [
         ]),
         h('span', { class: 'demo-carousel__dots' }, [h('i'), h('i'), h('i')]),
       ]),
+  },
+
+  {
+    id: 'diagram',
+    syntax: 'diagram',
+    label: '图表（Mermaid 语法）',
+    duration: DEMO_DURATION,
+    beats: DEMO_BEATS,
+    render: () => h('div', { class: 'demo-diagram' }, [
+      h('code', { class: 'demo-diagram__source' }, 'flowchart LR\nA[编写] --> B[预览]'),
+      h('div', { class: 'demo-diagram__result' }, [
+        h('span', '编写'), h('b', { 'aria-hidden': 'true' }, '→'), h('span', '预览'),
+      ]),
+    ]),
   },
 
   /* ------------------------------------------------------------ 工具栏动作 */

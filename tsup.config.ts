@@ -15,5 +15,11 @@ export default defineConfig({
   //    打进产物会造出第二份 `@codemirror/state`，而 CM6 的 facet 按模块标识比较，
   //    两份会让装饰**静默失效**（不报错，就是不渲染）。
   external: ['vue', /^@codemirror\//, /^@lezer\//],
+  // Bundle ESM-only Pele for CommonJS. ESM consumers share the dependency
+  // between /cm and /render instead of downloading two copies of its engine.
+  noExternal: ['pele'],
+  esbuildOptions(options, { format }) {
+    if (format === 'esm') options.external = [...(options.external ?? []), 'pele'];
+  },
   publicDir: 'public',
 });

@@ -80,6 +80,12 @@ export type MarkdownItPlugin = (md: MarkdownItInstance) => void
 
 export interface RenderMarkdownOptions {
   /**
+   * Stable SVG accessibility ID namespace for diagrams. Defaults to
+   * `nd-diagram`; use a different prefix for each Markdown fragment on a page
+   * and preserve that prefix between SSR and client rendering.
+   */
+  diagramIdPrefix?: string
+  /**
    * 消费方**预先取好**的外部数据（短链解析结果、SEO 卡片元数据）。
    *
    * 渲染是同步、无网络的，所以这些数据只能由消费方取 —— 而且**库也不该去取**
@@ -171,7 +177,11 @@ function resolveParser(plugins: MarkdownItPlugin[] | undefined): MarkdownItInsta
  */
 export function renderMarkdown(markdown: string, options?: RenderMarkdownOptions): string {
   if (typeof markdown !== 'string' || markdown.trim() === '') return ''
-  return resolveParser(options?.plugins).render(markdown, { data: options?.data })
+  return resolveParser(options?.plugins).render(markdown, {
+    data: options?.data,
+    diagramIdPrefix: options?.diagramIdPrefix,
+    diagramSequence: 0,
+  })
 }
 
 /*

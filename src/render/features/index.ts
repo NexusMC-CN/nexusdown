@@ -2,6 +2,7 @@ import type { RenderFeature } from '../feature'
 import { attrsFeature } from './attrs'
 import { calloutFeature } from './callout'
 import { carouselFeature } from './carousel'
+import { diagramFeature } from './diagram'
 import { emojiFeature } from './emoji'
 import { embedFeature } from './embed'
 import { linkCardFeature } from './link-card'
@@ -30,6 +31,7 @@ export const RENDER_FEATURES: readonly RenderFeature[] = [
   carouselFeature,
   emojiFeature,
   mathFeature,
+  diagramFeature,
   embedFeature,
   linkCardFeature,
   mentionFeature,

@@ -42,6 +42,15 @@
  * `DemoSpec.layoutProps` 并在 `docs/motion-audit.md` 里解释）。
  */
 
+.demo-diagram { display: grid; place-items: center; }
+.demo-diagram__source,
+.demo-diagram__result { grid-area: 1 / 1; }
+.demo-diagram__source { white-space: pre; animation-name: demo-diagram-source; }
+.demo-diagram__result { display: flex; align-items: center; gap: 8px; animation-name: demo-diagram-result; }
+.demo-diagram__result span { padding: 6px 10px; border: 1px solid currentColor; border-radius: 4px; }
+@keyframes demo-diagram-source { 0%, 44% { opacity: 1; } 66%, 100% { opacity: 0; } }
+@keyframes demo-diagram-result { 0%, 44% { opacity: 0; } 66%, 100% { opacity: 1; } }
+
 /* ================================================================ 画布 */
 
 /**

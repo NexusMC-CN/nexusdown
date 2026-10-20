@@ -1,0 +1,40 @@
+/* Shared by published Markdown and the live editor. Keep widget spacing inside its box. */
+.nd-diagram {
+  --pele-bg: var(--nd-editor-bg, var(--nd-surface, #fff));
+  --pele-fg: var(--nd-text, #1f2328);
+  --pele-muted: var(--nd-text-3, #656d76);
+  --pele-line: var(--nd-text-3, #656d76);
+  --pele-surface: var(--nd-surface-2, #f6f7f8);
+  --pele-surface-alt: var(--nd-surface, #fff);
+  --pele-border: var(--nd-border, #d0d7de);
+  --pele-accent: var(--nd-brand, #0969da);
+  --pele-font: var(--nd-font-body, Arial, sans-serif);
+  --pele-font-mono: var(--nd-font-code, monospace);
+  box-sizing: border-box;
+  display: flow-root;
+  max-width: 100%;
+  padding: 12px;
+  overflow-x: auto;
+}
+
+.nd-diagram > svg {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin-inline: auto;
+}
+
+.nd-diagram-editor {
+  cursor: text;
+}
+
+.nd-diagram-editor:focus-visible {
+  outline: 2px solid var(--nd-brand, #0969da);
+  outline-offset: -2px;
+}
+
+.nd-diagram-editor pre {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

@@ -55,6 +55,21 @@ const markdown = ref('# 你好，Nexusdown\n\n开始编写 **Markdown**。')
 
 ## 渲染 Markdown
 
+### 流程图与其他图表
+
+`mermaid` 代码块由内置的 [Pele](https://github.com/obsidianmd/pele) 渲染为 SVG，继续使用 Mermaid 语法：
+
+````markdown
+```mermaid
+flowchart LR
+  A[编写] --> B[预览] --> C[发布]
+```
+````
+
+顶层图表支持点击编辑源码，输出侧支持同步服务端渲染。语法错误时保留源码。多片段 ID、主题和兼容范围见 [图表说明](./docs/pele-diagrams.md)。
+
+### 渲染接口
+
 展示已保存的内容时，使用 `/render`：
 
 ```ts

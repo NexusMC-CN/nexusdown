@@ -55,6 +55,7 @@ export const DIALECT_SYNTAXES: readonly DialectSyntax[] = [
   { id: 'task-list', label: '任务列表' },
   { id: 'table', label: '表格' },
   { id: 'fenced-code', label: '围栏代码' },
+  { id: 'diagram', label: '图表（Pele）' },
   { id: 'inline-math', label: '行内数学' },
   { id: 'block-math', label: '块级数学' },
   { id: 'mention', label: '提及' },
@@ -197,6 +198,27 @@ brew install nginx
 
 尾部`
 
+const diagram = `## 流程图
+
+\`\`\`mermaid
+flowchart LR
+  A[编写 Markdown] --> B{预览图表}
+  B --> C[点击修改源码]
+  B --> D[发布 SVG]
+\`\`\`
+
+## 时序图
+
+\`\`\`mermaid
+sequenceDiagram
+  participant U as 用户
+  participant E as 编辑器
+  U->>E: 输入 Mermaid 源码
+  E-->>U: 显示 Pele 图表
+\`\`\`
+
+图表仍以 Markdown 源码保存。`
+
 const full = `# nexusdown 方言画廊
 
 这是 **加粗**、*斜体*、***粗斜体***、~~删除线~~、\`行内代码\`、==高亮== 的混排。
@@ -293,7 +315,14 @@ brew install nginx
 @nexusdown 是一个 Markdown 编辑器。
 
 ![图一](/img-a.svg)
-![图二](/img-b.svg)`
+![图二](/img-b.svg)
+
+## 图表
+
+\`\`\`mermaid
+flowchart LR
+  A[编写] --> B[预览] --> C[发布]
+\`\`\``
 
 const minimal = `# 最小样例
 
@@ -483,7 +512,15 @@ export const fixtures: Fixture[] = [
       'nd-fields',
       'nd-code-lines',
       'class="nd-tabs"',
+      'class="nd-diagram"',
     ],
+  },
+  {
+    id: 'diagram',
+    label: '图表（Pele · Mermaid 语法）',
+    markdown: diagram,
+    covers: ['diagram'],
+    expects: ['class="nd-diagram"', '<svg', '编写 Markdown', '用户'],
   },
   { id: 'minimal', label: '最小样例', markdown: minimal, covers: ['heading', 'emphasis', 'inline-code'], expects: ['<h1>', '<strong>', '<code>'] },
   {

@@ -1,7 +1,7 @@
 /**
  * 注册表的**验收测试** —— 三件事，缺一件这次重做就没有意义：
  *
- * 1. **19 条方言语法每条至少一条演示**（工单 §2.4 的 19/19）。
+ * 1. **每条方言语法至少一条演示**，包括图表语法。
  *    语法清单从 `playground/src/fixtures.ts` 的 `DIALECT_SYNTAXES` 读 ——
  *    **只 import 数据，不 import 任何 Vue 组件**（那是画廊的事）。
  * 2. **演示的元数据是统一的时间语言**：时长 ~1800ms、拍点就是那五个。
@@ -75,13 +75,13 @@ function rootClass(demo: DemoSpec): string {
 }
 
 describe('演示注册表', () => {
-  it('19 条方言语法**每条**至少一条演示（19/19）', () => {
+  it('20 条方言语法每条至少一条演示', () => {
     /*
-     * ⚠️ 这个 19 是本次工单的验收数。方言以后加第 20 条语法时这条会红 ——
+     * 语法总数是显式的验收约束。方言增加新语法时这条会红 ——
      * **那正是它该做的事**：新语法没有演示，就等于"工具栏不会教它"。
      * 补一条 `DemoSpec` 之后把这里改成新总数。
      */
-    expect(DIALECT_SYNTAXES.length).toBe(19)
+    expect(DIALECT_SYNTAXES.length).toBe(20)
 
     const covered = new Set(DEMOS.map((demo) => demo.syntax))
     const missing = DIALECT_SYNTAXES.filter((syntax) => !covered.has(syntax.id)).map((s) => s.id)

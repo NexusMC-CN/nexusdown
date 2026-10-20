@@ -36,6 +36,7 @@
     "registry": "https://registry.npmjs.org/"
   },
   "files": [
+    "THIRD_PARTY_NOTICES.md",
     "dist",
     "src/editor/index.d.ts",
     "src/render",
@@ -130,7 +131,8 @@
     }
   },
   "dependencies": {
-    "markdown-it": "^15.0.2"
+    "markdown-it": "^15.0.2",
+    "pele": "1.7.0"
   },
   "devDependencies": {
     "@codemirror/autocomplete": "6.20.3",

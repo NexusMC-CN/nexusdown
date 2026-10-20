@@ -58,6 +58,7 @@ import { embedGlyph, embedTitle, parseEmbedFence, type EmbedSpec } from '../../r
 import { decorateFencedCode, isEmbedInfo, isMathInfo, readFenceInfo } from '../decorate/fence.js'
 import { HIDE, pushAtomicRange } from '../decorate/shared.js'
 import type { EditorFeature } from '../feature.js'
+import { isDiagramInfo } from './diagram.js'
 import type { DecorateContext, DecorationRanges, MarkdownNode } from '../types.js'
 import { selectionTouchesLineRange } from '../util/selection.js'
 import { firstChildNamed } from '../util/tree.js'
@@ -170,6 +171,7 @@ function decorateEmbed(
    * 没注入 → 它自己调 `decorateFencedCode` 退回普通代码块（见那边）。
    */
   if (isMathInfo(info)) return
+  if (isDiagramInfo(info) && node.parent?.name === 'Document') return
 
   // 不是 embed → **原样交回**给原来的围栏装饰。普通代码块（```js）走的就是这条。
   if (!isEmbedInfo(info)) {

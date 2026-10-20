@@ -23,6 +23,7 @@ import type { EditorFeature } from '../feature.js'
 import { setEditingBlock, setEditingRange } from '../plugin.js'
 import type { MarkdownNode } from '../types.js'
 import { selectionHoversBlock, selectionTouchesLineRange } from '../util/selection.js'
+import { createWidgetId } from '../util/widget-id.js'
 
 interface PanelSource {
   /** 面板内容在**整组源码**里的起点（不含开围栏行）。 */
@@ -88,9 +89,13 @@ export class TabsWidget extends WidgetType {
   override toDOM(view: EditorView): HTMLElement {
     const wrap = document.createElement('div')
     wrap.className = 'nd-tabs-block'
+    const instanceId = createWidgetId('nd-editor-tabs')
+    const suffix = `-${instanceId}`
 
     try {
-      wrap.innerHTML = renderMarkdown(this.source)
+      wrap.innerHTML = renderMarkdown(this.source, {
+        diagramIdPrefix: instanceId,
+      })
       /*
        * 块级 widget 会**替换掉整段行**，gutter 拿不到这些行的行号 —— 左边会从
        * 块后的第一行（比如 10）开始，看起来像跳号。这里在块头补一个**起始行号**，
@@ -107,9 +112,9 @@ export class TabsWidget extends WidgetType {
        * ⚠️ 同一页面里预览也会渲染一份页签，radio 的 `name` 都从 `nd-tabs-1` 开始 ——
        * 同名的 radio 在同一个 document 里是一组，预览的选中会把编辑器里的取消掉，
        * 编辑器的面板就全部 `display: none`（实测：页签块看起来坏了）。
-       * 这里给编辑器的副本加一个**基于位置**的后缀（`from` 稳定，快照/复现不受影响）。
+       * 每次挂载使用唯一后缀，也隔离两个编辑器中位置相同的页签组。
+       * eq 相等时 CodeMirror 复用原 DOM，因此移动光标不会改名或重置选项。
        */
-      const suffix = `-e${this.from}`
       wrap.querySelectorAll<HTMLInputElement>('input[name]').forEach((input) => {
         const oldName = input.getAttribute('name')!
         input.setAttribute('name', `${oldName}${suffix}`)

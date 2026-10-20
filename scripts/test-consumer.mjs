@@ -121,7 +121,7 @@ try {
   writeFileSync(join(appDir, 'pnpm-workspace.yaml'), 'onlyBuiltDependencies:\n  - esbuild\n')
 	// The editor needs the optional CodeMirror peers; use the versions tested
 	// by this repository instead of letting the consumer drift to latest.
-	const consumerDependencies = ['vue', 'vite', '@vitejs/plugin-vue', 'typescript',
+	const consumerDependencies = ['vue', 'vite', '@vitejs/plugin-vue', 'typescript', 'jsdom',
 		...Object.keys(pkg.peerDependencies).filter((name) => /^@(codemirror|lezer)\//.test(name)),
 	].map((name) => `${name}@${pkg.devDependencies[name] ?? pkg.peerDependencies[name]}`)
 	run('pnpm', ['add', tarballPath, ...consumerDependencies], {
@@ -158,6 +158,44 @@ try {
     return `${parsed.length} subpaths`
   })
 
+  step('mixed public entries keep editor diagram and tab IDs isolated', () => {
+    const fence = '```mermaid\nflowchart LR\naccTitle: Flow\naccDescr: Start to end\nA[Start] --> B[End]\n```'
+    const tabbed = `${fence}\n{tab=First}\n\n${fence}\n{tab=Second}`
+    const script = `
+      import { JSDOM } from 'jsdom';
+      const dom = new JSDOM('<!doctype html><body></body>', { pretendToBeVisual: true });
+      for (const key of ['window', 'document', 'navigator', 'MutationObserver', 'HTMLElement', 'Element', 'Node', 'Text', 'getComputedStyle', 'requestAnimationFrame', 'cancelAnimationFrame']) {
+        Object.defineProperty(globalThis, key, { value: dom.window[key], configurable: true });
+      }
+      const { EditorState } = await import('@codemirror/state');
+      const { EditorView } = await import('@codemirror/view');
+      const root = await import('@nexusmc-cn/nexusdown');
+      const cm = await import('@nexusmc-cn/nexusdown/cm');
+      const views = [];
+      try {
+        for (const source of ${JSON.stringify([fence, tabbed])}) {
+          for (const api of [root, cm]) {
+            const doc = source + '\\n\\nTail';
+            views.push(new EditorView({ parent: document.body, state: EditorState.create({
+              doc, selection: { anchor: doc.length }, extensions: [api.nexusdown()],
+            }) }));
+          }
+        }
+        const ids = [...document.querySelectorAll('[id]')].map(el => el.id);
+        if (!ids.length || new Set(ids).size !== ids.length) throw new Error('Duplicate DOM IDs across bundled entries');
+        const first = [...views[2].dom.querySelectorAll('input[type=radio]')];
+        const second = [...views[3].dom.querySelectorAll('input[type=radio]')];
+        if (first.length !== 2 || second.length !== 2) throw new Error('Missing tab group');
+        first[1].click();
+        if (!first[1].checked || !second[0].checked) throw new Error('Tab groups interfere across bundled entries');
+      } finally {
+        for (const view of views) view.destroy();
+        dom.window.close();
+      }
+    `
+    run(process.execPath, ['--input-type=module', '-e', script], { cwd: appDir })
+    return 'SVG IDs and radio groups stay independent'
+  })
 	for (const format of ['esm', 'cjs']) {
 		step(`engine and renderer load in bare Node (${format})`, () => {
 			const imports = format === 'esm'
@@ -172,6 +210,10 @@ try {
 				for (const api of [engine, renderer]) {
 					if (!api.renderMarkdown('**consumer-ok**').includes('<strong>consumer-ok</strong>')) {
 						throw new Error('Renderer output is incorrect');
+					}
+					const diagram = api.renderMarkdown(${JSON.stringify('```mermaid\nflowchart LR\nA[Start] --> B[End]\n```')});
+					if (!diagram.includes('<svg') || !diagram.includes('Start')) {
+						throw new Error('Pele diagram rendering is unavailable');
 					}
 				}
 				console.log('ok');
