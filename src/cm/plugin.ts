@@ -405,10 +405,8 @@ export function nexusdownLivePreview(opts: LivePreviewOptions = {}): Extension {
    * 因为整个 state 建不起来 ✓。
    */
   /*
-   * 源码模式的清理：点区间外的正文 / 按 Escape → 退出源码，块重新渲染。
-   *
-   * ⚠️ 只对 `.cm-line` 生效：点的是块 widget 时不清理（那是另一个块的入口，
-   * 由 widget 自己设新的区间）。
+   * Escape 主动退出源码。鼠标离开区间时的清理由 editingRange 在选区事务中
+   * 处理，不能在 mousedown 中提前改变布局，否则 CM 会用变化后的行高定位。
    */
   const sourceModeHandlers: Extension = [
     keymap.of([
@@ -421,20 +419,6 @@ export function nexusdownLivePreview(opts: LivePreviewOptions = {}): Extension {
         },
       },
     ]),
-    EditorView.domEventHandlers({
-      mousedown(event, view) {
-        const range = view.state.field(editingRange, false);
-        if (!range) return false;
-        const target = event.target as HTMLElement | null;
-        if (!target?.closest('.cm-line')) return false;
-        const pos = view.posAtCoords({ x: event.clientX, y: event.clientY });
-        if (pos === null) return false;
-        if (pos < range.from || pos > range.to) {
-          view.dispatch({ effects: setEditingRange.of(null) });
-        }
-        return false;
-      },
-    }),
   ];
 
   return [editingBlock, editingRange, blockDecorations(blockFeatures), plugin, sourceModeHandlers];
@@ -571,6 +555,12 @@ export const editingRange = StateField.define<SourceRange | null>({
     if (!value) return null;
     const from = tr.changes.mapPos(value.from, 1);
     const to = tr.changes.mapPos(value.to, -1);
+    // CM 已按旧布局算好点击/拖动选区后，再与选区一起收起源码。
+    // 保留原生 Shift 扩选、多光标和拖动行为，不自行接管鼠标事件。
+    if (tr.isUserEvent('select.pointer')) {
+      const head = tr.newSelection.main.head;
+      if (head < from || head > to) return null;
+    }
     return to > from ? { from, to } : null;
   },
 });

@@ -23,4 +23,4 @@ public/style.css text eol=lf
 *.ttf binary
 
 # Lockfiles are generated; keep them out of diffs and merge conflicts.
-package-lock.json -diff linguist-generated
+pnpm-lock.yaml -diff linguist-generated

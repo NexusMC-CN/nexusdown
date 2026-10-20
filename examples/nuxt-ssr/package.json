@@ -8,7 +8,7 @@
     "preview": "nuxt preview"
   },
   "dependencies": {
-    "@nexusmc-cn/nexusdown": "file:../..",
+    "@nexusmc-cn/nexusdown": "workspace:*",
     "nuxt": "^4.5.2",
     "vue": "^3.5.0",
     "@codemirror/autocomplete": "6.20.3",

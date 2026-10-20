@@ -239,6 +239,20 @@ const html = renderMarkdown('参考 @getting-started', { data })
 
 服务端正文渲染建议直接导入 `/render`；创建编辑视图需要浏览器 DOM。Vue 组件入口提供已编译的 ESM，供 Vue 应用及其构建工具使用。
 
+## 本地开发
+
+仓库使用 `pnpm@10.34.7` 管理依赖，包含 Vue、Astro 和 Nuxt 示例的 workspace。构建由 tsup 和 Vite 完成。
+
+```bash
+corepack enable pnpm
+pnpm install --frozen-lockfile
+pnpm run playground
+pnpm run verify
+pnpm run test:consumer
+```
+
+`package.json` 中的 `packageManager` 固定 pnpm 版本；无 Corepack 的环境可通过 `npm install -g pnpm@10.34.7` 安装。示例构建和发布说明见 [贡献指南](./CONTRIBUTING.md)。
+
 ## License
 
 [MIT](https://github.com/NexusMC-CN/nexusdown/blob/main/LICENSE)

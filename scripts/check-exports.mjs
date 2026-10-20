@@ -14,7 +14,7 @@
  * nothing more. It does not bundle, import or type-check them, so it stays fast
  * enough to run on every `verify`.
  *
- * Run: `node scripts/check-exports.mjs` (wired into `npm run verify`, after the
+ * Run: `node scripts/check-exports.mjs` (wired into `pnpm run verify`, after the
  * build, so the emitted `dist/` files are present).
  */
 import { existsSync, readFileSync, statSync } from 'node:fs'
@@ -80,7 +80,7 @@ if (missing.length > 0) {
   console.error(`check-exports: ${missing.length} export target(s) do not exist:`)
   for (const entry of missing) console.error(`  - ${entry}`)
   console.error('')
-  console.error('Build the package (`npm run build`) or fix the paths in package.json#exports.')
+  console.error('Build the package (`pnpm run build`) or fix the paths in package.json#exports.')
   process.exit(1)
 }
 

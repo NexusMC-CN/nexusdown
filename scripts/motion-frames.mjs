@@ -4,7 +4,7 @@
  * ## 用法
  *
  * ```bash
- * npm run motion            # 另开一个终端：起 Motion Lab（127.0.0.1:5200）
+ * pnpm run motion           # 另开一个终端：起 Motion Lab（127.0.0.1:5200）
  * node scripts/motion-frames.mjs
  * ```
  *
@@ -169,7 +169,7 @@ function probeInPage() {
 
 const demoIds = (onlyDemos.length ? onlyDemos : await readDemoIds()).filter(Boolean)
 if (!demoIds.length) {
-  console.error('✗ 没读到任何演示 —— Motion Lab 起来了吗？（npm run motion）')
+  console.error('✗ 没读到任何演示 —— Motion Lab 起来了吗？（pnpm run motion）')
   process.exit(1)
 }
 

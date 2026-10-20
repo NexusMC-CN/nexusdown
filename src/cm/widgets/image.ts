@@ -21,7 +21,7 @@
  * markdown-it 的 `GOOD_DATA_RE` 逐字一致（`image/apng` / `image/svg+xml`
  * 两边都**不放行**；APNG 要走 `<img>` 只能用 `http(s)://` 的地址）。
  */
-import { WidgetType } from '@codemirror/view'
+import { WidgetType, type EditorView } from '@codemirror/view'
 
 export class ImageWidget extends WidgetType {
   constructor(
@@ -39,15 +39,23 @@ export class ImageWidget extends WidgetType {
     return other.src === this.src && other.alt === this.alt
   }
 
-  override toDOM(): HTMLElement {
+  override toDOM(view: EditorView): HTMLElement {
     const img = document.createElement('img')
     img.className = 'nd-image-widget'
+    // 固定高度的编辑器不会因图片加载而触发容器 ResizeObserver。
+    // 通知 CM 重测行高，避免图片后面的行号和点击位置继续使用占位高度。
+    img.onload = img.onerror = () => view.requestMeasure()
     img.src = this.src
     img.alt = this.alt
     // 懒加载 + 异步解码：文档里几十张图时，这两行决定了滚动会不会卡。
     img.loading = 'lazy'
     img.decoding = 'async'
     return img
+  }
+
+  override destroy(dom: HTMLElement): void {
+    const img = dom as HTMLImageElement
+    img.onload = img.onerror = null
   }
 
   /**

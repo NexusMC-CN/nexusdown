@@ -1,0 +1,10 @@
+packages:
+  - examples/*
+
+# Each framework resolves its own peers instead of inheriting the root Vite.
+resolvePeersFromWorkspaceRoot: false
+
+# Native binaries used by the bundlers and Astro's image pipeline.
+onlyBuiltDependencies:
+  - esbuild
+  - sharp

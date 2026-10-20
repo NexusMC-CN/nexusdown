@@ -12,8 +12,8 @@
 import { history, undo } from '@codemirror/commands';
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
 import { EditorSelection, EditorState, type Extension } from '@codemirror/state';
-import { EditorView, keymap, type KeyBinding } from '@codemirror/view';
-import { afterEach, describe, expect, it } from 'vitest';
+import { Decoration, EditorView, keymap, type KeyBinding } from '@codemirror/view';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { markdownKeymap } from '../../src/cm/shortcuts';
 import { ImageWidget } from '../../src/cm/widgets/image';
@@ -22,6 +22,7 @@ import { TaskCheckboxWidget } from '../../src/cm/widgets/task';
 const views: EditorView[] = [];
 
 afterEach(() => {
+  vi.restoreAllMocks();
   for (const view of views.splice(0)) view.destroy();
   document.body.innerHTML = '';
 });
@@ -57,6 +58,41 @@ function runKey(view: EditorView, key: string): boolean {
 }
 
 describe('ImageWidget', () => {
+  it.each([['load', 20, 200], ['error', 200, 20]] as const)(
+    'remeasures following lines after an image %s changes its height', (eventType, before, after) => {
+    const doc = 'before\nimage\nafter';
+    const view = mount(doc, undefined, [EditorView.decorations.of(Decoration.set([
+      Decoration.replace({ widget: new ImageWidget('/delayed.png', 'image') }).range(7, 12),
+    ]))]);
+    const lines = [...view.contentDOM.querySelectorAll<HTMLElement>('.cm-line')];
+    let imageHeight: number = before;
+    vi.spyOn(view.contentDOM, 'getBoundingClientRect').mockImplementation(() => new DOMRect(0, 0, 500, 40 + imageHeight));
+    for (const [index, line] of lines.entries()) {
+      vi.spyOn(line, 'getBoundingClientRect').mockImplementation(() => new DOMRect(
+        0, index === 2 ? 20 + imageHeight : index * 20, 500, index === 1 ? imageHeight : 20,
+      ));
+    }
+    // Supply jsdom's missing text geometry; the editor's measured height map,
+    // scheduling and line lookup remain real.
+    const originalRects = Object.getOwnPropertyDescriptor(Range.prototype, 'getClientRects');
+    Object.defineProperty(Range.prototype, 'getClientRects', {
+      configurable: true, value: () => [new DOMRect(0, 0, 40, 20)],
+    });
+    try {
+      view.elementAtHeight(21);
+      expect(view.lineBlockAt(13).top).toBe(20 + before);
+
+      imageHeight = after;
+      view.contentDOM.querySelector('img.nd-image-widget')!.dispatchEvent(new Event(eventType));
+
+      expect(view.elementAtHeight(21).height).toBe(after);
+      expect(view.lineBlockAt(13).top).toBe(20 + after);
+    } finally {
+      if (originalRects) Object.defineProperty(Range.prototype, 'getClientRects', originalRects);
+      else Reflect.deleteProperty(Range.prototype, 'getClientRects');
+    }
+  });
+
   it('eq()：src 和 alt 都相同才算相等', () => {
     const a = new ImageWidget('https://example.com/a.png', '图');
 
@@ -66,7 +102,7 @@ describe('ImageWidget', () => {
   });
 
   it('toDOM()：<img> + class + 懒加载 + 异步解码', () => {
-    const el = new ImageWidget('https://example.com/a.png', '图').toDOM() as HTMLImageElement;
+    const el = new ImageWidget('https://example.com/a.png', '图').toDOM(mount('')) as HTMLImageElement;
 
     expect(el.tagName).toBe('IMG');
     expect(el.className).toBe('nd-image-widget');

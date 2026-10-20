@@ -3,72 +3,71 @@
 ## 环境要求
 
 - Node.js 20 及以上（CI 覆盖 20 / 22 / 24）
-- npm 10 及以上
+- pnpm 10.34.7（由 `package.json#packageManager` 固定）
+- Astro 和 Nuxt 示例使用 Node.js 22 或 24
 
 ## 快速开始
 
 ```bash
-npm ci
-npm run verify   # typecheck + lint + test + build
+corepack enable pnpm
+pnpm install --frozen-lockfile
+pnpm run verify   # typecheck + lint + test + build + exports
 ```
+
+无 Corepack 的环境可先运行 `npm install -g pnpm@10.34.7`。提交根目录的 `pnpm-lock.yaml`，不要同时维护 npm lock。一次安装会处理根包和 `examples/*` 的依赖；示例通过 `workspace:*` 使用本地库，根包的 `prepare` 脚本会构建其发布入口。
+
+workspace 允许构建器所需的 `esbuild` 和 Astro 图像处理所需的 `sharp` 安装脚本。新增依赖确实需要安装脚本时，应审查用途后更新 `pnpm-workspace.yaml` 的 `onlyBuiltDependencies`。
 
 ## 常用命令
 
 | 命令 | 说明 |
 | --- | --- |
-| `npm test` | 运行单元测试（vitest） |
-| `npm run typecheck` | TypeScript 类型检查 |
-| `npm run lint` | ESLint 检查（`npm run lint:fix` 自动修复） |
-| `npm run build` | 同步样式、生成 Vue 入口 shim、执行 tsup 构建 |
-| `npm run verify` | 上面四项的完整校验 |
-| `npm run test:consumer` | 消费者冒烟测试（真实打包 + 隔离安装 + Vite 构建） |
-| `npm run pack:check` | 查看将要发布的文件清单 |
+| `pnpm run playground` | 启动交互演示 |
+| `pnpm test` | 运行单元测试（Vitest） |
+| `pnpm run typecheck` | TypeScript 类型检查 |
+| `pnpm run lint` | ESLint 检查（`pnpm run lint:fix` 自动修复） |
+| `pnpm run build` | tsup 构建引擎与渲染器，Vite 编译 Vue 组件和样式 |
+| `pnpm run verify` | 类型、lint、测试、构建与导出检查 |
+| `pnpm run test:consumer` | 消费者冒烟测试（真实打包 + 隔离 pnpm 安装 + Vite 构建） |
+| `pnpm run pack:check` | 构建并查看将要发布的文件清单 |
+| `pnpm run build:vue-example` | 构建 Vue 示例 |
+| `pnpm run build:astro-example` | 构建 Astro + Vue 示例 |
+| `pnpm run build:nuxt-example` | 构建 Nuxt SSR 示例 |
 
 ## 项目结构
 
 ```
-src/core/      框架无关的核心会话（纯 TypeScript，无 Vue / 无浏览器依赖）
-src/vue/       Vue 3 适配层（SFC 组件 + composables）
-src/style.css  唯一真源样式表
-public/        构建输入目录（style.css 由 src/ 同步而来）
+src/cm/        CodeMirror 6 编辑引擎、即时预览与主题
+src/editor/    Vue 3 编辑器与工具栏组件
+src/render/    支持 SSR 的 Markdown 渲染器
+src/shared/    编辑侧与展示侧的共享代码及样式
 scripts/       构建与校验脚本
 tests/         单元与集成测试
-examples/      Vue 演示应用
+examples/      Vue、Astro + Vue、Nuxt SSR 演示应用
 ```
 
-架构约束：**核心会话必须保持框架无关**。新增能力优先落在 `src/core/`，Vue 层只做适配；不要把 Vue 或 DOM 依赖引入 `src/core/`。
+渲染入口必须支持服务端执行；创建 CodeMirror 编辑视图需要浏览器 DOM。CodeMirror 与 Lezer 是 peer dependencies，构建时必须保持 external，避免消费端出现多个模块实例。
 
 ## 开发须知（易踩的坑）
 
 ### 1. 修改样式后必须构建
 
-`src/style.css` 是唯一真源，但 tsup 实际从 `public/style.css` 拷贝到 `dist/`。
-`npm run build` 会先执行 `sync:style` 完成同步。
+Vue 编辑器样式由 Vite 输出到 `dist/editor/nexusdown.css`。修改组件或样式后运行 `pnpm run build`，再构建依赖发布入口的示例。
 
-> 如果绕过 build 直接改 CSS，`dist/style.css`（即发布的 `nexusdown/style.css`）不会更新。
-> 测试 `keeps src and public stylesheets byte-identical` 会捕获这种分叉。
+### 2. Vue 组件通过编译后的入口发布
 
-### 2. Vue 入口 shim 是生成产物
-
-`src/vue/entry.ts` 是唯一真源；`src/vue/entry.js` 由 `scripts/generate-vue-entry.mjs` 生成。
-**不要直接编辑 `entry.js`**，它在文件头标注了 `GENERATED FILE`。
-
-之所以需要一个 `.js` 版本：Node 无法对 `node_modules` 内的文件做类型剥离，
-若 `exports` 的 `import` 条件直接指向 `.ts`，`require.resolve('nexusdown/vue')` 会失败。
-测试会校验两者一致。
+`src/editor/index.js` 是源码入口，`/editor` 导出指向 Vite 生成的 `dist/editor/index.js`。不要让消费方直接解析组件源码；发布类型由 `src/editor/index.d.ts` 提供。
 
 ### 3. 新增导出子路径时同步更新多处
 
 修改 `package.json#exports` 时，请一并检查：
 
 - `files[]` 是否包含对应目录
-- `npm run test:consumer` 是否通过（它会解析所有非通配导出键）
+- `pnpm run test:consumer` 是否通过（它会解析所有非通配导出键）
 
 ### 4. 组件测试使用 jsdom，存在已知限制
 
-jsdom 未实现 `ClipboardEvent`、`scrollIntoView` 的部分行为与 CSS `overflow` 裁剪。
-涉及剪贴板或真实布局的断言，请改用驱动底层 API（如直接调用 `view.someProp('handlePaste', ...)`）的方式，
-而不是依赖 jsdom 的合成事件。
+jsdom 未实现浏览器的完整布局和输入行为。光标坐标、滚动、输入法及 CSS 裁剪需要真实浏览器验证；状态和文档变化可用 CodeMirror API 做单元回归。
 
 ### 5. 测试必须能证伪
 
@@ -93,7 +92,7 @@ subject 可自由使用中文。commitlint 目前为**提示性**检查（`conti
 
 ## 发布流程
 
-1. 确认 `npm run verify` 与 `npm run test:consumer` 全部通过。
+1. 确认 `pnpm run verify` 与 `pnpm run test:consumer` 全部通过。
 2. 更新 `CHANGELOG.md`，把 `[Unreleased]` 的内容整理到新的版本号下。
 3. 更新 `package.json` 的 `version`（遵循语义化版本）。
 4. 提交并打标签：
@@ -107,13 +106,11 @@ subject 可自由使用中文。commitlint 目前为**提示性**检查（`conti
 5. 发布前做最后一次真实校验：
 
    ```bash
-   npm run test:consumer
-   npm pack --dry-run
+   pnpm run test:consumer
+   pnpm run pack:check
    ```
 
-> **重要**：由于本项目通过 `exports` 直接发布未编译的 `.vue` 源码，
-> 任何 `exports` / `files` 的改动都可能破坏消费者的安装。
-> 发版前务必运行 `npm run test:consumer`——单元测试无法发现这类问题。
+任何 `exports` / `files` 的改动都可能破坏消费者的安装。发版前运行 `pnpm run test:consumer`，验证真实 tarball 中的入口、类型和样式。
 
 ## 破坏性变更
 
@@ -121,6 +118,5 @@ subject 可自由使用中文。commitlint 目前为**提示性**检查（`conti
 
 - 修改或移除 `package.json#exports` 中的现有子路径
 - 移除或重命名已有的具名导出
-- 修改 `NexusdownEditorSession` 上公开方法的签名
-- 修改 CSS 变量名（`--nexus-bg` 等为稳定换肤接口）
-- 修改工具栏扩展点的 `ToolbarItem` 结构
+- 修改公开编辑 API 或组件 props、事件的签名
+- 修改公开 CSS 变量名（例如 `--nd-bg`）

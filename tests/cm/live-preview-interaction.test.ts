@@ -1,14 +1,15 @@
 import { EditorState } from '@codemirror/state'
 import { EditorView } from '@codemirror/view'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { nexusdown } from '../../src/cm/index.js'
 import { TabsWidget } from '../../src/cm/features/tabs.js'
-import { editingBlock, editingRange } from '../../src/cm/plugin.js'
+import { editingBlock, editingRange, setEditingRange } from '../../src/cm/plugin.js'
 
 const views: EditorView[] = []
 
 afterEach(() => {
+  vi.restoreAllMocks()
   for (const view of views.splice(0)) view.destroy()
   document.body.innerHTML = ''
 })
@@ -31,6 +32,43 @@ function mount(doc: string, cursor = 0) {
 }
 
 describe('live preview interaction', () => {
+  it.each(['click', 'shift-click', 'drag'] as const)('keeps %s coordinates stable when closing source', (action) => {
+    const doc = 'intro\n\n| a | b |\n| - | - |\n| c | d |\n\nclicked line\nlater line'
+    const from = doc.indexOf('|')
+    const to = doc.indexOf('\n\nclicked line')
+    const target = doc.indexOf('clicked line')
+    const later = doc.indexOf('later line')
+    const view = mount(doc, from)
+    view.dispatch({ effects: setEditingRange.of({ from, to }) })
+    view.focus()
+
+    // jsdom has no layout. Supply only the coordinate lookup: once the source
+    // block closes, the same screen point falls on a different document line.
+    const atPoint = ({ y }: { y: number }) =>
+      y >= 120 || !view.state.field(editingRange) ? later : target
+    vi.spyOn(view, 'posAtCoords').mockImplementation(atPoint)
+    vi.spyOn(view, 'posAndSideAtCoords').mockImplementation((point) => ({ pos: atPoint(point), assoc: 1 }))
+    const clicked = [...view.contentDOM.querySelectorAll('.cm-line')]
+      .find((line) => line.textContent === 'clicked line')!
+
+    clicked.dispatchEvent(new MouseEvent('mousedown', {
+      bubbles: true, cancelable: true, button: 0, buttons: 1, detail: 1, clientY: 100,
+      shiftKey: action === 'shift-click',
+    }))
+    if (action === 'drag') {
+      document.dispatchEvent(new MouseEvent('mousemove', {
+        bubbles: true, cancelable: true, buttons: 1, clientX: 100, clientY: 120,
+      }))
+    }
+    document.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, button: 0 }))
+
+    expect(view.state.selection.main.anchor).toBe(action === 'shift-click' ? from : target)
+    expect(view.state.selection.main.head).toBe(action === 'drag' ? later : target)
+    expect(view.state.field(editingRange)).toBeNull()
+    if (action === 'shift-click') expect(view.dom.querySelector('.nd-table')).toBeNull()
+    else expect(view.dom.querySelector('.nd-table')).not.toBeNull()
+  })
+
   it.each(['```', '~~~~', '````'])('clicking later %s tabs places the cursor in the selected code', (marker) => {
     const source = [
       `${marker}bash`,

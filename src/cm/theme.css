@@ -886,6 +886,11 @@
   position: relative;
 }
 
+/* 把页签的上下外边距收进 widget 的可测量高度，避免后续行号和点击坐标错位。 */
+.nd-tabs-block {
+  display: flow-root;
+}
+
 .nd-tabs-block::before,
 .nd-table::before {
   content: attr(data-line);

@@ -8,13 +8,13 @@
  * fails. That is exactly how `nexusdown/vue` once shipped unresolvable.
  *
  * Steps:
- *   1. `npm pack` the package.
+ *   1. `pnpm pack` the package.
  *   2. Install the tarball into a throwaway project outside this repo.
  *   3. Assert every documented subpath resolves.
  *   4. Type-check and build a Vue + Vite app using the published editor,
  *      CodeMirror engine, renderer and stylesheets.
  *
- * Run: `npm run test:consumer` (also invoked from CI).
+ * Run: `pnpm run test:consumer` (also invoked from CI).
  */
 import { spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
@@ -42,20 +42,21 @@ function step(name, fn) {
 /**
  * Run a command, returning stdout. Throws with stderr attached on non-zero exit.
  *
- * Invoke npm's CLI through Node when running as an npm script. This preserves
+ * Invoke pnpm's CLI through Node when running as a pnpm script. This preserves
  * version ranges such as ^3.0.0, which Windows cmd would otherwise strip, and
- * paths containing spaces. Direct script invocations retain the shim fallback.
+ * paths containing spaces without executing a shell.
  */
 function run(command, args, options = {}) {
-  if (command === 'npm' && process.env.npm_execpath) {
+  if (command === 'pnpm') {
+    if (!process.env.npm_execpath || !/[/\\]pnpm\.(?:c?js)$/.test(process.env.npm_execpath)) {
+      throw new Error('Run this script with pnpm run test:consumer so it uses the pinned pnpm CLI.')
+    }
     args = [process.env.npm_execpath, ...args]
     command = process.execPath
   }
-  const needsShell = process.platform === 'win32' && /^(npm|npx)(\.cmd)?$/.test(command)
   const result = spawnSync(command, args, {
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'pipe'],
-    shell: needsShell,
     ...options,
   })
   if (result.error) {
@@ -98,14 +99,14 @@ console.log('consumer smoke test')
 // Pack
 // ---------------------------------------------------------------------------
 // Build both the engine and the compiled Vue editor before packing.
-run('npm', ['run', 'build'], { cwd: root, stdio: ['ignore', 'pipe', 'pipe'] })
-
 const workDir = mkdtempSync(join(tmpdir(), 'nexusdown-consumer-'))
 let tarballName
 try {
-  const packOutput = run('npm', ['pack', '--silent', '--pack-destination', workDir], { cwd: root })
-  tarballName = packOutput.trim().split(/\r?\n/).filter(Boolean).pop()
-  if (!tarballName) throw new Error('npm pack produced no filename')
+  // The package's prepare hook builds before pnpm writes the tarball.
+  run('pnpm', ['pack', '--pack-destination', workDir], { cwd: root })
+  const tarballs = readdirSync(workDir).filter((name) => name.endsWith('.tgz'))
+  if (tarballs.length !== 1) throw new Error(`pnpm pack produced ${tarballs.length} tarballs`)
+  tarballName = tarballs[0]
   const tarballPath = join(workDir, tarballName)
   if (!existsSync(tarballPath)) throw new Error(`tarball not found at ${tarballPath}`)
 
@@ -116,13 +117,14 @@ try {
   // -------------------------------------------------------------------------
   const appDir = join(workDir, 'app')
   mkdirSync(appDir, { recursive: true })
-  writeFileSync(join(appDir, 'package.json'), JSON.stringify({ name: 'consumer', private: true, type: 'module' }, null, 2))
+  writeFileSync(join(appDir, 'package.json'), JSON.stringify({ name: 'consumer', private: true, type: 'module', packageManager: pkg.packageManager }, null, 2))
+  writeFileSync(join(appDir, 'pnpm-workspace.yaml'), 'onlyBuiltDependencies:\n  - esbuild\n')
 	// The editor needs the optional CodeMirror peers; use the versions tested
 	// by this repository instead of letting the consumer drift to latest.
 	const consumerDependencies = ['vue', 'vite', '@vitejs/plugin-vue', 'typescript',
 		...Object.keys(pkg.peerDependencies).filter((name) => /^@(codemirror|lezer)\//.test(name)),
 	].map((name) => `${name}@${pkg.devDependencies[name] ?? pkg.peerDependencies[name]}`)
-	run('npm', ['install', tarballPath, ...consumerDependencies, '--no-audit', '--no-fund'], {
+	run('pnpm', ['add', tarballPath, ...consumerDependencies], {
 		cwd: appDir,
 	})
 
