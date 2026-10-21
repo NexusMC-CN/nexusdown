@@ -1,7 +1,28 @@
 import type { EditorSelection, Text } from '@codemirror/state';
 
 /**
- * Obsidian 式的行级揭示判定：**任一**选区与 `[from, to]` 有共同行 → 揭示。
+ * 行内节点的局部揭示判定。块级标记仍用下面的行级判定。
+ *
+ * 折叠光标在节点的两个边界也应能进入源码；非空选区遵守 CM6 的
+ * `[from, to)` 排他终点，只有实际选中节点字符时才揭示。
+ */
+export function selectionTouchesRange(
+  selection: EditorSelection,
+  from: number,
+  to: number,
+): boolean {
+  for (const range of selection.ranges) {
+    if (range.empty) {
+      if (range.head >= from && range.head <= to) return true;
+    } else if (range.from < to && range.to > from) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * 块级标记的行级揭示判定：**任一**选区与 `[from, to]` 有共同行 → 揭示。
  *
  * 为什么用「行区间」而不是 `doc.lineAt(head)`：
  *   - 多行选区必须揭示被跨越的行里的节点
@@ -24,7 +45,9 @@ export function selectionTouchesLineRange(
 
   for (const range of selection.ranges) {
     const selStartLine = doc.lineAt(range.from).number;
-    const selEndLine = doc.lineAt(range.to).number;
+    // 非空选区的 `to` 同样排他；折叠光标则属于它所在的位置。
+    const selEnd = range.empty ? range.to : range.to - 1;
+    const selEndLine = doc.lineAt(selEnd).number;
     if (selStartLine <= nodeEndLine && nodeStartLine <= selEndLine) return true;
   }
   return false;

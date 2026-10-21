@@ -22,10 +22,11 @@
  * 后来加的表格 / 行内公式 / 块级公式 / 嵌入同理 —— 它们**只服务工具栏按钮**
  * （用户不知道这几个扩展的语法怎么写，按钮负责把骨架落下来），没有快捷键。
  *
- * ## 全部命令都走 `changeByRange`
+ * ## 多光标坐标
  *
- * 和上游同一条约定：每个选区**各算各的**，绝不用 `view.dispatch({ changes })` 一把梭 ——
- * 后者在多光标下只有第一个选区是对的。
+ * 行内和插入命令走 `changeByRange`，每个选区各算各的。块级前缀命令先把
+ * 共享同一行的选区并组、每行只改一次，再显式映射全部选区；否则同一行
+ * 有多个光标时会重复插入前缀。
  *
  * ## 撤销粒度
  *
@@ -287,37 +288,48 @@ type PrefixTarget = { readonly part: 'quote' } | { readonly part: 'block'; reado
 function togglePrefix(target: PrefixTarget): Command {
   return (view) => {
     const { state } = view
+    const groups: Array<{ first: number; last: number }> = []
+    for (const range of state.selection.ranges) {
+      const first = state.doc.lineAt(range.from).number
+      const last = lastSelectedLine(state, range).number
+      const previous = groups.at(-1)
+      if (previous && first <= previous.last) previous.last = Math.max(previous.last, last)
+      else groups.push({ first, last })
+    }
 
-    const changes = state.changeByRange((range) => {
-      const first = state.doc.lineAt(range.from)
-      const last = lastSelectedLine(state, range)
-      const edits: Edit[] = []
+    const edits: Edit[] = []
+    for (const { first, last } of groups) {
+      const lines = Array.from({ length: last - first + 1 }, (_, index) => {
+        const line = state.doc.line(first + index)
+        return { line, prefix: parsePrefix(line.text) }
+      })
+      // 共享行的选区合成一组：全有目标标记才移除，否则统一应用。
+      const remove = lines.every(({ prefix }) =>
+        target.part === 'quote' ? !!prefix.quote : prefix.block === target.marker,
+      )
 
-      for (let n = first.number; n <= last.number; n++) {
-        const line = state.doc.line(n)
-        const p = parsePrefix(line.text)
+      for (const { line, prefix: p } of lines) {
         const to = line.from + p.indent.length + p.quote.length + p.block.length
 
         const insert =
           target.part === 'quote'
-            ? p.indent + (p.quote ? '' : '> ') + p.block
-            : p.indent + p.quote + (p.block === target.marker ? '' : target.marker)
+            ? p.indent + (remove ? '' : p.quote || '> ') + p.block
+            : p.indent + p.quote + (remove ? '' : target.marker)
 
         // 已经是目标形态 → 不产生改动，避免制造空事务（空事务会污染撤销栈）。
         if (state.sliceDoc(line.from, to) === insert) continue
         edits.push({ from: line.from, to, insert })
       }
+    }
 
-      if (!edits.length) return { range }
-      return {
-        changes: edits,
-        range: EditorSelection.range(mapPos(range.anchor, edits), mapPos(range.head, edits)),
-      }
-    })
-
-    if (changes.changes.empty) return false
-
-    view.dispatch({ ...changes, userEvent: 'format.nexusdown' })
+    if (!edits.length) return false
+    const selection = EditorSelection.create(
+      state.selection.ranges.map((range) =>
+        EditorSelection.range(mapPos(range.anchor, edits), mapPos(range.head, edits)),
+      ),
+      state.selection.mainIndex,
+    )
+    view.dispatch({ changes: edits, selection, userEvent: 'format.nexusdown' })
     return true
   }
 }

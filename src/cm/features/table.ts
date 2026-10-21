@@ -215,24 +215,32 @@ export class TableWidget extends WidgetType {
       let offset = 0
       if (cell) {
         const tr = cell.closest('tr')
-        const tbody = tr?.closest('tbody') ?? null
-        const rowIndex = tr && tbody ? [...tbody.querySelectorAll('tr')].indexOf(tr) + 1 : 0
+        const table = tr?.closest('table')
+        // 渲染侧把表头与数据行都放进 tbody；按整张表的行顺序定位。
+        const rowIndex = tr && table ? [...table.querySelectorAll('tr')].indexOf(tr) : 0
         const colIndex = tr ? [...tr.children].indexOf(cell) : 0
-        // 源码第 0 行是表头，第 1 行是分隔行；tbody 第 r 行对应源码第 r+1 行。
+        // 源码第 0 行是表头，第 1 行是分隔行；可见第 r 行对应源码第 r+1 行。
         const sourceRow = rowIndex === 0 ? 0 : rowIndex + 1
         const line = this.lines[sourceRow]
         if (line) {
-          const segments = line.text.split('|')
-          let cursor = 0
-          for (let i = 0; i < segments.length; i += 1) {
-            const segment = segments[i]!
-            const start = cursor
-            cursor += segment.length + 1
-            if (i === colIndex + 1) {
-              const lead = segment.length - segment.trimStart().length
-              offset = line.start + start + lead
-              break
+          const targetSegment = colIndex + (/^\s*\|/.test(line.text) ? 1 : 0)
+          let segmentIndex = 0
+          let start = 0
+          let backslashes = 0
+          for (let at = 0; at <= line.text.length; at += 1) {
+            const char = line.text[at]
+            // `\|` 是单元格正文；只有未转义的管道才划分列。
+            if (at === line.text.length || (char === '|' && backslashes % 2 === 0)) {
+              if (segmentIndex === targetSegment) {
+                const segment = line.text.slice(start, at)
+                const lead = segment.length - segment.trimStart().length
+                offset = line.start + start + lead
+                break
+              }
+              segmentIndex += 1
+              start = at + 1
             }
+            backslashes = char === '\\' ? backslashes + 1 : 0
           }
         }
       }

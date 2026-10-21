@@ -138,7 +138,7 @@ describe('decorateInline —— 粗体 / 斜体 / 行内代码 / 删除线', () 
     expect(c.atomicRanges.some((r) => r.from >= 2 && r.to <= 4)).toBe(false)
   })
 
-  it('揭示态（光标在该行）：两个 MUTED_MARK，没有 HIDE，也没有 atomic', () => {
+  it('揭示态（光标在该节点）：两个 MUTED_MARK，没有 HIDE，也没有 atomic', () => {
     const c = collect(DOC, ['StrongEmphasis'], decorateInline, 3)
 
     expect(c.ranges.filter(isHide)).toHaveLength(0)
@@ -172,6 +172,28 @@ describe('decorateInline —— 粗体 / 斜体 / 行内代码 / 删除线', () 
       [0, 2],
       [3, 5],
     ])
+  })
+
+  it.each([
+    ['StrongEmphasis', '**'],
+    ['Emphasis', '*'],
+    ['InlineCode', '`'],
+    ['Strikethrough', '~~'],
+  ])('%s 只揭示光标碰到的节点，同一行其他格式保持渲染', (name, marker) => {
+    const line = `${marker}one${marker} and ${marker}two${marker} tail`
+    const doc = `${line}\n\n尾部`
+    const secondStart = line.indexOf(`${marker}two`)
+    const active = collect(doc, [name], decorateInline, line.indexOf('one') + 1)
+
+    expect(active.ranges.filter((r) => isMark(r, 'nd-mark'))).toHaveLength(2)
+    expect(active.ranges.filter((r) => isMark(r, 'nd-mark')).every((r) => r.to <= secondStart)).toBe(true)
+    expect(active.ranges.filter(isHide)).toHaveLength(2)
+    expect(active.ranges.filter(isHide).every((r) => r.from >= secondStart)).toBe(true)
+    expect(active.atomicRanges).toHaveLength(2)
+
+    const afterBoth = collect(doc, [name], decorateInline, line.indexOf('tail'))
+    expect(afterBoth.ranges.filter((r) => isMark(r, 'nd-mark'))).toHaveLength(0)
+    expect(afterBoth.ranges.filter(isHide)).toHaveLength(4)
   })
 
   it('非行内节点不会被误装饰', () => {

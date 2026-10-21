@@ -8,7 +8,7 @@
  * 搬进库里，**测试也一起搬进来**。
  *
  * 断言的都是**不变量**，不是"输出长什么样"：
- * - 多光标下每个选区各算各的（`changeByRange` 的约定）
+ * - 多光标下行内命令各选区独立处理，块前缀按共享行去重
  * - 解包 `***粗斜体***` 时不能把内层的 `**` 削掉一个
  * - 没改动时不产生空事务（返回 `false`）
  */
@@ -28,6 +28,7 @@ import {
   toggleHeading,
   toggleInlineCode,
   toggleItalic,
+  toggleOrderedList,
   toggleQuote,
   wrapCodeBlock,
 } from '../../src/cm/commands.js'
@@ -166,6 +167,69 @@ describe('块级命令', () => {
   it('toggleQuote 加 `> `', () => {
     const v = editor('引用', 1)
     expect(run(v, toggleQuote).doc).toContain('> ')
+    v.destroy()
+  })
+
+  it('部分行已有 H2 时，给整个选区应用 H2', () => {
+    const v = editor('## one\ntwo', [0, 10])
+    expect(run(v, toggleHeading(2)).doc).toBe('## one\n## two')
+    v.destroy()
+  })
+
+  it('全部行已有 H2 时，给整个选区移除 H2', () => {
+    const v = editor('## one\n## two', [0, 13])
+    expect(run(v, toggleHeading(2)).doc).toBe('one\ntwo')
+    v.destroy()
+  })
+
+  it('部分行已有列表标记时，给整个选区应用同一种列表', () => {
+    const bullet = editor('- one\ntwo', [0, 9])
+    expect(run(bullet, toggleBulletList).doc).toBe('- one\n- two')
+    bullet.destroy()
+
+    const ordered = editor('1. one\ntwo', [0, 10])
+    expect(run(ordered, toggleOrderedList).doc).toBe('1. one\n1. two')
+    ordered.destroy()
+  })
+
+  it('部分行已有引用标记时，给整个选区应用引用', () => {
+    const v = editor('> one\ntwo', [0, 9])
+    expect(run(v, toggleQuote).doc).toBe('> one\n> two')
+    v.destroy()
+  })
+
+  it('反向多行选区仍统一应用标记并保持选区方向', () => {
+    const v = editor('- one\ntwo', [9, 0])
+    const out = run(v, toggleBulletList)
+    expect(out.doc).toBe('- one\n- two')
+    expect([v.state.selection.main.anchor, v.state.selection.main.head]).toEqual([11, 0])
+    v.destroy()
+  })
+
+  it('同一行多个光标只添加一次列表标记并各自右移', () => {
+    const v = editor('one two', 1, 5)
+    expect(run(v, toggleBulletList).doc).toBe('- one two')
+    expect(v.state.selection.ranges.map((r) => r.head)).toEqual([3, 7])
+    v.destroy()
+  })
+
+  it('共享一行的两个多行选区统一切换，并保留反向选区', () => {
+    const v = editor('- one\n- two\nthree', [0, 8], [17, 9])
+    expect(run(v, toggleBulletList).doc).toBe('- one\n- two\n- three')
+    expect(v.state.selection.ranges.map((r) => [r.anchor, r.head])).toEqual([[0, 8], [19, 9]])
+    v.destroy()
+  })
+
+  it('不共享行的多个光标仍独立切换', () => {
+    const v = editor('- one\ntwo', 1, 8)
+    expect(run(v, toggleBulletList).doc).toBe('one\n- two')
+    expect(v.state.selection.ranges.map((r) => r.head)).toEqual([0, 8])
+    v.destroy()
+  })
+
+  it('选区终点位于下一行行首时，不格式化那一行', () => {
+    const v = editor('## one\ntwo\nthree', [0, 11])
+    expect(run(v, toggleHeading(2)).doc).toBe('## one\n## two\nthree')
     v.destroy()
   })
 

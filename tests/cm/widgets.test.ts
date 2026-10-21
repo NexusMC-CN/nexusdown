@@ -16,6 +16,7 @@ import { Decoration, EditorView, keymap, type KeyBinding } from '@codemirror/vie
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { markdownKeymap } from '../../src/cm/shortcuts';
+import { renderMarkdown } from '../../src/render/index';
 import { ImageWidget } from '../../src/cm/widgets/image';
 import { TaskCheckboxWidget } from '../../src/cm/widgets/task';
 
@@ -317,6 +318,137 @@ describe('markdownKeymap —— 粗体 / 斜体 / 行内代码', () => {
     expect(runKey(view, 'Enter')).toBe(true);
 
     expect(view.state.doc.toString()).toBe('- a\n- ');
+  });
+
+  it('在文末按两次 Enter 退出列表后，继续输入成为独立段落', () => {
+    const view = mount('- first\n- second', EditorSelection.single('- first\n- second'.length));
+
+    expect(runKey(view, 'Enter')).toBe(true);
+    expect(view.state.doc.toString()).toBe('- first\n- second\n- ');
+
+    expect(runKey(view, 'Enter')).toBe(true);
+    view.dispatch({ changes: { from: view.state.selection.main.head, insert: 'tail' }, userEvent: 'input.type' });
+
+    expect(view.state.doc.toString()).toBe('- first\n- second\n\ntail');
+    expect(renderMarkdown(view.state.doc.toString())).toContain('</ul><p>tail</p>');
+  });
+
+  it('单项列表也在第二次 Enter 退出，不留下新的空列表项', () => {
+    const view = mount('- first', EditorSelection.single('- first'.length));
+
+    expect(runKey(view, 'Enter')).toBe(true);
+    expect(view.state.doc.toString()).toBe('- first\n- ');
+
+    expect(runKey(view, 'Enter')).toBe(true);
+    view.dispatch({ changes: { from: view.state.selection.main.head, insert: 'tail' }, userEvent: 'input.type' });
+
+    expect(view.state.doc.toString()).toBe('- first\n\ntail');
+    expect(renderMarkdown(view.state.doc.toString())).toContain('</ul><p>tail</p>');
+  });
+
+  it.each([
+    ['- first\n- \n- next', '- first\n\ntail\n\n- next', '</ul><p>tail</p><ul>'],
+    ['1. first\n2. \n3. next', '1. first\n\ntail\n\n3. next', '</ol><p>tail</p><ol'],
+  ])('在列表中间退出空项后，输入成为独立段落：%s', (doc, expected, rendered) => {
+    const cursor = doc.indexOf('\n', doc.indexOf('\n') + 1);
+    const view = mount(doc, EditorSelection.single(cursor));
+
+    expect(runKey(view, 'Enter')).toBe(true);
+    view.dispatch({ changes: { from: view.state.selection.main.head, insert: 'tail' }, userEvent: 'input.type' });
+
+    expect(view.state.doc.toString()).toBe(expected);
+    expect(renderMarkdown(view.state.doc.toString())).toContain(rendered);
+  });
+
+  it.each([
+    ['- [ ] task', '- [ ] task\n\ntail'],
+    ['- [ ] first\n- [ ] second', '- [ ] first\n- [ ] second\n\ntail'],
+  ])('空任务项按第二次 Enter 后退出列表：%s', (doc, expected) => {
+    const view = mount(doc, EditorSelection.single(doc.length));
+
+    expect(runKey(view, 'Enter')).toBe(true);
+    expect(runKey(view, 'Enter')).toBe(true);
+    view.dispatch({ changes: { from: view.state.selection.main.head, insert: 'tail' }, userEvent: 'input.type' });
+
+    expect(view.state.doc.toString()).toBe(expected);
+    expect(renderMarkdown(view.state.doc.toString())).toContain('</ul><p>tail</p>');
+  });
+
+  it('嵌套单项列表按第二次 Enter 回到上一级列表', () => {
+    const doc = '- parent\n  - child';
+    const view = mount(doc, EditorSelection.single(doc.length));
+
+    expect(runKey(view, 'Enter')).toBe(true);
+    expect(runKey(view, 'Enter')).toBe(true);
+    view.dispatch({ changes: { from: view.state.selection.main.head, insert: 'tail' }, userEvent: 'input.type' });
+
+    expect(view.state.doc.toString()).toBe('- parent\n  - child\n- tail');
+    expect(renderMarkdown(view.state.doc.toString())).toMatch(/<\/ul><\/li><li>(?:<p>)?tail(?:<\/p>)?<\/li>/);
+  });
+
+  it.each([
+    ['1. parent\n   1. child', '1. parent\n   1. child\n2. tail'],
+    ['- parent\n  - [ ] child', '- parent\n  - [ ] child\n- tail'],
+  ])('有序或任务子列表退出空项后回到上一级：%s', (doc, expected) => {
+    const view = mount(doc, EditorSelection.single(doc.length));
+
+    expect(runKey(view, 'Enter')).toBe(true);
+    expect(runKey(view, 'Enter')).toBe(true);
+    view.dispatch({ changes: { from: view.state.selection.main.head, insert: 'tail' }, userEvent: 'input.type' });
+
+    expect(view.state.doc.toString()).toBe(expected);
+  });
+
+  it.each([
+    ['1. parent\n   1. first\n   2. \n   3. next', '1. parent\n   1. first\n2. tail\n\n   2. next'],
+    ['- parent\n  - first\n  - \n  - next', '- parent\n  - first\n- tail\n  - next'],
+  ])('在子列表中间退回上一级时，后续子项仍是列表：%s', (doc, expected) => {
+    const emptyLine = doc.indexOf('\n', doc.indexOf('\n', doc.indexOf('\n') + 1) + 1);
+    const view = mount(doc, EditorSelection.single(emptyLine));
+
+    expect(runKey(view, 'Enter')).toBe(true);
+    view.dispatch({ changes: { from: view.state.selection.main.head, insert: 'tail' }, userEvent: 'input.type' });
+
+    expect(view.state.doc.toString()).toBe(expected);
+    const root = document.createElement('div');
+    root.innerHTML = renderMarkdown(view.state.doc.toString());
+    expect(root.querySelectorAll('ol ol li, ul ul li')).toHaveLength(2);
+    expect(root.querySelector('ol > li:nth-child(2), ul > li:nth-child(2)')?.textContent).toContain('tail');
+  });
+
+  it('在子列表中间退出空项仍可一次撤销', () => {
+    const doc = '1. parent\n   1. first\n   2. \n   3. next';
+    const cursor = doc.indexOf('\n', doc.indexOf('\n', doc.indexOf('\n') + 1) + 1);
+    const view = mount(doc, EditorSelection.single(cursor), [history()]);
+
+    expect(runKey(view, 'Enter')).toBe(true);
+    expect(view.state.doc.toString()).toBe('1. parent\n   1. first\n2. \n\n   2. next');
+    expect(undo(view)).toBe(true);
+    expect(view.state.doc.toString()).toBe(doc);
+  });
+
+  it('引用中的空列表项按第二次 Enter 退出列表并留在引用里', () => {
+    const doc = '> - first';
+    const view = mount(doc, EditorSelection.single(doc.length));
+
+    expect(runKey(view, 'Enter')).toBe(true);
+    expect(runKey(view, 'Enter')).toBe(true);
+    view.dispatch({ changes: { from: view.state.selection.main.head, insert: 'tail' }, userEvent: 'input.type' });
+
+    expect(view.state.doc.toString()).toBe('> - first\n>\n> tail');
+    expect(renderMarkdown(view.state.doc.toString())).toContain('</ul><p>tail</p>');
+  });
+
+  it('引用中的列表中间退出时，段落两侧保留引用内空行', () => {
+    const doc = '> - first\n> - \n> - next';
+    const cursor = doc.indexOf('\n', doc.indexOf('\n') + 1);
+    const view = mount(doc, EditorSelection.single(cursor));
+
+    expect(runKey(view, 'Enter')).toBe(true);
+    view.dispatch({ changes: { from: view.state.selection.main.head, insert: 'tail' }, userEvent: 'input.type' });
+
+    expect(view.state.doc.toString()).toBe('> - first\n>\n> tail\n>\n> - next');
+    expect(renderMarkdown(view.state.doc.toString())).toContain('</ul><p>tail</p><ul>');
   });
 
   it('Enter 在普通段落里不接管（交给默认行为）', () => {

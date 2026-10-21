@@ -34,9 +34,15 @@
 
 ---
 
-## 1. 行级揭示谓词（`selection.ts`，33 行）
+## 1. 块级行级、行内局部揭示谓词（`selection.ts`）
 
-**这是全项目信噪比最高的 20 行。**
+标题、列表、引用和围栏等块级结构继续按行揭示。粗斜体、行内代码、删除线、
+链接和图片按**各自父节点区间**揭示：光标离开格式节点后，同一行其他格式继续渲染。
+折叠光标停在节点起止边界时可进入源码；非空选区按 `[from, to)` 的排他终点判交。
+用户提供的 [codemirror-live-markdown](https://github.com/blueberrycongee/codemirror-live-markdown/blob/main/src/plugins/livePreview.ts)
+对单个行内定界符判交；本项目按父节点判交，光标进入内容时两侧标记一起可编辑。
+
+行级谓词仍用于块级结构：
 
 ```ts
 /**
@@ -63,14 +69,20 @@ export function selectionTouchesLineRange(
 
   for (const range of selection.ranges) {
     const selStartLine = doc.lineAt(range.from).number;
-    const selEndLine = doc.lineAt(range.to).number;
+    const selEnd = range.empty ? range.to : range.to - 1;
+    const selEndLine = doc.lineAt(selEnd).number;
     if (selStartLine <= nodeEndLine && nodeStartLine <= selEndLine) return true;
   }
   return false;
 }
 ```
 
-**`safeTo` 那个 off-by-one 必须抄。** 这是最容易漏、又最容易被当成"玄学 bug"的细节。
+行内节点另用 `selectionTouchesRange(selection, from, to)`，遍历所有选区；
+折叠光标在 `[from, to]` 内揭示，非空选区仅在 `range.from < to && range.to > from`
+时揭示。这样同一行的 `**one**` 与 `**two**` 可以分别进入源码。
+
+**节点和非空选区的 `to` 都是排他边界。** 行级判定取末字符所在行，
+局部判定要求选区与节点有实际交集，避免误揭示下一行或相邻节点。
 
 ---
 
@@ -266,7 +278,7 @@ export function decorateInline(ranges, atomicRanges, node, doc, sel) {
   const styling = STYLES[node.name];
   ranges.push(styling.range(node.from, node.to));
 
-  const revealed = selectionTouchesLineRange(doc, sel, node.from, node.to);
+  const revealed = selectionTouchesRange(sel, node.from, node.to);
   // ★ silkdown 的坑 ③：它在这里额外做了
   //     if (!revealed) atomicRanges.push(styling.range(node.from, node.to));
   //   把**整个 `**bold**`（含内容）**注册成原子区间 → 非活动行上光标跨不过词中间。
@@ -405,7 +417,7 @@ export function decorateLink(ranges, atomicRanges, node, doc, sel, references, u
   if (!parts) return;
 
   const safe = urlPolicy(parts.url);
-  const revealed = selectionTouchesLineRange(doc, sel, node.from, node.to);
+  const revealed = selectionTouchesRange(sel, node.from, node.to);
 
   if (revealed) {
     muteLinkSyntax(ranges, parts);   // 揭示态：**变灰，不是隐藏**
@@ -577,7 +589,7 @@ export function nexusdown(opts = {}): Extension {
 
 - **`Mod-B` / `Mod-I` / `` Mod-` ``**：切换行内标记。无选中时扩展到光标词；
   空白处插入成对标记并把光标居中；包裹/解包是**独立撤销步骤**
-- **列表内回车**：用 `insertNewlineContinueMarkup` 继续标记
+- **列表内回车**：默认由 `insertNewlineContinueMarkup` 续标记；包装命令让空的顶层列表项退出为独立段落，嵌套空项退一级。嵌套有序列表中途退出时，在后续子项前补空行，并把整次按键作为一个撤销步骤
 - **撤销粒度**：dispatch 时带 `userEvent: 'format.nexusdown'` —— CM6 的 history
   按 `userEvent` 前缀分组，`format.*` 和 `input.*` 分开成独立 undo step
-- **多光标安全**：用 `state.changeByRange(...)` 而不是 `view.dispatch({ changes })` 一把梭
+- **多光标安全**：行内和插入命令用 `state.changeByRange(...)`；块级前缀命令先合并共享行的选区，每行只改一次，再映射所有选区

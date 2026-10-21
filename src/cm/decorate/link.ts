@@ -14,7 +14,7 @@
  *
  * - **URL 白名单必须在渲染前过滤**：被拒时**什么都不做**（源码原样显示），
  *   绝不出现「语法被藏了、但没变成链接」的半渲染状态。
- * - **揭示态是「变灰」不是「隐藏」**：光标在链接行时 `[`、`]`、`(`、`)`、URL
+ * - **揭示态是「变灰」不是「隐藏」**：光标碰到链接节点时 `[`、`]`、`(`、`)`、URL
  *   全部留在文本流里（`MUTED_MARK`），文字仍然带 `.nd-link`。
  * - **点击不用 widget**：链接文字保持真实可编辑文本，靠
  *   `Decoration.mark({ attributes: { 'data-href' } })` + 全局 click handler，
@@ -25,7 +25,7 @@ import { Decoration, EditorView } from '@codemirror/view'
 
 import type { DecorationRanges, LinkReferences, MarkdownNode, UrlPolicy } from '../types.js'
 import { defaultUrlPolicy } from '../url.js'
-import { selectionTouchesLineRange } from '../util/selection.js'
+import { selectionTouchesRange } from '../util/selection.js'
 import { children, firstChildNamed } from '../util/tree.js'
 import { ImageWidget } from '../widgets/image.js'
 import { HIDE, MUTED_MARK, pushAtomicRange } from './shared.js'
@@ -286,7 +286,8 @@ export function decorateLink(
   const href = rawUrl === undefined ? null : (urlPolicy ?? defaultUrlPolicy)(rawUrl)
   if (!href) return
 
-  const revealed = selectionTouchesLineRange(doc, selection, node.from, node.to)
+  // 链接和图片按各自节点揭示，同行其余内容不随之变成 Markdown 源码。
+  const revealed = selectionTouchesRange(selection, node.from, node.to)
 
   if (name === 'Image') {
     if (revealed) {

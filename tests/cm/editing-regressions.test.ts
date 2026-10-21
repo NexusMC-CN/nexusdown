@@ -1,4 +1,5 @@
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown'
+import { redo, undo } from '@codemirror/commands'
 import { EditorSelection, EditorState } from '@codemirror/state'
 import { EditorView } from '@codemirror/view'
 
@@ -249,6 +250,41 @@ describe('composition value synchronization', () => {
 })
 
 describe('external document replacement', () => {
+  it('keeps undo within the newly loaded document', () => {
+    const view = mounted('draft A')
+    view.dispatch({ changes: { from: 7, insert: '!' }, userEvent: 'input.type' })
+
+    setEditorValue(view, 'draft B')
+    view.dispatch({ changes: { from: 7, insert: '?' }, userEvent: 'input.type' })
+    expect(view.state.doc.toString()).toBe('draft B?')
+
+    expect(undo(view)).toBe(true)
+    expect(view.state.doc.toString()).toBe('draft B')
+    expect(undo(view)).toBe(false)
+    expect(view.state.doc.toString()).toBe('draft B')
+  })
+
+  it('preserves undo after an unchanged v-model echo', () => {
+    const view = mounted('draft A')
+    view.dispatch({ changes: { from: 7, insert: '!' }, userEvent: 'input.type' })
+
+    setEditorValue(view, 'draft A!')
+
+    expect(undo(view)).toBe(true)
+    expect(view.state.doc.toString()).toBe('draft A')
+  })
+
+  it('does not redo an edit from the previous document', () => {
+    const view = mounted('draft A')
+    view.dispatch({ changes: { from: 7, insert: '!' }, userEvent: 'input.type' })
+    expect(undo(view)).toBe(true)
+
+    setEditorValue(view, 'draft B')
+
+    expect(redo(view)).toBe(false)
+    expect(view.state.doc.toString()).toBe('draft B')
+  })
+
   it('preserves source editing intent during unchanged v-model feedback', () => {
     const view = mounted('**source**')
     view.dispatch({

@@ -15,7 +15,7 @@
  * （不是包一层数组），行为与加这条通道之前一字不差。
  */
 import { syntaxTree } from '@codemirror/language';
-import { EditorState, StateEffect, StateField, type Extension } from '@codemirror/state';
+import { EditorState, StateEffect, StateField, type Extension, type Transaction } from '@codemirror/state';
 import {
   Decoration,
   type DecorationSet,
@@ -508,6 +508,20 @@ interface BlockDecorations {
  */
 export const setEditingBlock = StateEffect.define<number | null>();
 
+function selectionLeavesSource(tr: Transaction, from: number, to: number): boolean {
+  // 鼠标拖选以当前 head 为准，待 CM 算好坐标后立刻恢复预览。
+  if (tr.isUserEvent('select.pointer')) {
+    const head = tr.newSelection.main.head;
+    return head < from || head > to;
+  }
+  // 键盘扩选仍覆盖源码时保持揭示；折叠光标在边界处仍属于源码。
+  return !!tr.selection && !tr.newSelection.ranges.some((range) =>
+    range.empty
+      ? range.head >= from && range.head <= to
+      : range.from < to && range.to > from
+  );
+}
+
 export const editingBlock = StateField.define<number | null>({
   create: () => null,
 
@@ -520,6 +534,16 @@ export const editingBlock = StateField.define<number | null>({
      * （用户在门口打字，字插在围栏**前面** ✓，`from` 会往后移 ✓）。
      */
     const from = tr.changes.mapPos(value, 1);
+
+    // 表格、图表和 tabs 同时使用 editingRange。它在选区离开时关闭，
+    // editingBlock 也必须同步清除；否则前置空行的 from - 1 仍会把源码留在屏幕上。
+    // 数学块仅使用 editingBlock，保留其点击后停在 from - 1 的行为。
+    const source = tr.startState.field(editingRange, false);
+    if (source && selectionLeavesSource(
+      tr,
+      tr.changes.mapPos(source.from, 1),
+      tr.changes.mapPos(source.to, -1),
+    )) return null;
 
     /*
      * 选区**离开门口**就清除 ✓ —— 注意"门口"要算上 `from - 1` 和 `to + 1` ✗：
@@ -557,10 +581,7 @@ export const editingRange = StateField.define<SourceRange | null>({
     const to = tr.changes.mapPos(value.to, -1);
     // CM 已按旧布局算好点击/拖动选区后，再与选区一起收起源码。
     // 保留原生 Shift 扩选、多光标和拖动行为，不自行接管鼠标事件。
-    if (tr.isUserEvent('select.pointer')) {
-      const head = tr.newSelection.main.head;
-      if (head < from || head > to) return null;
-    }
+    if (selectionLeavesSource(tr, from, to)) return null;
     return to > from ? { from, to } : null;
   },
 });

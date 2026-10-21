@@ -10,13 +10,16 @@
  * 会被判成揭示态。
  */
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown'
+import { cursorCharLeft, cursorCharRight } from '@codemirror/commands'
 import { syntaxTree } from '@codemirror/language'
 import { EditorState } from '@codemirror/state'
 import type { Range, Text } from '@codemirror/state'
+import { EditorView } from '@codemirror/view'
 import type { Decoration } from '@codemirror/view'
 
 import { decorateBlock } from '../../src/cm/decorate/block.js'
 import { decorateLink } from '../../src/cm/decorate/link.js'
+import { nexusdown } from '../../src/cm/index.js'
 import { ImageWidget } from '../../src/cm/widgets/image.js'
 
 interface Collected {
@@ -175,6 +178,22 @@ describe('decorateLink —— 行内链接 [文字](url)', () => {
 
     // 全部装饰只可能是这两类。
     expect(c.ranges).toHaveLength(3)
+  })
+
+  it('同一行只揭示光标所在链接，行尾使两个链接都恢复渲染', () => {
+    const line = '[first](https://a.com) and [second](https://b.com) tail'
+    const doc = `${line}\n\n尾部`
+    const secondStart = line.indexOf('[second]')
+    const active = collectLink(doc, ['Link'], { cursor: line.indexOf('first') + 1 })
+
+    expect(active.ranges.filter((r) => isMark(r, 'nd-mark'))).toHaveLength(2)
+    expect(active.ranges.filter((r) => isMark(r, 'nd-mark')).every((r) => r.to <= secondStart)).toBe(true)
+    expect(active.ranges.filter(isHide)).toHaveLength(2)
+    expect(active.ranges.filter(isHide).every((r) => r.from >= secondStart)).toBe(true)
+
+    const afterBoth = collectLink(doc, ['Link'], { cursor: line.indexOf('tail') })
+    expect(afterBoth.ranges.filter((r) => isMark(r, 'nd-mark'))).toHaveLength(0)
+    expect(afterBoth.ranges.filter(isHide)).toHaveLength(4)
   })
 
   it('带标题的链接：`](url "标题")` 整段一起藏', () => {
@@ -370,6 +389,14 @@ describe('decorateLink —— 图片 ![alt](src)', () => {
     expect(c.atomicRanges).toHaveLength(0)
   })
 
+  it('同一行的光标离开图片后，图片仍保留 widget', () => {
+    const line = 'before ![alt](https://a.com/i.png) after'
+    const c = collectLink(`${line}\n\n尾部`, ['Image'], { cursor: line.indexOf('after') })
+
+    expect(c.ranges.filter(isWidgetReplace)).toHaveLength(1)
+    expect(c.ranges.filter((r) => isMark(r, 'nd-mark'))).toHaveLength(0)
+  })
+
   it('src 被拒（javascript:）→ 什么都不做，源码原样显示', () => {
     const c = collectLink('![alt](javascript:x)\n\n尾部', ['Image'])
 
@@ -421,5 +448,47 @@ describe('decorateBlock —— 水平线', () => {
     expect(c.atomicRanges).toHaveLength(0)
     expect(spans(c.ranges.filter((r) => isMark(r, 'nd-mark')))).toEqual([[0, 3]])
     expect(spans(c.ranges.filter((r) => isLine(r, 'nd-hr')))).toEqual([[0, 0]])
+  })
+})
+
+describe('图片的键盘编辑入口', () => {
+  it('同行正文到图片边界时揭示源码，离开后恢复图片 widget', () => {
+    const doc = 'x ![alt](https://a.com/i.png) tail\n\n尾部'
+    const from = doc.indexOf('![')
+    const to = doc.indexOf(')') + 1
+    const parent = document.createElement('div')
+    document.body.appendChild(parent)
+    const view = new EditorView({
+      parent,
+      state: EditorState.create({
+        doc,
+        selection: { anchor: from - 1 },
+        extensions: [nexusdown()],
+      }),
+    })
+
+    try {
+      expect(parent.querySelector('.nd-image-widget')).not.toBeNull()
+      expect(cursorCharRight(view)).toBe(true)
+      expect(view.state.selection.main.head).toBe(from)
+      expect(parent.querySelector('.nd-image-widget')).toBeNull()
+
+      expect(cursorCharRight(view)).toBe(true)
+      expect(view.state.selection.main.head).toBe(from + 1)
+      expect(parent.querySelector('.nd-image-widget')).toBeNull()
+
+      view.dispatch({ selection: { anchor: doc.indexOf('tail') } })
+      expect(parent.querySelector('.nd-image-widget')).not.toBeNull()
+
+      expect(cursorCharLeft(view)).toBe(true)
+      expect(view.state.selection.main.head).toBe(to)
+      expect(parent.querySelector('.nd-image-widget')).toBeNull()
+      expect(cursorCharLeft(view)).toBe(true)
+      expect(view.state.selection.main.head).toBe(to - 1)
+      expect(parent.querySelector('.nd-image-widget')).toBeNull()
+    } finally {
+      view.destroy()
+      parent.remove()
+    }
   })
 })

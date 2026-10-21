@@ -3,7 +3,7 @@ import { syntaxTree } from '@codemirror/language';
 import { EditorSelection, EditorState, Text } from '@codemirror/state';
 import { describe, expect, it } from 'vitest';
 
-import { selectionTouchesLineRange } from '../../src/cm/util/selection';
+import { selectionTouchesLineRange, selectionTouchesRange } from '../../src/cm/util/selection';
 
 /**
  * 文档：`aaa\nbbb\nccc`
@@ -66,6 +66,30 @@ describe('selectionTouchesLineRange', () => {
     expect(selectionTouchesLineRange(doc, sel, 4, 7)).toBe(true);
   });
 
+  it('非空选区在下一行行首结束时，不揭示未选中的下一行', () => {
+    const text = Text.of(['first', '**bold**', 'after']);
+    const nextLineStart = 6;
+    const nextLineEnd = 14;
+
+    // [0, 6) 只选中了第一行及换行符；第二行的行首是排他终点。
+    expect(selectionTouchesLineRange(text, EditorSelection.single(0, nextLineStart), nextLineStart, nextLineEnd)).toBe(false);
+    expect(selectionTouchesLineRange(text, EditorSelection.single(nextLineStart, 0), nextLineStart, nextLineEnd)).toBe(false);
+
+    // 折叠光标在同一位置时属于第二行；选区多包含一个字符也应揭示。
+    expect(selectionTouchesLineRange(text, cursor(nextLineStart), nextLineStart, nextLineEnd)).toBe(true);
+    expect(selectionTouchesLineRange(text, EditorSelection.single(0, nextLineStart + 1), nextLineStart, nextLineEnd)).toBe(true);
+  });
+
+  it('多选区各自按排他终点判断，并保留其他光标的揭示效果', () => {
+    const text = Text.of(['first', '**bold**', 'after']);
+    const before = EditorSelection.range(0, 6);
+    const after = EditorSelection.cursor(15);
+    const inside = EditorSelection.cursor(8);
+
+    expect(selectionTouchesLineRange(text, EditorSelection.create([before, after]), 6, 14)).toBe(false);
+    expect(selectionTouchesLineRange(text, EditorSelection.create([before, inside]), 6, 14)).toBe(true);
+  });
+
   it('多光标：任一光标落在节点行区间即揭示', () => {
     // L1 与 L3 各一个光标，节点在 L2 → 都不碰，不揭示
     const away = EditorSelection.create([EditorSelection.cursor(0), EditorSelection.cursor(8)]);
@@ -99,5 +123,30 @@ describe('selectionTouchesLineRange', () => {
   it('零长度节点（from === to）不崩', () => {
     expect(selectionTouchesLineRange(doc, cursor(4), 4, 4)).toBe(true);
     expect(selectionTouchesLineRange(doc, cursor(0), 4, 4)).toBe(false);
+  });
+});
+
+describe('selectionTouchesRange', () => {
+  it('光标只揭示所在节点，不揭示同一行别处的节点', () => {
+    expect(selectionTouchesRange(cursor(7), 6, 14)).toBe(true);
+    expect(selectionTouchesRange(cursor(18), 6, 14)).toBe(false);
+  });
+
+  it('光标可在两个定界符边界进入源码，非空选区则遵守排他端点', () => {
+    expect(selectionTouchesRange(cursor(6), 6, 14)).toBe(true);
+    expect(selectionTouchesRange(cursor(14), 6, 14)).toBe(true);
+    expect(selectionTouchesRange(EditorSelection.single(0, 6), 6, 14)).toBe(false);
+    expect(selectionTouchesRange(EditorSelection.single(6, 0), 6, 14)).toBe(false);
+    expect(selectionTouchesRange(EditorSelection.single(14, 18), 6, 14)).toBe(false);
+    expect(selectionTouchesRange(EditorSelection.single(0, 7), 6, 14)).toBe(true);
+    expect(selectionTouchesRange(EditorSelection.single(13, 18), 6, 14)).toBe(true);
+  });
+
+  it('多光标中任一光标或反向选区碰到节点就揭示', () => {
+    const away = EditorSelection.create([EditorSelection.cursor(0), EditorSelection.cursor(18)]);
+    const touching = EditorSelection.create([EditorSelection.cursor(0), EditorSelection.cursor(9)]);
+    expect(selectionTouchesRange(away, 6, 14)).toBe(false);
+    expect(selectionTouchesRange(touching, 6, 14)).toBe(true);
+    expect(selectionTouchesRange(EditorSelection.single(18, 13), 6, 14)).toBe(true);
   });
 });

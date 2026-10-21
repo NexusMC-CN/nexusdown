@@ -93,6 +93,16 @@ function stepIndexOf(node: SyntaxNode): number {
   return index
 }
 
+/** Lezer only creates `TaskMarker` for an empty item when whitespace follows `]`. */
+function emptyTaskMarker(doc: Text, node: SyntaxNode, listMark: SyntaxNode): { from: number; to: number } | null {
+  const line = doc.lineAt(node.from)
+  const match = /^([ \t]+)\[([ xX])\]$/.exec(doc.sliceString(listMark.to, line.to))
+  if (!match) return null
+
+  const from = listMark.to + match[1]!.length
+  return { from, to: from + 3 }
+}
+
 export function decorateListItem(
   ranges: Range<Decoration>[],
   atomicRanges: Range<Decoration>[],
@@ -107,10 +117,12 @@ export function decorateListItem(
   if (steps) ranges.push(STEP_ITEM_LINE.range(doc.lineAt(node.from).from))
   if (cards) ranges.push(CARD_ITEM_LINE.range(doc.lineAt(node.from).from))
 
-  // GFM 的树是 `ListItem > Task > TaskMarker`，所以 TaskMarker 要往下找一层。
+  // GFM 的树通常是 `ListItem > Task > TaskMarker`。无正文且没有尾随空格时，
+  // Lezer 会退化成 Paragraph，此时按首行的完整空任务标记补一个区间。
   const task = children(node).find((child) => child.name === 'Task')
-  const marker = task ? firstChildNamed(task, 'TaskMarker') : null
   const listMark = firstChildNamed(node, 'ListMark')
+  const marker = (task ? firstChildNamed(task, 'TaskMarker') : null) ??
+    (listMark ? emptyTaskMarker(doc, node, listMark) : null)
 
   if (marker) {
     const text = doc.sliceString(marker.from, marker.to).trim().toLowerCase()

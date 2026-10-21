@@ -34,8 +34,8 @@
  */
 import type { MarkdownIt, Token } from 'markdown-it'
 
-/** `[ ] ` / `[x] ` / `[X] ` at the very start of the item's first paragraph. */
-const CHECKBOX = /^\[([ xX])\]\s+/
+/** `[ ]` / `[x]` / `[X]` followed by whitespace or the end of an empty item. */
+const CHECKBOX = /^\[([ xX])\](?:\s+|$)/
 
 /**
  * Meta key set on a task item's `list_item_open` / `list_item_close`, so the
@@ -64,8 +64,12 @@ export function taskListPlugin(md: MarkdownIt): void {
       const first = inline.children?.[0]
       if (!first || first.type !== 'text') continue
 
-      const match = CHECKBOX.exec(first.content)
-      if (!match) continue
+      // markdown-it trims trailing whitespace from an empty paragraph's inline
+      // content, so `- [ ] ` reaches us as `[ ]`. Match the whole inline source
+      // as well: `[x]**text**` must not become a task just because the first
+      // text child ends at `[x]` before the emphasis child starts.
+      const match = CHECKBOX.exec(inline.content)
+      if (!match || !first.content.startsWith(match[0])) continue
 
       const checked = match[1] !== ' '
       first.content = first.content.slice(match[0].length)

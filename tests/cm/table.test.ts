@@ -23,7 +23,7 @@ import { EditorView } from '@codemirror/view'
 import { afterEach, describe, expect, it } from 'vitest'
 
 import { TableWidget, tableFeature } from '../../src/cm/features/table.js'
-import { nexusdownLivePreview } from '../../src/cm/plugin.js'
+import { editingBlock, editingRange, nexusdownLivePreview } from '../../src/cm/plugin.js'
 
 interface Collected {
   ranges: Range<Decoration>[]
@@ -208,6 +208,28 @@ describe('table —— 集成层：真编辑器里渲染成 <table>', () => {
     expect(view.state.selection.main.from).toBe(FROM)
     expect(parent.querySelector('.nd-table')).toBeNull()
     expect(parent.querySelector('.cm-content')!.textContent).toContain('| - | - |')
+  })
+
+  it.each([
+    ['有外侧管道', TABLE, [2, 6, 22, 26]],
+    ['无外侧管道', 'a | b\n--- | ---\nc | d', [0, 4, 16, 20]],
+    ['转义管道单元格', 'a\\|b | c\n--- | ---\nx\\|y | z', [0, 7, 19, 26]],
+  ] as const)('点击%s表格的单元格时，光标落在对应源码并揭示表格', (_name, source, offsets) => {
+    const doc = `前言\n\n${source}\n\n尾部`
+
+    for (const [index, offset] of offsets.entries()) {
+      const { view, parent } = mount(doc)
+      const cell = parent.querySelectorAll('.nd-table th, .nd-table td')[index]
+      expect(cell).toBeDefined()
+
+      cell!.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }))
+
+      expect(view.state.selection.main.empty).toBe(true)
+      expect(view.state.selection.main.head).toBe(FROM + offset)
+      expect(view.state.field(editingRange)).toEqual({ from: FROM, to: FROM + source.length })
+      expect(view.state.field(editingBlock)).toBe(FROM)
+      expect(parent.querySelector('.nd-table')).toBeNull()
+    }
   })
 
   it('★ 光标走进表格 → 源码露出（widget 消失）', () => {

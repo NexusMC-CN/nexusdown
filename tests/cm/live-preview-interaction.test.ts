@@ -32,6 +32,56 @@ function mount(doc: string, cursor = 0) {
 }
 
 describe('live preview interaction', () => {
+  it('closes source mode when keyboard navigation moves the cursor outside the block', () => {
+    const doc = 'intro\n\n| a | b |\n| - | - |\n| c | d |\n\noutro'
+    const view = mount(doc)
+    const table = view.dom.querySelector('.nd-table')
+    expect(table).not.toBeNull()
+    table!.querySelector('td')!.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }))
+    expect(view.state.field(editingRange)).not.toBeNull()
+    expect(view.dom.querySelector('.nd-table')).toBeNull()
+
+    view.dispatch({ selection: { anchor: doc.indexOf('outro') }, userEvent: 'select.keyboard' })
+
+    expect(view.state.field(editingRange)).toBeNull()
+    expect(view.dom.querySelector('.nd-table')).not.toBeNull()
+  })
+
+  it('replaces table source when keyboard navigation reaches the blank line before it', () => {
+    const doc = 'intro\n\n| a | b |\n| - | - |\n| c | d |\n\noutro'
+    const from = doc.indexOf('|')
+    const view = mount(doc)
+    view.dom.querySelector('.nd-table td')!.dispatchEvent(
+      new MouseEvent('mousedown', { bubbles: true, cancelable: true }),
+    )
+    expect(view.dom.querySelector('.nd-table')).toBeNull()
+
+    view.dispatch({ selection: { anchor: from - 1 }, userEvent: 'select.keyboard' })
+
+    expect(view.state.field(editingRange)).toBeNull()
+    expect(view.dom.querySelector('.nd-table')).not.toBeNull()
+  })
+
+  it('keeps source mode while keyboard selection still touches the block', () => {
+    const doc = 'intro\n\n| a | b |\n| - | - |\n| c | d |\n\noutro'
+    const view = mount(doc)
+    view.dom.querySelector('.nd-table td')!.dispatchEvent(
+      new MouseEvent('mousedown', { bubbles: true, cancelable: true }),
+    )
+    const source = view.state.field(editingRange)!
+    const inside = doc.indexOf('c | d')
+
+    view.dispatch({ selection: { anchor: inside }, userEvent: 'select.keyboard' })
+    expect(view.state.field(editingRange)).toEqual(source)
+
+    view.dispatch({
+      selection: { anchor: inside, head: doc.indexOf('outro') },
+      userEvent: 'select.keyboard',
+    })
+    expect(view.state.field(editingRange)).toEqual(source)
+    expect(view.dom.querySelector('.nd-table')).toBeNull()
+  })
+
   it.each(['click', 'shift-click', 'drag'] as const)('keeps %s coordinates stable when closing source', (action) => {
     const doc = 'intro\n\n| a | b |\n| - | - |\n| c | d |\n\nclicked line\nlater line'
     const from = doc.indexOf('|')
@@ -153,6 +203,11 @@ describe('live preview interaction', () => {
     expect(view.state.field(editingBlock)).toBe(from)
     expect(view.dom.querySelector('.nd-math-block')).toBeNull()
     expect(view.contentDOM.textContent).toContain('$$x^2$$')
+
+    // 数学块只使用 editingBlock；同一门口位置的后续选区事务仍应保留点击意图。
+    view.dispatch({ selection: { anchor: from - 1 }, userEvent: 'select.keyboard' })
+    expect(view.state.field(editingBlock)).toBe(from)
+    expect(view.dom.querySelector('.nd-math-block')).toBeNull()
   })
 
   it('focuses the editor when a formula is clicked after an outside input', () => {

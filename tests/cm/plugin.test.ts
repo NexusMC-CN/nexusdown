@@ -120,8 +120,12 @@ describe('nexusdownLivePreview', () => {
       inline: decorateInline,
     });
 
-    // 光标在标题行 → 全部揭示态：1 line + 1 样式 mark + 3 MUTED_MARK
+    // 初始光标在标题行首：`# ` 按行揭示，`**` 仍按局部节点隐藏。
     expect(instance.decorations.size).toBe(5);
+    expect(instance.atomicDecorations.size).toBe(2);
+
+    view.dispatch({ selection: { anchor: 8 } });
+    // 光标进入粗体节点，标题和两个定界符都揭示。
     expect(instance.atomicDecorations.size).toBe(0);
 
     // 光标挪到最后一行 → `# ` 和两个 `**` 变成 HIDE：装饰总量不变，atomic 变成 3
@@ -147,7 +151,7 @@ describe('nexusdownLivePreview', () => {
     expect(providedAtomicRanges(view)).not.toBe(instance.decorations.size);
   });
 
-  it('光标在别的行 → 标记被隐藏；光标回到标题行 → atomicRanges 清空', () => {
+  it('光标在别的行 → 标记被隐藏；回到标题粗体内 → atomicRanges 清空', () => {
     const { view, instance } = mount('# 这是 **粗体** 标题\n\n正文', {
       heading: decorateHeading,
       inline: decorateInline,
@@ -165,6 +169,10 @@ describe('nexusdownLivePreview', () => {
     expect(muted).toBe(0);
 
     view.dispatch({ selection: { anchor: 3 } });
+    expect(instance.atomicDecorations.size).toBe(2);
+    expect(providedAtomicRanges(view)).toBe(2);
+
+    view.dispatch({ selection: { anchor: 8 } });
     expect(instance.atomicDecorations.size).toBe(0);
     expect(providedAtomicRanges(view)).toBe(0);
     // 装饰总量不变，只是 HIDE 换成了 MUTED_MARK
@@ -238,8 +246,12 @@ describe('nexusdownLivePreview', () => {
       'StrongEmphasis',
     ]);
 
-    // 光标在标题行 → 揭示态：2 个样式 mark + 4 个 MUTED_MARK
+    // 初始光标在外层起点：外层标记揭示，内层 `**` 仍隐藏。
     expect(instance.decorations.size).toBe(6);
+    expect(instance.atomicDecorations.size).toBe(2);
+
+    view.dispatch({ selection: { anchor: 4 } });
+    // 光标进入内层文本，两层的四个定界符均揭示。
     expect(instance.atomicDecorations.size).toBe(0);
 
     // 光标挪到最后一行 → 4 个定界符变 HIDE

@@ -27,8 +27,8 @@
  * 这个文件会被 `tsup` 打进 `dist/cm/index.js` ✓，里面的 `@codemirror/*`
  * 是 **external**（peer）✓ → 由消费方提供，且**只在一个模块图里** ✓。
  */
-import { defaultKeymap } from '@codemirror/commands'
-import { EditorState } from '@codemirror/state'
+import { defaultKeymap, historyField } from '@codemirror/commands'
+import { Compartment, EditorState, StateEffect, Transaction } from '@codemirror/state'
 import { EditorView, keymap } from '@codemirror/view'
 
 import type { MentionCandidate } from './commands.js'
@@ -155,13 +155,32 @@ export function mountEditor(options: MountEditorOptions): EditorView {
   return view
 }
 
+/** 全文换稿要丢弃旧稿的 undo 和 redo；同值 v-model 回填不会走到这里。 */
+const emptyHistory = EditorState.create({ extensions: [historyField] }).field(historyField)
+const historyResets = new WeakMap<EditorView, Compartment>()
+
+function resetHistoryOnReplacement(view: EditorView): StateEffect<unknown> | null {
+  if (view.state.field(historyField, false) === undefined) return null
+
+  let compartment = historyResets.get(view)
+  if (!compartment) {
+    compartment = new Compartment()
+    // 首次换稿时才安装，以免每次普通输入都多带一个动态配置。
+    view.dispatch({ effects: StateEffect.appendConfig.of(compartment.of([])) })
+    historyResets.set(view, compartment)
+  }
+
+  // historyField 没有清空 effect；重新配置 init provider 会重建它的值。
+  return compartment.reconfigure(historyField.init(() => emptyHistory))
+}
+
 /**
  * 从外部换掉整篇内容。
  *
  * 内容相同时不产生编辑事务，避免「回填 → onDocChange → 再回填」循环。
  * 组字期间延迟应用最后一次全文替换，并暂停旧稿的后续 onDocChange 回流；
  * 外部换稿优先于这些旧稿输入。本接口不支持组字中逐步自动规范化全文，
- * 调用方应在组字结束后再做这类替换。实际换稿同时清除旧文档的源码编辑意图。
+ * 调用方应在组字结束后再做这类替换。实际换稿清除旧文档的源码编辑意图与撤销栈。
  */
 export function setEditorValue(view: EditorView, value: string): void {
   // 每次调用都是最新外部值，值相同时也要取消已经过期的待同步内容。
@@ -188,9 +207,15 @@ export function setEditorValue(view: EditorView, value: string): void {
     return
   }
 
+  const historyReset = resetHistoryOnReplacement(view)
   view.dispatch({
     changes: { from: 0, to: view.state.doc.length, insert: value },
-    effects: [setEditingRange.of(null), setEditingBlock.of(null)],
+    effects: [
+      setEditingRange.of(null),
+      setEditingBlock.of(null),
+      ...(historyReset ? [historyReset] : []),
+    ],
+    annotations: Transaction.addToHistory.of(false),
   })
 }
 

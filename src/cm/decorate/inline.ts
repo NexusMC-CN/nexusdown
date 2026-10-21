@@ -13,7 +13,7 @@ import type { EditorSelection, Range, Text } from '@codemirror/state'
 import type { SyntaxNode } from '@lezer/common'
 import { Decoration } from '@codemirror/view'
 
-import { selectionTouchesLineRange } from '../util/selection.js'
+import { selectionTouchesRange } from '../util/selection.js'
 import { children } from '../util/tree.js'
 import { pushRevealableMark } from './shared.js'
 
@@ -40,7 +40,7 @@ export function decorateInline(
   ranges: Range<Decoration>[],
   atomicRanges: Range<Decoration>[],
   node: SyntaxNode,
-  doc: Text,
+  _doc: Text,
   sel: EditorSelection,
 ): void {
   const styling = INLINE_MARKS[node.name]
@@ -48,7 +48,8 @@ export function decorateInline(
 
   ranges.push(styling.range(node.from, node.to))
 
-  const revealed = selectionTouchesLineRange(doc, sel, node.from, node.to)
+  // 只揭示光标或选区碰到的这个节点；同行其他格式继续保持渲染。
+  const revealed = selectionTouchesRange(sel, node.from, node.to)
 
   // 每个定界符单独决定「藏」还是「变淡」。
   // ⚠️ 不要在这里把整个 node 注册成 atomicRanges —— pushRevealableMark
