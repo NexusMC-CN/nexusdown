@@ -308,7 +308,7 @@ interface FenceAttrs {
   highlight: Set<number>
 }
 
-function readFenceAttrs(doc: Text, node: MarkdownNode): FenceAttrs | null {
+export function readFenceAttrs(doc: Text, node: MarkdownNode): FenceAttrs | null {
   // ⚠️ `node.to` 排他，可能落在下一行行首（同 table.ts 的 lastPos）。
   const endLine = doc.lineAt(node.to > node.from ? node.to - 1 : node.to)
   if (endLine.number >= doc.lines) return null

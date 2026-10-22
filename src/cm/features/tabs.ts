@@ -102,6 +102,8 @@ export class TabsWidget extends WidgetType {
        * 对齐到 gutter（偏移在 mount 后按实际 gutter 位置算）。
        */
       wrap.dataset.line = String(view.state.doc.lineAt(this.from).number)
+      wrap.dataset.from = String(this.from)
+      wrap.dataset.to = String(this.to)
       window.requestAnimationFrame(() => {
         const gutter = view.dom.querySelector('.cm-gutters')
         if (!gutter) return

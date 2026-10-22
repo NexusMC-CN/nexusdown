@@ -11,7 +11,7 @@ import { EditorState, type Extension } from '@codemirror/state'
 import { EditorView } from '@codemirror/view'
 import { afterEach, describe, expect, it } from 'vitest'
 
-import { applyBlockAttrs, blockKindAt } from '../../src/cm/commands.js'
+import { applyBlockAttrs, blockKindAt, blockRangeAt } from '../../src/cm/commands.js'
 
 const views: EditorView[] = []
 
@@ -33,9 +33,15 @@ function mount(doc: string, cursor = doc.length) {
   return view
 }
 
-function run(doc: string, attr: string, cursor = doc.length) {
+function run(
+  doc: string,
+  attr: string,
+  cursor = doc.length,
+  options: Parameters<typeof applyBlockAttrs>[2] = {},
+  at?: number,
+) {
   const view = mount(doc, cursor)
-  const ok = applyBlockAttrs(attr)(view)
+  const ok = applyBlockAttrs(attr, at, options)(view)
   return { ok, text: view.state.doc.toString() }
 }
 
@@ -86,5 +92,59 @@ describe('applyBlockAttrs', () => {
 
   it('光标在块内任意位置都能找到宿主', () => {
     expect(run('- a\n- b', '{.steps}', 0).text).toBe('- a\n- b\n\n{.steps}')
+  })
+})
+
+
+describe('applyBlockAttrs —— 互斥 / 切换', () => {
+  it('★ 步骤 → 卡片：互斥替换，不会同时留下两个 class', () => {
+    const doc = '- a\n- b'
+    const first = run(doc, '{.steps}')
+    expect(first.text).toBe(`${doc}\n\n{.steps}`)
+
+    const second = run(first.text, '{.cards}', first.text.length, { exclusive: ['steps', 'cards'] }, 0)
+    expect(second.text).toBe(`${doc}\n\n{.cards}`)
+  })
+
+  it('★ 已应用再点一次 → 移除属性行（toggle）', () => {
+    const doc = '- a\n- b'
+    const first = run(doc, '{.steps}')
+    const second = run(first.text, '{.steps}', first.text.length, { toggle: true }, 0)
+    // 属性行被移除；末尾允许保留一个换行（不影响文档语义）。
+    expect(second.text.trimEnd()).toBe(doc.trimEnd())
+  })
+
+  it('★ 围栏标题 toggle → 移除 title', () => {
+    const doc = '```ts\nx\n```'
+    const first = run(doc, '{title="a.ts"}')
+    const second = run(first.text, '{title="a.ts"}', first.text.length, { toggle: true }, 0)
+    expect(second.text.trimEnd()).toBe(doc.trimEnd())
+  })
+})
+
+
+describe('findBlock —— 块首边界 / 嵌套列表', () => {
+  it('★ 标题后的表格：在表格行首也能找到 table（不是 heading/paragraph）', () => {
+    const doc = '## 表格\n\n| a | b |\n| - | - |\n| 1 | 2 |'
+    const from = doc.indexOf('| a')
+    const view = mount(doc, from)
+    expect(blockKindAt(view.state, from)).toBe('table')
+  })
+
+  it('★ 嵌套列表项：目标是**最外层列表**（块 = 整个列表）', () => {
+    const doc = '- a\n  - b\n  - c\n\n尾部'
+    const from = doc.indexOf('  - b')
+    const view = mount(doc, from)
+    const range = blockRangeAt(view.state, from)
+    expect(range?.kind).toBe('list')
+    expect(range?.from).toBe(0)
+  })
+
+  it('★ 表格行首应用参数表：属性插在表格后', () => {
+    const doc = '## 表格\n\n| a | b |\n| - | - |\n| 1 | 2 |'
+    const from = doc.indexOf('| a')
+    const view = mount(doc, from)
+    applyBlockAttrs('{.fields}', from)(view)
+    expect(view.state.doc.toString()).toBe(`${doc}\n\n{.fields}`)
   })
 })

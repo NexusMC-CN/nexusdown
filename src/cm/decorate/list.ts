@@ -50,9 +50,19 @@ const ORDERED_MARK = /^(\d+)[.)]$/
  *
  * 列表 / 段落之间允许空一行（契约 §0.1），所以先跳过空行再解析属性行。
  */
+/** 列表里有没有任务项（`- [ ]`）—— 任务标记优先，步骤/卡片对它无效。 */
+function listHasTask(list: SyntaxNode): boolean {
+  let task = false
+  list.cursor().iterate((ref) => {
+    if (ref.name === 'TaskMarker' || ref.name === 'Task') task = true
+  })
+  return task
+}
+
 function listHasSteps(doc: Text, node: SyntaxNode): boolean {
   const list = node.parent
   if (!list || (list.name !== 'BulletList' && list.name !== 'OrderedList')) return false
+  if (listHasTask(list)) return false
   /*
    * ⚠️ 只认**顶层**列表：属性行是挂在最外层列表上的。嵌套列表的 parent 是
    * `ListItem`，如果也去读下一行，就会把外层列表的 `{.steps}` 继承下来 ——
@@ -73,6 +83,7 @@ function listHasSteps(doc: Text, node: SyntaxNode): boolean {
 function listHasCards(doc: Text, node: SyntaxNode): boolean {
   const list = node.parent
   if (!list || (list.name !== 'BulletList' && list.name !== 'OrderedList')) return false
+  if (listHasTask(list)) return false
   if (list.parent?.name !== 'Document') return false
 
   const end = doc.lineAt(list.to)
@@ -124,20 +135,28 @@ export function decorateListItem(
   const marker = (task ? firstChildNamed(task, 'TaskMarker') : null) ??
     (listMark ? emptyTaskMarker(doc, node, listMark) : null)
 
-  if (marker) {
-    const text = doc.sliceString(marker.from, marker.to).trim().toLowerCase()
-    const widget = new TaskCheckboxWidget(text === '[x]', marker.from, marker.to)
+  // 揭示判定用**符号自己那一行**，不是整个 ListItem：多行列表项的续行上放光标
+  // 不该把第一行的符号也揭示出来。
+  const revealed = listMark
+    ? selectionTouchesLineRange(doc, sel, listMark.from, listMark.to)
+    : false
 
-    // ⚠️ 复选框**不检查 revealed**：它本身就是编辑入口，永远渲染。
-    //    这是对「标记揭示」规则的**故意背离**。
-    pushAtomicRange(ranges, atomicRanges, Decoration.replace({ widget }), marker.from, marker.to)
+  if (marker) {
+    if (revealed) {
+      /*
+       * 揭示态：露出源码 `[ ]`（变淡），和列表符号一致。
+       * 之前复选框永远渲染，导致光标停在任务项上时只露出 `-`、
+       * 看不到 `[ ]`（用户实测：“这个没露出源码”）。
+       */
+      ranges.push(MUTED_MARK.range(marker.from, marker.to))
+    } else {
+      const text = doc.sliceString(marker.from, marker.to).trim().toLowerCase()
+      const widget = new TaskCheckboxWidget(text === '[x]', marker.from, marker.to)
+      pushAtomicRange(ranges, atomicRanges, Decoration.replace({ widget }), marker.from, marker.to)
+    }
   }
 
   if (!listMark) return
-
-  // 揭示判定用**符号自己那一行**，不是整个 ListItem：多行列表项的续行上放光标
-  // 不该把第一行的符号也揭示出来。
-  const revealed = selectionTouchesLineRange(doc, sel, listMark.from, listMark.to)
 
   if (marker) {
     // 任务项：复选框已经占住「标记」的位置，再画一个圆点就成了 `• ☐` 双重符号，

@@ -11,16 +11,21 @@ import { parseAttrLine } from '../../src/shared/attrs.js'
 import { variantItemsFor } from '../../src/cm/variants.js'
 
 describe('variantItemsFor', () => {
-  it('列表 → 步骤 / 卡片', () => {
-    expect(variantItemsFor('list').map((item) => item.attr)).toEqual(['{.steps}', '{.cards}'])
+  it('列表 → 步骤 / 卡片，且互为互斥组', () => {
+    const items = variantItemsFor('list')
+    expect(items.map((item) => item.attr)).toEqual(['{.steps}', '{.cards}'])
+    expect(items.map((item) => item.name)).toEqual(['steps', 'cards'])
+    expect(items.every((item) => item.exclusive?.includes('steps') && item.exclusive?.includes('cards'))).toBe(true)
   })
 
-  it('表格 → 参数表', () => {
-    expect(variantItemsFor('table')).toEqual([{ label: '参数表', attr: '{.fields}' }])
+  it('表格 → 参数表（exclusive: fields）', () => {
+    expect(variantItemsFor('table')).toEqual([
+      { label: '参数表', attr: '{.fields}', name: 'fields', exclusive: ['fields'] },
+    ])
   })
 
-  it('围栏 → 代码标题', () => {
-    expect(variantItemsFor('fence').map((item) => item.label)).toEqual(['代码标题'])
+  it('围栏 → 代码标题 / 行号 / 高亮', () => {
+    expect(variantItemsFor('fence').map((item) => item.label)).toEqual(['代码标题', '行号', '高亮第 2 行'])
   })
 
   it('段落 → 空表（普通段落没有可见变体，不再给"点了没反应"的选项）', () => {

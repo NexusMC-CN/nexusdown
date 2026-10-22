@@ -167,6 +167,8 @@ export class TableWidget extends WidgetType {
     try {
       wrap.innerHTML = renderMarkdown(this.source)
       wrap.dataset.line = String(view.state.doc.lineAt(this.from).number)
+      wrap.dataset.from = String(this.from)
+      wrap.dataset.to = String(this.to)
       window.requestAnimationFrame(() => {
         const gutter = view.dom.querySelector('.cm-gutters')
         if (!gutter) return

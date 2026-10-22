@@ -744,3 +744,9 @@ caption {
 .nd-tabs__panel > .nd-code-fence {
   margin: 0;
 }
+
+
+/* 任务列表即使被套上 `{.steps}`，也不要显示步骤序号（任务标记优先）。 */
+.nd-steps > li[data-type="taskItem"]::before {
+  display: none;
+}

@@ -430,11 +430,19 @@ describe('decorateListItem —— 列表项与任务复选框', () => {
     ])
   })
 
-  it('揭示态下复选框依然渲染 —— 它本身就是编辑入口（故意背离揭示规则）', () => {
+  it('揭示态：复选框换成原文 `[ ]`（可编辑，和列表符号同一套揭示规则）', () => {
     const c = collect('- [x] 完成', ['ListItem'], decorateListItem, 5)
 
+    expect(c.ranges.filter(isWidgetReplace)).toHaveLength(0)
+    expect(c.atomicRanges).toHaveLength(0)
+  })
+
+  it('非揭示态：任务项渲染复选框', () => {
+    const c = collect('- [x] 完成\n\n尾部', ['ListItem'], decorateListItem)
+
     expect(c.ranges.filter(isWidgetReplace)).toHaveLength(1)
-    expect(spans(c.atomicRanges)).toEqual([[2, 5]])
+    // 非揭示态：`- ` 也藏掉（atomic [0,2]），复选框 [2,5]。
+    expect(spans(c.atomicRanges)).toEqual([[2, 5], [0, 2]])
   })
 
   it('普通列表项：line 装饰 + 恰好 1 个符号 widget，没有 HIDE / atomic', () => {

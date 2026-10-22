@@ -30,12 +30,25 @@ describe('empty task list items', () => {
   it.each([
     ['- [ ]', false],
     ['- [x]', true],
-  ])('renders %s as a checkbox without trailing whitespace', (source, checked) => {
-    const view = mount(source)
+  ])('renders %s as a checkbox when the line is not active', (source, checked) => {
+    // 文末补一段，让光标不在任务行上（揭示态会把复选框换回原文 `[ ]`）。
+    const doc = `${source}
+
+尾部`
+    const view = mount(doc)
     const checkbox = view.dom.querySelector<HTMLInputElement>('.nd-task-checkbox')
 
     expect(checkbox).not.toBeNull()
     expect(checkbox?.checked).toBe(checked)
+    expect(view.state.doc.toString()).toBe(doc)
+  })
+
+  it.each([
+    ['- [ ]', false],
+    ['- [x]', true],
+  ])('reveals %s as raw source when the line is active', (source, _checked) => {
+    const view = mount(source)
+    expect(view.dom.querySelector('.nd-task-checkbox')).toBeNull()
     expect(view.state.doc.toString()).toBe(source)
   })
 })

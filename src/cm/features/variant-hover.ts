@@ -20,9 +20,12 @@
  * 菜单是 `document.body` 里的 fixed 浮层（不随编辑器滚动），
  * 点外面 / Escape 关闭；点选项 → `applyBlockAttrs(attr)` → 焦点还给编辑器。
  */
+import { syntaxTree } from '@codemirror/language'
+import type { SyntaxNode } from '@lezer/common'
 import { ViewPlugin, type EditorView, type ViewUpdate } from '@codemirror/view'
 
-import { applyBlockAttrs, blockRangeAt, type BlockKind } from '../commands.js'
+import { applyBlockAttrs, blockAttrsAt, blockRangeAt, isTaskList, type BlockKind } from '../commands.js'
+import { readFenceInfo } from '../decorate/fence.js'
 import { editingRange } from '../plugin.js'
 import { addTab, removeTab, tabGroupAt } from '../tabs-actions.js'
 import { variantItemsFor } from '../variants.js'
@@ -40,6 +43,10 @@ interface MenuEntry {
   attr?: string
   /** 块级操作（增加/删除页签）。 */
   run?: () => void
+  /** 已应用 → 菜单打勾；再点一次是“取消”。 */
+  applied?: boolean
+  /** 互斥组（应用时替换同组旧 class）。 */
+  exclusive?: string[]
 }
 
 class VariantHover {
@@ -49,6 +56,8 @@ class VariantHover {
   /** 出现延迟：鼠标只是路过时不要闪一下按钮。 */
   private showTimer: number | null = null
   private menuCleanup: (() => void) | null = null
+  /** 正在 hover 的块的属性行（用于展开 chip）。 */
+  private chipLine: HTMLElement | null = null
 
   private readonly onMove = (event: MouseEvent): void => this.handleMove(event)
   private readonly onLeave = (): void => this.scheduleHide()
@@ -86,6 +95,7 @@ class VariantHover {
 
   destroy(): void {
     this.closeMenu()
+    this.hideChip()
     this.cancelShow()
     this.cancelHide()
     this.button.remove()
@@ -95,6 +105,26 @@ class VariantHover {
   }
 
   private handleMove(event: MouseEvent): void {
+    /*
+     * 块级 widget（页签/表格）会替换掉整段行：`posAtCoords` 落在 widget 上时
+     * 可能拿不到源码位置，`blockRangeAt` 于是返回 null，`＋` 不出现（实测：
+     * 页签的第二个面板完全没有入口）。widget 自己带了 `data-from`，直接用它。
+     */
+    const widget = (event.target as HTMLElement | null)?.closest<HTMLElement>(
+      '.nd-tabs-block, .nd-table',
+    )
+    if (widget?.dataset.from) {
+      const from = Number(widget.dataset.from)
+      if (Number.isFinite(from)) {
+        this.target = {
+          kind: widget.classList.contains('nd-table') ? 'table' : 'fence',
+          from,
+        }
+        this.scheduleShow()
+        return
+      }
+    }
+
     const pos = this.view.posAtCoords({ x: event.clientX, y: event.clientY })
     if (pos == null) {
       this.scheduleHide()
@@ -117,6 +147,25 @@ class VariantHover {
       return
     }
 
+    /*
+     * 任务列表（`- [ ]`）不提供步骤/卡片：任务标记优先，步骤不会渲染，
+     * 点了只会写入一个看不见的属性（用户实测“为什么待办也有这两个”）。
+     */
+    if (range && range.kind === 'list' && isTaskList(this.view.state, range.from)) {
+      this.scheduleHide()
+      return
+    }
+
+    /*
+     * embed / math / mermaid 也是 `FencedCode`，但「代码标题 / 行号 / 高亮」
+     * 对它们没有意义（用户实测：悬停 B 站嵌入卡片，弹出了代码块变体）。
+     * 这些特殊围栏不提供代码块变体。
+     */
+    if (range && range.kind === 'fence' && isSpecialFence(this.fenceInfo(range.from))) {
+      this.scheduleHide()
+      return
+    }
+
     if (!range || range.kind === 'paragraph' || variantItemsFor(range.kind).length === 0) {
       this.scheduleHide()
       return
@@ -124,6 +173,13 @@ class VariantHover {
 
     this.target = { kind: range.kind, from: range.from }
     this.scheduleShow()
+  }
+
+  /** 围栏的 info string（` ```embed … ` → `embed …`）。 */
+  private fenceInfo(from: number): string {
+    let node: SyntaxNode | null = syntaxTree(this.view.state).resolveInner(from, 1)
+    while (node && node.name !== 'FencedCode') node = node.parent
+    return node ? (readFenceInfo(this.view.state.doc, node) ?? '') : ''
   }
 
   private scheduleShow(): void {
@@ -157,12 +213,44 @@ class VariantHover {
      */
     this.button.style.left = '4px'
     this.cancelHide()
+    this.revealChip()
   }
 
   private hide(): void {
     this.cancelShow()
+    this.hideChip()
     this.button.hidden = true
     this.target = null
+  }
+
+  /** hover 块时把它的属性行 chip 展开（0 高 → 正常行高）。 */
+  private revealChip(): void {
+    if (!this.target) return
+    this.hideChip()
+
+    const attrs = blockAttrsAt(this.view.state, this.target.from)
+    if (!attrs?.line) return
+
+    const dom = this.view.domAtPos(attrs.line.from)
+    const node = dom.node.nodeType === Node.TEXT_NODE ? dom.node.parentElement : (dom.node as HTMLElement)
+    const line = (node?.closest?.('.cm-line') as HTMLElement | null) ?? null
+    if (line) {
+      line.classList.add('nd-attrs-peek')
+      this.chipLine = line
+    }
+  }
+
+  private showToast(text: string): void {
+    const toast = document.createElement('div')
+    toast.className = 'nd-variant-toast'
+    toast.textContent = text
+    document.body.appendChild(toast)
+    window.setTimeout(() => toast.remove(), 1400)
+  }
+
+  private hideChip(): void {
+    this.chipLine?.classList.remove('nd-attrs-peek')
+    this.chipLine = null
   }
 
   private scheduleHide(): void {
@@ -190,17 +278,31 @@ class VariantHover {
         ? tabGroupAt(this.view.state, this.target.from)
         : null
 
-    const entries: MenuEntry[] = group
-      ? [
-          { label: '增加页签', run: () => addTab(this.view, group) },
-          {
-            // 悬停的是整块（块首），所以删除的是第一段 —— 标签写清楚是哪一段，
-            // 不要用含糊的「当前页签」（用户不知道“当前”指哪个）。
-            label: `删除「${group.panels[0]!.label}」`,
-            run: () => removeTab(this.view, group, 0),
-          },
-        ]
-      : variantItemsFor(this.target.kind).map((item) => ({ label: item.label, attr: item.attr }))
+    let entries: MenuEntry[]
+    if (group) {
+      entries = [
+        { label: '增加页签', run: () => addTab(this.view, group) },
+        {
+          // 悬停的是整块（块首），所以删除的是第一段 —— 标签写清楚是哪一段，
+          // 不要用含糊的「当前页签」（用户不知道“当前”指哪个）。
+          label: `删除「${group.panels[0]!.label}」`,
+          run: () => removeTab(this.view, group, 0),
+        },
+      ]
+    } else {
+      /*
+       * 已应用状态：读这个块当前的属性行，菜单打勾。
+       * 旧菜单不知道状态，重复点同一个变体只会 no-op，看起来像“失效”。
+       */
+      const attrs = blockAttrsAt(this.view.state, this.target.from)
+      const applied = new Set(attrs?.tokens.map((token) => token.name) ?? [])
+      entries = variantItemsFor(this.target.kind).map((item) => ({
+        label: item.label,
+        attr: item.attr,
+        applied: applied.has(item.name),
+        exclusive: item.exclusive,
+      }))
+    }
 
     if (entries.length === 0) return
 
@@ -218,7 +320,8 @@ class VariantHover {
       entry.setAttribute('role', 'menuitem')
 
       const label = document.createElement('span')
-      label.textContent = item.label
+      // 已应用打勾；再点一次是取消（toggle）。
+      label.textContent = item.applied ? `✓ ${item.label}` : item.label
       entry.append(label)
       if (item.attr) {
         const attr = document.createElement('code')
@@ -230,8 +333,27 @@ class VariantHover {
       entry.addEventListener('click', () => {
         const from = this.target?.from
         this.closeMenu()
-        if (item.run) item.run()
-        else if (item.attr) applyBlockAttrs(item.attr, from)(this.view)
+
+        let ok = false
+        if (item.run) {
+          item.run()
+          ok = true
+        } else if (item.attr) {
+          ok = applyBlockAttrs(item.attr, from, {
+            toggle: true,
+            exclusive: item.exclusive,
+          })(this.view)
+        }
+
+        /*
+         * 给一个即时反馈：菜单里的 ✓ 表示“已应用”，再点一次是**取消**。
+         * 没有反馈时用户会以为“点了没用”（尤其是行号/高亮这种视觉差异小的）。
+         */
+        this.showToast(
+          ok
+            ? `${item.run ? '已执行' : item.applied ? '已取消' : '已应用'}：${item.label}`
+            : `没有生效：${item.label}`,
+        )
         this.view.focus()
       })
 
@@ -241,7 +363,13 @@ class VariantHover {
     document.body.appendChild(menu)
 
     const rect = this.button.getBoundingClientRect()
-    menu.style.top = `${Math.round(rect.bottom + 6)}px`
+    /*
+     * ⚠️ 菜单默认**向上**开：按钮在块首左侧，向下开必然盖住块内容
+     * （用户实测：代码标题的效果被菜单挡住了）。上方空间不够时才向下。
+     */
+    const menuHeight = menu.getBoundingClientRect().height
+    const above = rect.top - menuHeight - 6
+    menu.style.top = `${Math.round(above >= 8 ? above : rect.bottom + 6)}px`
     // 菜单贴按钮左边；靠近窗口右缘时夹回来，避免被裁掉。
     menu.style.left = `${Math.round(rect.left)}px`
     menu.style.maxWidth = `${Math.max(176, Math.round(window.innerWidth - rect.left - 12))}px`
@@ -276,4 +404,11 @@ class VariantHover {
  */
 export function variantHover() {
   return ViewPlugin.fromClass(VariantHover)
+}
+
+
+/** 这些围栏有自己的渲染器，不该出现代码块变体。 */
+function isSpecialFence(info: string): boolean {
+  const lang = info.split(/\s+/)[0]?.toLowerCase() ?? ''
+  return lang === 'embed' || lang === 'math' || lang === 'mermaid' || lang === 'diagram'
 }

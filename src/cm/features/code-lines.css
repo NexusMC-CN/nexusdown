@@ -34,3 +34,13 @@
 .cm-line.nd-code-hl {
   background: var(--nd-code-hl, #fff8c5);
 }
+
+/*
+ * ⚠️ 必须比代码块底色**更具体**：`theme.css` 的
+ * `.cm-editor .cm-line.nd-code-block { background: … }` 是 (0,3,0)，
+ * 上面那条 `.cm-line.nd-code-hl` 只有 (0,2,0) —— 会被代码块底色盖掉，
+ * 表现就是「菜单里 ✓ 高亮，但屏幕上一点高亮都看不到」（用户实测截图）。
+ */
+.cm-editor .cm-line.nd-code-block.nd-code-hl {
+  background: var(--nd-code-hl, #fff3b0);
+}

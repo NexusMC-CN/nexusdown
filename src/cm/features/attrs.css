@@ -52,3 +52,21 @@
 }
 
 
+
+
+/* 隐藏态：0 高；hover 块时由 variant-hover 加 .nd-attrs-peek 展开 */
+.cm-line.nd-attrs-hidden {
+  height: 0 !important;
+  line-height: 0 !important;
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
+  overflow: hidden;
+}
+
+.cm-line.nd-attrs-hidden.nd-attrs-peek {
+  height: auto !important;
+  line-height: inherit !important;
+  padding-top: revert !important;
+  padding-bottom: revert !important;
+  overflow: visible;
+}

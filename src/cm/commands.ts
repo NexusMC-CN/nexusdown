@@ -35,9 +35,9 @@
  * 所以「加粗 → 打字 → 撤销」只撤销打字，不会把加粗一起撤掉。
  */
 import { syntaxTree } from '@codemirror/language'
-import { EditorSelection, type EditorState, type SelectionRange } from '@codemirror/state'
+import { EditorSelection, type EditorState, type Line, type SelectionRange } from '@codemirror/state'
 
-import { formatAttrLine, parseAttrLine } from '../shared/attrs.js'
+import { formatAttrLine, parseAttrLine, type AttrToken } from '../shared/attrs.js'
 import type { Command } from '@codemirror/view'
 
 /**
@@ -598,29 +598,70 @@ export function insertMention(slug: string): Command {
 /** 光标所在块的类型（决定「＋ 变体」菜单给哪些选项）。 */
 export type BlockKind = 'list' | 'table' | 'fence' | 'paragraph'
 
-/** 向上找光标所在的块；`Paragraph` 只作为兜底（它可能只是列表项内容）。 */
+/**
+ * 向上找光标所在的块；`Paragraph` 只作为兜底（它可能只是列表项内容）。
+ *
+ * ⚠️ 两个坑（用户实测）：
+ *
+ * 1. **块首/行首**用 `resolveInner(pos, -1)` 会解析到**前一个节点/标题**，
+ *    而不是块本身 —— 悬停表格后应用变体时 `findBlock` 返回 null，
+ *    表现为「菜单点了没生效：参数表」。所以先试 `+1`（向前进入块），失败再 `-1`。
+ * 2. **嵌套列表**：最近的那个列表是嵌套列表，但它不是“块”（块是最外层列表）。
+ *    返回嵌套列表会让 `＋` 出现在嵌套项上、属性却插到嵌套列表后面（无效），
+ *    而且鼠标一移到父项就换目标。统一往上走到**最外层列表**。
+ */
 function findBlock(state: EditorState, pos: number): { node: SyntaxNode; kind: BlockKind } | null {
   const tree = syntaxTree(state)
-  let paragraph: SyntaxNode | null = null
 
-  /*
-   * 位置 0（或块首）用 `-1` 偏置会解析到 `Document`（没有节点"结束于"0），
-   * 往上走就找不到块。这时换 `+1` 偏置再探一次 —— 光标在 `- a` 的行首也能
-   * 正确落到 `BulletList`。
-   */
-  let start: SyntaxNode | null = tree.resolveInner(pos, -1)
-  if (start.name === 'Document' && pos < state.doc.length) start = tree.resolveInner(pos, 1)
+  const attempt = (start: SyntaxNode | null): { node: SyntaxNode; kind: BlockKind } | null => {
+    let paragraph: SyntaxNode | null = null
 
-  for (let node: SyntaxNode | null = start; node; node = node.parent) {
-    if (node.name === 'Paragraph') paragraph ??= node
-    if (node.name === 'BulletList' || node.name === 'OrderedList') return { node, kind: 'list' }
-    if (node.name === 'Table') return { node, kind: 'table' }
-    if (node.name === 'FencedCode') return { node, kind: 'fence' }
-    // 引用块里的属性行不生效（渲染侧只认顶层段落），所以这里也不提供变体。
-    if (node.name === 'Blockquote') return null
+    for (let node: SyntaxNode | null = start; node; node = node.parent) {
+      if (node.name === 'Paragraph') paragraph ??= node
+
+      if (node.name === 'BulletList' || node.name === 'OrderedList') {
+        let outer = node
+        // 嵌套列表 → ListItem → 外层列表；一路走到最外层。
+        for (;;) {
+          const parent = outer.parent
+          if (!parent) break
+          if (parent.name === 'ListItem') {
+            const grand = parent.parent
+            if (grand && (grand.name === 'BulletList' || grand.name === 'OrderedList')) {
+              outer = grand
+              continue
+            }
+            break
+          }
+          if (parent.name === 'BulletList' || parent.name === 'OrderedList') {
+            outer = parent
+            continue
+          }
+          break
+        }
+        return { node: outer, kind: 'list' }
+      }
+
+      if (node.name === 'Table') return { node, kind: 'table' }
+      if (node.name === 'FencedCode') return { node, kind: 'fence' }
+      // 引用块里的属性行不生效（渲染侧只认顶层段落），所以这里也不提供变体。
+      if (node.name === 'Blockquote') return null
+    }
+
+    return paragraph ? { node: paragraph, kind: 'paragraph' } : null
   }
 
-  return paragraph ? { node: paragraph, kind: 'paragraph' } : null
+  const forward = tree.resolveInner(pos, 1)
+  const result = attempt(forward)
+  if (result) return result
+
+  const backward = tree.resolveInner(pos, -1)
+  /*
+   * ⚠️ 不能只比 `from/to`：段落占满整个文档时，Document 和 Paragraph 的区间**完全相同**，
+   * 比区间会把段落跳过（实测：文末段落的变体返回 false）。
+   */
+  if (backward !== forward) return attempt(backward)
+  return null
 }
 
 /** 块的完整区间 —— 「＋ 变体」按钮要拿 `from` 定位。 */
@@ -650,16 +691,38 @@ export function blockKindAt(state: EditorState, pos = state.selection.main.head)
  *
  * 光标不动 —— 插入点在块尾，而光标在块内。
  */
-export function applyBlockAttrs(attr: string, at?: number): Command {
+export interface ApplyBlockAttrsOptions {
+  /** 已经应用时再点一次 → 移除（菜单的切换语义）。 */
+  toggle?: boolean
+  /** 互斥的 class 名：应用新变体前先移除同组旧 class。 */
+  exclusive?: readonly string[]
+}
+
+/**
+ * 给**光标/指定位置所在的块**设置一个变体（或在已有属性行上合并）。
+ *
+ * ## 语义是“设置”，不是“追加”
+ *
+ * 旧实现只做合并：先点「步骤」再点「卡片」会得到 `{.steps .cards}` ——
+ * 渲染侧步骤优先，卡片被静默吞掉，用户看到的是“第二次点了没用”。
+ *
+ * 现在：
+ * - `exclusive` 里的 class 会**互相替换**（步骤 ↔ 卡片）；
+ * - `toggle: true` 时，已应用的变体再点一次会**移除**（移除后属性行为空则删掉整行）。
+ */
+export function applyBlockAttrs(
+  attr: string,
+  at?: number,
+  options: ApplyBlockAttrsOptions = {},
+): Command {
   const tokens = parseAttrLine(attr)
   if (!tokens) throw new Error(`applyBlockAttrs: 不是合法属性行：${attr}`)
-  const text = formatAttrLine(tokens)
 
   return (view) => {
     const { state } = view
     /*
-     * `at` 给了就用它（悬停「＋」菜单：作用于**鼠标所在块**，而不是光标所在块 ——
-     * 用户鼠标悬停列表、光标可能还在别处）。没给则用当前选区（工具栏按钮）。
+     * `at` 给了就用它（悬停「＋」菜单：作用于**鼠标所在块**，而不是光标所在块）。
+     * 没给则用当前选区（工具栏按钮）。
      */
     const target = findBlock(state, at ?? state.selection.main.head)
     if (!target) return false
@@ -667,7 +730,6 @@ export function applyBlockAttrs(attr: string, at?: number): Command {
     const { node, kind } = target
     /*
      * ⚠️ `node.to` 是**排他**的，表格/围栏可能正好落在下一行行首 ——
-     * 直接 `lineAt(to)` 会把插入点放到下一行（甚至空行）末尾。
      * 减 1 取「最后一个内容行」的行尾，和 `features/table.ts` 的 `lastPos` 同一个坑。
      */
     const endLine = state.doc.lineAt(node.to > node.from ? node.to - 1 : node.to)
@@ -678,31 +740,81 @@ export function applyBlockAttrs(attr: string, at?: number): Command {
       if (probe <= state.doc.lines && state.doc.line(probe).text.trim() === '') probe += 1
     }
 
-    let edit: Edit
-    if (probe <= state.doc.lines) {
-      const line = state.doc.line(probe)
-      const existing = parseAttrLine(line.text)
-      if (existing) {
-        const merged = [...existing]
-        for (const token of tokens) {
-          if (!merged.some((t) => t.kind === token.kind && t.name === token.name)) merged.push(token)
+    const attrLine = probe <= state.doc.lines ? state.doc.line(probe) : null
+    const existing = attrLine ? parseAttrLine(attrLine.text) : null
+    const same = (a: AttrToken, b: AttrToken): boolean => a.kind === b.kind && a.name === b.name
+
+    /*
+     * 1) 切换关闭：新 token 已经全部存在 → 移除它们。
+     *    移除后属性行为空 → 连整行一起删（不留一条空行）。
+     */
+    if (options.toggle && existing && tokens.every((token) => existing.some((e) => same(e, token)))) {
+      const remaining = existing.filter((e) => !tokens.some((token) => same(e, token)))
+
+      if (remaining.length === 0) {
+        let from = attrLine!.from
+        /*
+         * 列表/段落的属性行前面有一个**空行**（契约要求）。取消变体时把它一起删掉，
+         * 否则会留下一条空行（用户看到的是“取消了但多了一行空白”）。
+         */
+        if ((kind === 'list' || kind === 'paragraph') && attrLine!.number > 1) {
+          const previous = state.doc.line(attrLine!.number - 1)
+          if (previous.text.trim() === '') from = previous.from
         }
-        edit = { from: line.from, to: line.to, insert: formatAttrLine(merged) }
-      } else {
-        edit = { from: endLine.to, to: endLine.to, insert: separatorFor(kind) + text }
+        const to = Math.min(attrLine!.to + 1, state.doc.length)
+        const changes = state.changeByRange((range) => ({
+          changes: { from, to },
+          // 选区在文末时删除整行会越界 —— 夹到被删行的起点。
+          range: EditorSelection.cursor(Math.min(range.head, from)),
+        }))
+        if (!changes.changes.empty) view.dispatch({ ...changes, userEvent: 'format.nexusdown' })
+        return true
       }
-    } else {
-      edit = { from: endLine.to, to: endLine.to, insert: separatorFor(kind) + text }
+
+      const edit: Edit = {
+        from: attrLine!.from,
+        to: attrLine!.to,
+        insert: formatAttrLine(remaining),
+      }
+      const changes = state.changeByRange((range) => ({
+        changes: edit,
+        range: EditorSelection.cursor(Math.min(range.head, edit.from + edit.insert.length)),
+      }))
+      if (!changes.changes.empty) view.dispatch({ ...changes, userEvent: 'format.nexusdown' })
+      return true
     }
+
+    /*
+     * 2) 互斥：先移除同组的旧 class（新的那个保留），再合并。
+     */
+    let merged: AttrToken[] = existing ? [...existing] : []
+    if (options.exclusive?.length) {
+      const exclusive = new Set(options.exclusive)
+      merged = merged.filter(
+        (token) =>
+          !(token.kind === 'class' && exclusive.has(token.name)) ||
+          tokens.some((next) => next.kind === 'class' && next.name === token.name),
+      )
+    }
+    for (const token of tokens) {
+      if (!merged.some((e) => same(e, token))) merged.push(token)
+    }
+
+    /*
+     * ⚠️ 判断依据是 `existing`（这一行**真的是属性行**），不是 `attrLine`（探测到的那一行）。
+     * 旧写法用 `attrLine` 会把「块后第一行」直接替换成属性行 —— 实测把有序列表的
+     * `1. 有序项` 删掉了（用户看到的“乱”）。
+     */
+    const edit: Edit = existing && attrLine
+      ? { from: attrLine.from, to: attrLine.to, insert: formatAttrLine(merged) }
+      : { from: endLine.to, to: endLine.to, insert: separatorFor(kind) + formatAttrLine(merged) }
 
     /*
      * 光标怎么处理，按块类型分开：
      *
-     * - **列表 / 段落**：**留在原处**（让 changeByRange 映射原选区）。用户刚点的是列表，
-     *   光标却跳到下面的属性行会像"被踢走"；列表的序号不依赖光标位置，留在原处
-     *   效果立刻可见。
+     * - **列表 / 段落**：留在原处（changeByRange 映射原选区），效果立刻可见；
      * - **表格 / 围栏**：落到属性行末尾 —— 光标留在块里的话块会保持揭示态（源码），
-     *   挪出去之后 widget 才会重新渲染，`.fields` / 标题才看得见。
+     *   挪出去之后 widget 才会重新渲染。
      */
     const keepSelection = kind === 'list' || kind === 'paragraph'
     const cursor = Math.min(edit.from + edit.insert.length, state.doc.length + edit.insert.length)
@@ -716,6 +828,43 @@ export function applyBlockAttrs(attr: string, at?: number): Command {
     view.dispatch({ ...changes, userEvent: 'format.nexusdown' })
     return true
   }
+}
+
+/** 某个块当前的属性行（菜单显示“已应用”状态用）。 */
+export interface BlockAttrs {
+  kind: BlockKind
+  from: number
+  to: number
+  line: Line | null
+  tokens: readonly AttrToken[]
+}
+
+export function blockAttrsAt(state: EditorState, at = state.selection.main.head): BlockAttrs | null {
+  const target = findBlock(state, at)
+  if (!target) return null
+
+  const { node, kind } = target
+  const endLine = state.doc.lineAt(node.to > node.from ? node.to - 1 : node.to)
+  let probe = endLine.number + 1
+  if (kind === 'list' || kind === 'paragraph') {
+    if (probe <= state.doc.lines && state.doc.line(probe).text.trim() === '') probe += 1
+  }
+
+  const line = probe <= state.doc.lines ? state.doc.line(probe) : null
+  const tokens = line ? parseAttrLine(line.text) : null
+  return { kind, from: node.from, to: node.to, line: tokens ? line : null, tokens: tokens ?? [] }
+}
+
+/** 任务列表（`- [ ]`）—— 步骤/卡片对它无效，菜单要排除。 */
+export function isTaskList(state: EditorState, at = state.selection.main.head): boolean {
+  const target = findBlock(state, at)
+  if (!target || target.kind !== 'list') return false
+
+  let task = false
+  target.node.cursor().iterate((ref) => {
+    if (ref.name === 'TaskMarker' || ref.name === 'Task') task = true
+  })
+  return task
 }
 
 /**

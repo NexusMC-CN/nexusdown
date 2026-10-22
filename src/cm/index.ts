@@ -9,7 +9,7 @@ import {
 } from '@codemirror/language';
 import { tags } from '@lezer/highlight';
 import { EditorState, type Extension } from '@codemirror/state';
-import { EditorView, drawSelection, highlightActiveLine, keymap, lineNumbers } from '@codemirror/view';
+import { EditorView, drawSelection, highlightActiveLine, keymap } from '@codemirror/view';
 
 import type { MentionCandidate } from './commands';
 import { decorateBlock } from './decorate/block';
@@ -27,6 +27,7 @@ import { mentionCompletion } from './mention-complete';
 import { variantHover } from './features/variant-hover';
 import { nexusdownLivePreview } from './plugin';
 import { markdownKeymap } from './shortcuts';
+import { lineNumbersWithCode } from './line-numbers';
 
 import { baseTheme } from './theme';
 import type { LinkReferences, UrlPolicy } from './types';
@@ -247,7 +248,7 @@ export function nexusdown(opts: NexusdownOptions = {}): Extension {
      * 用户实测反馈：源码模式下没有行号，左边空一块，选中/当前行的色带看起来
      * 「比可写部分多一块」——行号给这条色带一个左锚点，整段源码也更好定位。
      */
-    lineNumbers(),
+    lineNumbersWithCode,
     EditorState.allowMultipleSelections.of(true),
 
     // 代码块的折叠状态（用户点标题栏上的箭头）。
@@ -317,6 +318,7 @@ export type { Command } from '@codemirror/view';
  */
 export {
   applyBlockAttrs,
+  blockAttrsAt,
   blockKindAt,
   insertBlockMath,
   insertEmbed,
@@ -337,7 +339,8 @@ export {
  * 光标所在块的类型 —— 工具栏「＋ 变体」菜单按它决定给哪些选项。
  */
 export type { BlockKind, BlockRange } from './commands';
-export { blockRangeAt } from './commands';
+export { blockRangeAt, isTaskList } from './commands';
+export { addTab, removeTab, tabGroupAt, type TabGroup } from './tabs-actions';
 export { variantItemsFor } from './variants';
 export type { VariantItem } from './variants';
 /*

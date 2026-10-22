@@ -46,6 +46,12 @@ import { selectionTouchesLineRange } from '../util/selection.js'
 const SOURCE_LINE = Decoration.line({ class: 'nd-attrs-line' })
 
 /**
+ * 隐藏态：整行压成 0 高，chip 只在**鼠标悬停这个块**时由 `variant-hover`
+ * 加上 `.nd-attrs-peek` 展开（用户要求：属性标签默认隐藏，hover 才出现）。
+ */
+const HIDDEN_LINE = Decoration.line({ class: 'nd-attrs-hidden' })
+
+/**
  * chip widget。
  *
  * `eq` 必须实现（否则每次 rebuild 都重建 DOM，chip 会闪、点击会断）。
@@ -120,12 +126,20 @@ export const attrsFeature: EditorFeature = {
     const prev = node.prevSibling
     if (!prev || !ATTR_HOSTS.has(prev.name)) return
 
-    // 揭示态：露出原文，只加一条「这是源码」的淡化行装饰。
-    if (selectionTouchesLineRange(doc, selection, line.from, line.to)) {
+    /*
+     * 揭示态：露出原文，只加一条「这是源码」的淡化行装饰。
+     *
+     * ⚠️ 除了光标落在**属性行本身**，光标在**宿主块里**（源码模式/正在编辑这个块）
+     * 时也要露出来 —— 否则用户点进代码块看源码，却看不到它下面那行 `{lines}`，
+     * 会以为属性没写进去（用户实测：“生效了为什么没 {} 出现”）。
+     */
+    const hostActive = selectionTouchesLineRange(doc, selection, prev.from, prev.to)
+    if (hostActive || selectionTouchesLineRange(doc, selection, line.from, line.to)) {
       ranges.push(SOURCE_LINE.range(line.from))
       return
     }
 
+    ranges.push(HIDDEN_LINE.range(line.from))
     ranges.push(
       Decoration.replace({
         widget: new AttrsChipWidget(attrLabel(tokens, line.text), line.text.trim(), line.from),

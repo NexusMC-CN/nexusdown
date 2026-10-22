@@ -78,6 +78,13 @@ import {
   toggleOrderedList,
   toggleQuote,
   variantItemsFor,
+  blockAttrsAt,
+  blockRangeAt,
+  isTaskList,
+  tabGroupAt,
+  addTab,
+  removeTab,
+  type TabGroup,
   wrapCodeBlock,
 } from '@nexusmc-cn/nexusdown/cm'
 /*
@@ -356,6 +363,7 @@ function refreshActive() {
   try {
     next = detectActive(view)
     variantKind.value = blockKindAt(view.state)
+    variantApplied.value = new Set(blockAttrsAt(view.state)?.tokens.map((token) => token.name) ?? [])
   } catch {
     /* 语法树还没建好 / 解析中途 —— 点灯是锦上添花，绝不能让它把工具栏搞崩。 */
     return
@@ -378,17 +386,87 @@ function isActive(kind: Kind | undefined) {
  */
 const variantItems = computed<VariantItem[]>(() => variantItemsFor(variantKind.value))
 
+/** 当前块已经应用的变体名（菜单打勾用）。 */
+const variantApplied = ref<Set<string>>(new Set())
+
 const variantOpen = ref(false)
 const variantRoot = ref<HTMLElement | null>(null)
+/**
+ * 打开菜单时锁定的块起点。
+ *
+ * ⚠️ 之前 `applyVariant` 用 `applyBlockAttrs(attr)`（= 当前光标），
+ * 用户打开菜单后点了别处、或光标本来就不在块里，属性会落到**错误的块**
+ * （实测：`{lines}` 跑到了数学段后面）。打开菜单时把块位置记下来。
+ */
+const variantTarget = ref<number | null>(null)
+/** 光标在页签组里时，菜单给的是「增加/删除页签」，不是 fence 变体。 */
+const variantTabGroup = ref<TabGroup | null>(null)
 
 function toggleVariants() {
-  if (!variantItems.value.length) return
+  const view = props.view
+  if (!view) return
+
+  /*
+   * ⚠️ 打开菜单时**重新按当前光标算一次块类型**，不能依赖 `refreshActive` 的缓存：
+   * 光标从代码块移到段落后，缓存可能还是 fence，菜单就会给出一组对段落无效的
+   * 选项，点下去属性落到错误的块（实测：`{lines}` 跑到数学段后面）。
+   */
+  /*
+   * 页签组优先：光标在页签里时，工具栏也应该给「增加/删除页签」，
+   * 而不是把它当普通 fence 给「代码标题/行号/高亮」。
+   */
+  const group = tabGroupAt(view.state, view.state.selection.main.head)
+  variantTabGroup.value = group
+  if (group) {
+    variantOpen.value = true
+    return
+  }
+
+  const kind = blockKindAt(view.state)
+
+  // 任务列表（`- [ ]`）不提供步骤/卡片：和悬停菜单同一条判据。
+  if (kind === 'list' && isTaskList(view.state, view.state.selection.main.head)) {
+    variantOpen.value = false
+    return
+  }
+
+  variantKind.value = kind
+  variantApplied.value = new Set(blockAttrsAt(view.state)?.tokens.map((token) => token.name) ?? [])
+
+  if (!variantItemsFor(kind).length) {
+    variantOpen.value = false
+    return
+  }
+
+  variantTarget.value = blockRangeAt(view.state)?.from ?? null
   variantOpen.value = !variantOpen.value
 }
 
-function applyVariant(attr: string) {
+function addTabFromToolbar() {
+  const view = props.view
+  const group = variantTabGroup.value
+  if (!view || !group) return
   variantOpen.value = false
-  runCommand(applyBlockAttrs(attr))
+  addTab(view, group)
+}
+
+function removeTabFromToolbar() {
+  const view = props.view
+  const group = variantTabGroup.value
+  if (!view || !group) return
+  variantOpen.value = false
+  removeTab(view, group, 0)
+}
+
+function applyVariant(item: VariantItem) {
+  variantOpen.value = false
+  // 和悬停菜单同一套语义：互斥替换 + 已应用再点一次取消。
+  runCommand(
+    applyBlockAttrs(item.attr, variantTarget.value ?? undefined, {
+      toggle: true,
+      exclusive: item.exclusive,
+    }),
+  )
 }
 
 function onVariantPointerDown(event: PointerEvent) {
@@ -919,7 +997,7 @@ function replayDemos(event: MouseEvent | FocusEvent) {
           title="块变体：给当前块加步骤 / 卡片 / 参数表 / 代码标题"
           aria-haspopup="menu"
           :aria-expanded="variantOpen"
-          :disabled="!view || !variantItems.length"
+          :disabled="!view"
           @mousedown.prevent
           @click="toggleVariants"
         >
@@ -929,18 +1007,40 @@ function replayDemos(event: MouseEvent | FocusEvent) {
         </button>
 
         <div v-if="variantOpen" class="variant-pop" role="menu" aria-label="块变体">
-          <button
-            v-for="item in variantItems"
-            :key="item.attr"
-            type="button"
-            class="variant-item"
-            role="menuitem"
-            @mousedown.prevent
-            @click="applyVariant(item.attr)"
-          >
-            <span>{{ item.label }}</span>
-            <code>{{ item.attr }}</code>
-          </button>
+          <template v-if="variantTabGroup">
+            <button
+              type="button"
+              class="variant-item"
+              role="menuitem"
+              @mousedown.prevent
+              @click="addTabFromToolbar"
+            >
+              <span>增加页签</span>
+            </button>
+            <button
+              type="button"
+              class="variant-item"
+              role="menuitem"
+              @mousedown.prevent
+              @click="removeTabFromToolbar"
+            >
+              <span>删除「{{ variantTabGroup.panels[0]?.label }}」</span>
+            </button>
+          </template>
+          <template v-else>
+            <button
+              v-for="item in variantItems"
+              :key="item.attr"
+              type="button"
+              class="variant-item"
+              role="menuitem"
+              @mousedown.prevent
+              @click="applyVariant(item)"
+            >
+              <span>{{ variantApplied.has(item.name) ? '✓ ' : '' }}{{ item.label }}</span>
+              <code>{{ item.attr }}</code>
+            </button>
+          </template>
         </div>
       </div>
     </div>
