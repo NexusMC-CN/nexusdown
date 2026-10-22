@@ -35,6 +35,8 @@ const HIDE_DELAY = 160
 interface HoverTarget {
   kind: BlockKind
   from: number
+  /** 块结束位置 —— 菜单优先开在块下方，不盖住块内容。 */
+  to: number
 }
 
 interface MenuEntry {
@@ -119,6 +121,7 @@ class VariantHover {
         this.target = {
           kind: widget.classList.contains('nd-table') ? 'table' : 'fence',
           from,
+          to: Number(widget.dataset.to) || from,
         }
         this.scheduleShow()
         return
@@ -171,7 +174,7 @@ class VariantHover {
       return
     }
 
-    this.target = { kind: range.kind, from: range.from }
+    this.target = { kind: range.kind, from: range.from, to: range.to }
     this.scheduleShow()
   }
 
@@ -363,13 +366,29 @@ class VariantHover {
     document.body.appendChild(menu)
 
     const rect = this.button.getBoundingClientRect()
-    /*
-     * ⚠️ 菜单默认**向上**开：按钮在块首左侧，向下开必然盖住块内容
-     * （用户实测：代码标题的效果被菜单挡住了）。上方空间不够时才向下。
-     */
     const menuHeight = menu.getBoundingClientRect().height
-    const above = rect.top - menuHeight - 6
-    menu.style.top = `${Math.round(above >= 8 ? above : rect.bottom + 6)}px`
+
+    /*
+     * 菜单位置优先级：
+     * 1. **块下方**（不盖住块内容，用户能同时看到菜单和效果）；
+     * 2. 块上方（空间不够时）；
+     * 3. 按钮下方（最后兜底）。
+     *
+     * 页签组要取**整组**的结束位置，不是第一个 fence 的结束位置。
+     */
+    const blockTo = group ? group.to : this.target?.to ?? this.target?.from ?? 0
+    const end = this.view.coordsAtPos(blockTo)
+    const belowBlock =
+      end !== null && end.bottom + 6 + menuHeight <= window.innerHeight - 8
+
+    let top: number
+    if (belowBlock) {
+      top = end!.bottom + 6
+    } else {
+      const above = rect.top - menuHeight - 6
+      top = above >= 8 ? above : rect.bottom + 6
+    }
+    menu.style.top = `${Math.round(top)}px`
     // 菜单贴按钮左边；靠近窗口右缘时夹回来，避免被裁掉。
     menu.style.left = `${Math.round(rect.left)}px`
     menu.style.maxWidth = `${Math.max(176, Math.round(window.innerWidth - rect.left - 12))}px`
