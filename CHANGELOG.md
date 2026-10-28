@@ -9,6 +9,29 @@
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-10-28
+
+### 新增
+
+- `mermaid` 围栏现在可通过 Pele 预览为 SVG，并可点击进入源码编辑；渲染侧也支持服务端输出图表。新增 `RenderMarkdownOptions.diagramIdPrefix` 以隔离同页图表 ID。
+- 编辑器加入块级变体、页签组、块属性操作与代码块行号；新增相关 CodeMirror 命令及查询 API。
+
+### 改进与修复
+
+- 行内 Markdown 标记按当前光标所在节点揭示；改进列表回车退出、空任务项复选框、表格单元格点击定位、多选区格式切换和换稿后的撤销历史。
+- 修复输入法组合期间的编辑回归、源码定位错行、块变体判定与菜单遮挡内容等问题。
+- 依赖安装与 CI 改用 pnpm；打包预演使用 npm，以匹配 npmjs 发布时的打包路径。随包附带 Pele 的第三方许可声明。
+
+### 兼容性提示
+
+- 有效的 `mermaid` 围栏现在渲染为图表 SVG；语法错误时仍回退为代码块。需要始终展示源码的内容应使用其他语言标记。
+- `> [!NOTE]` 等 callout 标记会渲染为提示卡片，而不是普通引用块；使用扩展属性与页签语法的文档也会得到对应的结构化 HTML。
+- 包仍导出根入口、`./render`、`./cm`、`./editor` 及原有 CSS 子路径；本版未删除这些入口。
+
+## 历史开发记录（当前 CodeMirror 版本之前）
+
+以下内容保留 Tiptap 阶段的开发记录，其中的 API、依赖和编辑器行为不代表当前发布包。
+
 ### 破坏性变更 — 2026-09-28：抛弃 BBCode，只产标准 Markdown
 
 产品决策：编辑器产出的 Markdown 必须是**纯的**——不含 BBCode 短代码、不含 HTML 标签。为此移除一切没有标准 Markdown 语法的格式，并补齐此前缺失的「Markdown → HTML」能力。
@@ -201,4 +224,5 @@
 - 自定义 Markdown 语法扩展点：`markdownTokenName` / `markdownTokenizer` / `parseMarkdown` / `renderMarkdown`。
 
 [Unreleased]: https://github.com/NexusMC-CN/nexusdown/commits/main
+[0.1.0]: https://github.com/NexusMC-CN/nexusdown/releases/tag/v0.1.0
 [0.0.0]: https://github.com/NexusMC-CN/nexusdown/releases

@@ -7,6 +7,7 @@
  *    光标进入该行时露出源码。
  */
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown'
+import { forceParsing } from '@codemirror/language'
 import { EditorState, type Extension } from '@codemirror/state'
 import { EditorView, ViewPlugin } from '@codemirror/view'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -45,6 +46,12 @@ function mount(doc: string, cursor: number = doc.length) {
   document.body.appendChild(parent)
   const view = new EditorView({ state, parent })
   views.push(view)
+
+  // LanguageState.init 只有 20ms 的解析预算；繁忙的测试进程可能先得到
+  // 只覆盖列表首行的部分树。让真实解析器完成这个短测试文档，再读装饰。
+  if (!forceParsing(view, view.state.doc.length, 1000)) {
+    throw new Error('测试文档的 Markdown 语法树未能完成解析')
+  }
 
   const instance = view.plugin(plugin as unknown as ViewPlugin<LivePreviewPluginValue>)
   if (!instance) throw new Error('插件没有挂上')

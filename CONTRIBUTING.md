@@ -92,25 +92,36 @@ subject 可自由使用中文。commitlint 目前为**提示性**检查（`conti
 
 ## 发布流程
 
-1. 确认 `pnpm run verify` 与 `pnpm run test:consumer` 全部通过。
-2. 更新 `CHANGELOG.md`，把 `[Unreleased]` 的内容整理到新的版本号下。
-3. 更新 `package.json` 的 `version`（遵循语义化版本）。
-4. 提交并打标签：
+1. 查询 npm 上的版本，确认新版本尚未发布；执行 `npm whoami --registry=https://registry.npmjs.org/` 与 `npm owner ls @nexusmc-cn/nexusdown`，核对当前登录账号有该包的发布权限。
+2. 更新 `CHANGELOG.md`，把 `[Unreleased]` 的内容整理到新的版本号下，并更新 `package.json` 的 `version`（遵循语义化版本）。
+3. 在最终源码上依次运行 `corepack pnpm run verify`、`corepack pnpm run test:consumer` 与 `corepack pnpm run pack:check`，检查真实 tarball 的入口、类型、样式和第三方声明。
+4. 校验通过后按范围暂存本次发布的文件，检查暂存差异，再提交并推送版本改动，等待该提交的 CI 全部通过：
 
    ```bash
-   git commit -am "chore: release v0.1.0"
+   git diff --cached --check
+   git commit -m "chore: release v0.1.0"
+   git push origin main
+   ```
+
+5. 由有发布权限的维护者在 npmjs 单独发布，并核对版本：
+
+   ```bash
+   npm publish --access public --registry=https://registry.npmjs.org/
+   npm view @nexusmc-cn/nexusdown@0.1.0 version --registry=https://registry.npmjs.org/
+   ```
+
+   如果账号启用了双重验证，按 npm 的提示完成验证；不要把凭据或一次性验证码写入仓库。
+
+6. 确认 npmjs 已发布后，再打标签并推送：
+
+   ```bash
    git tag v0.1.0
-   git push origin main --tags
+   git push origin v0.1.0
    ```
 
-5. 发布前做最后一次真实校验：
+   推送标签会触发 GitHub Release 工作流；该工作流**不会**发布到 npmjs。
 
-   ```bash
-   pnpm run test:consumer
-   pnpm run pack:check
-   ```
-
-任何 `exports` / `files` 的改动都可能破坏消费者的安装。发版前运行 `pnpm run test:consumer`，验证真实 tarball 中的入口、类型和样式。
+任何 `exports` / `files` 的改动都可能破坏消费者的安装。发布前运行 `test:consumer`，验证真实 tarball 中的入口、类型和样式。
 
 ## 破坏性变更
 

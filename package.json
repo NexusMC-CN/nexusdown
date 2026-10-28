@@ -19,7 +19,7 @@
     "nuxt",
     "astro"
   ],
-  "version": "0.0.2",
+  "version": "0.1.0",
   "packageManager": "pnpm@10.34.7",
   "type": "module",
   "license": "MIT",
@@ -77,13 +77,13 @@
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "build": "tsup && vite build --config vite.editor.config.ts",
-    "prepare": "pnpm run build",
+    "prepare": "npm run build",
     "check:exports": "node scripts/check-exports.mjs",
     "build:vue-example": "pnpm --filter nexusdown-vue-demo run build",
     "build:astro-example": "pnpm --filter nexusdown-astro-vue-demo run build",
     "build:nuxt-example": "pnpm --filter nexusdown-nuxt-ssr-demo run build",
     "verify": "pnpm run typecheck && pnpm run lint && pnpm test && pnpm run build && pnpm run check:exports",
-    "pack:check": "pnpm pack --dry-run"
+    "pack:check": "npm pack --dry-run"
   },
   "peerDependencies": {
     "@codemirror/autocomplete": "^6.0.0",
