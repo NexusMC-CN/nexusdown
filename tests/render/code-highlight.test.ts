@@ -65,4 +65,20 @@ describe('fenced code highlighting', () => {
     })
     expect(called).toBe(false)
   })
+
+  it('preserves astral Unicode when a highlighter splits a surrogate pair', () => {
+    const emoji = String.fromCodePoint(0x1f600)
+    const code = `say "${emoji}"`
+    const cut = code.indexOf(emoji) + 1
+    const html = renderMarkdown(`~~~mcfunction\n${code}\n~~~`, {
+      codeHighlighter: () => [
+        { text: code.slice(0, cut), classes: ['hljs-keyword'] },
+        { text: code.slice(cut), classes: ['hljs-string'] },
+      ],
+    })
+
+    expect(html).toContain(emoji)
+    expect(new TextDecoder().decode(new TextEncoder().encode(html))).toContain(emoji)
+    expect(html).not.toContain('hljs-keyword')
+  })
 })

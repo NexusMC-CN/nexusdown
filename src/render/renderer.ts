@@ -55,6 +55,10 @@ function highlightedTokens(
     for (const token of tokens) {
       if (!token || typeof token.text !== 'string' || !code.startsWith(token.text, offset)) return null
       offset += token.text.length
+      // Separate HTML spans would encode the two halves as replacement characters.
+      if (offset > 0 && offset < code.length &&
+        (code.charCodeAt(offset - 1) & 0xfc00) === 0xd800 &&
+        (code.charCodeAt(offset) & 0xfc00) === 0xdc00) return null
       if (token.classes !== undefined && (
         !Array.isArray(token.classes) || token.classes.length > 8 ||
         token.classes.some((value: unknown) => typeof value !== 'string' || !CODE_CLASS.test(value))
