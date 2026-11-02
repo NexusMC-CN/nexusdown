@@ -27,6 +27,68 @@ import type { RenderFeatureContext } from './feature.js'
 import { TASK_ITEM_META } from './task-list.js'
 
 const LF = 0x0a
+const MAX_HIGHLIGHT_CODE_LENGTH = 65_536
+const MAX_HIGHLIGHT_TOKENS = 16_384
+const CODE_CLASS = /^[A-Za-z][A-Za-z0-9_-]{0,63}$/
+
+/** A plain-text slice of the original code, optionally carrying CSS token classes. */
+export interface CodeHighlightToken {
+  text: string
+  classes?: readonly string[]
+}
+
+/** Return null for an unknown language. Returned text must reconstruct the input exactly. */
+export type CodeHighlighter = (code: string, language: string) => readonly CodeHighlightToken[] | null
+
+type CodeHighlightEnv = { codeHighlighter?: CodeHighlighter }
+
+function highlightedTokens(
+  code: string,
+  language: string,
+  highlighter: CodeHighlighter | undefined,
+): readonly CodeHighlightToken[] | null {
+  if (!highlighter || code.length > MAX_HIGHLIGHT_CODE_LENGTH) return null
+  try {
+    const tokens = highlighter(code, language)
+    if (!Array.isArray(tokens) || tokens.length > MAX_HIGHLIGHT_TOKENS || tokens.length > code.length + 1) return null
+    let offset = 0
+    for (const token of tokens) {
+      if (!token || typeof token.text !== 'string' || !code.startsWith(token.text, offset)) return null
+      offset += token.text.length
+      // Separate HTML spans would encode the two halves as replacement characters.
+      if (offset > 0 && offset < code.length &&
+        (code.charCodeAt(offset - 1) & 0xfc00) === 0xd800 &&
+        (code.charCodeAt(offset) & 0xfc00) === 0xdc00) return null
+      if (token.classes !== undefined && (
+        !Array.isArray(token.classes) || token.classes.length > 8 ||
+        token.classes.some((value: unknown) => typeof value !== 'string' || !CODE_CLASS.test(value))
+      )) return null
+    }
+    return offset === code.length ? tokens : null
+  } catch {
+    return null
+  }
+}
+
+function renderCodeToken(token: CodeHighlightToken, escapeHtml: (value: string) => string): string {
+  if (!token.text) return ''
+  const text = escapeHtml(token.text)
+  return token.classes?.length
+    ? `<span class="${escapeHtml(token.classes.join(' '))}">${text}</span>`
+    : text
+}
+
+function highlightedLines(tokens: readonly CodeHighlightToken[], escapeHtml: (value: string) => string): string[] {
+  const lines = ['']
+  for (const token of tokens) {
+    const pieces = token.text.split('\n')
+    for (let index = 0; index < pieces.length; index++) {
+      if (index > 0) lines.push('')
+      lines[lines.length - 1] += renderCodeToken({ text: pieces[index]!, classes: token.classes }, escapeHtml)
+    }
+  }
+  return lines
+}
 
 export function applyNexusdownRenderer(md: MarkdownIt): void {
   const escapeHtml = md.utils.escapeHtml
@@ -94,7 +156,7 @@ export function applyNexusdownRenderer(md: MarkdownIt): void {
    * before the closing fence is dropped — the editor's code block holds the
    * lines, not the terminator.
    */
-  rules.fence = (tokens, idx) => {
+  rules.fence = (tokens, idx, _options, env) => {
     const token = tokens[idx]!
     const info = token.info ? md.utils.unescapeAll(token.info).trim() : ''
     // Only the first word is the language; ` ```ts title=x ` has a meta string
@@ -119,6 +181,7 @@ export function applyNexusdownRenderer(md: MarkdownIt): void {
     const content = withoutTrailingNewline(token.content)
     const showLines = attrs?.lines !== undefined
     const highlighted = parseLineRanges(attrs?.highlight)
+    const syntax = highlightedTokens(content, language, (env as CodeHighlightEnv).codeHighlighter)
 
     /*
      * 行号 / 行高亮需要**逐行元素**：`<code>` 里是一整段文本，CSS counter 数不了行。
@@ -127,15 +190,14 @@ export function applyNexusdownRenderer(md: MarkdownIt): void {
      */
     let body: string
     if (showLines || highlighted.size > 0) {
-      body = content
-        .split('\n')
+      body = (syntax ? highlightedLines(syntax, escapeHtml) : content.split('\n').map(escapeHtml))
         .map((line, index) => {
           const hl = highlighted.has(index + 1) ? ' nd-code-line--hl' : ''
-          return `<span class="nd-code-line${hl}">${escapeHtml(line)}</span>`
+          return `<span class="nd-code-line${hl}">${line}</span>`
         })
         .join('')
     } else {
-      body = escapeHtml(content)
+      body = syntax ? syntax.map((part) => renderCodeToken(part, escapeHtml)).join('') : escapeHtml(content)
     }
 
     return (

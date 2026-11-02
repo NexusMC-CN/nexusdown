@@ -4,6 +4,7 @@
  * ⚠️ 这个测试守的是**跨模块边界**那条线：UI 层（`.vue`）不许自己建 CM6 对象，
  * 只能调这个函数。所以这里必须证明：**光调它就能得到一个能用的编辑器**。
  */
+import { ensureSyntaxTree } from '@codemirror/language'
 import { mountEditor, setEditorValue } from '../../src/cm/mount.js'
 
 function host() {
@@ -13,6 +14,20 @@ function host() {
 }
 
 describe('mountEditor', () => {
+  it('forwards codeLanguages to fenced Markdown parsing', () => {
+    const el = host()
+    const seen: string[] = []
+    const view = mountEditor({
+      parent: el,
+      doc: 'intro\n\n```custom\nvalue\n```',
+      codeLanguages: (info) => { seen.push(info); return null },
+    })
+    ensureSyntaxTree(view.state, view.state.doc.length, 1_000)
+    expect(seen).toContain('custom')
+    view.destroy()
+    el.remove()
+  })
+
   it('建出一个能用的编辑器（DOM 里有 .cm-editor）', () => {
     const el = host()
     const view = mountEditor({ parent: el, doc: 'hello' })

@@ -36,7 +36,7 @@ defineOptions({ name: 'NexusdownEditor' })
  * （`undo(view)` / `syntaxTree(view.state)`），而 `undo` / `syntaxTree`
  * 也是从同一个 `@nexusmc-cn/nexusdown/cm` 来的 ✓。
  */
-import type { EditorView, MentionCandidate, MentionResolutions } from '@nexusmc-cn/nexusdown/cm'
+import type { EditorView, MentionCandidate, MentionResolutions, NexusdownOptions } from '@nexusmc-cn/nexusdown/cm'
 /*
  * ⚠️ **只 import type**（同上一行的 `EditorView`）—— `KatexLike` 是纯类型，
  * 编译期就被擦掉，不会变成运行时 import，也就不会把"第二份 CM6 / markdown-it"
@@ -61,6 +61,8 @@ import '../cm/theme.css'
 const props = defineProps<{
   /** 文档内容。配 `v-model` 用。 */
   modelValue: string
+  /** Optional CodeMirror language descriptions for fenced code. */
+  codeLanguages?: NexusdownOptions['codeLanguages']
   /**
    * 数学渲染函数（可选）—— 注入后块级 ` ```math ` 围栏在编辑器里就显示成公式。
    *
@@ -153,6 +155,7 @@ async function mount(): Promise<void> {
     view.value = engine.mountEditor({
       parent: el,
       doc: props.modelValue,
+      codeLanguages: props.codeLanguages,
       onDocChange: (value) => emit('update:modelValue', value),
       mathRenderer: props.mathRenderer,
       mentions: props.mentions,

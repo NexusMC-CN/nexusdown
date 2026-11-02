@@ -34,7 +34,7 @@ import { EditorView, keymap } from '@codemirror/view'
 import type { MentionCandidate } from './commands.js'
 import type { MathRenderer } from './features/math.js'
 import type { MentionResolutions } from './features/mention.js'
-import { nexusdown } from './index.js'
+import { nexusdown, type NexusdownOptions } from './index.js'
 import { setEditingBlock, setEditingRange } from './plugin.js'
 
 export interface MountEditorOptions {
@@ -42,6 +42,8 @@ export interface MountEditorOptions {
   parent: HTMLElement
   /** 初始文档。 */
   doc: string
+  /** Language support for fenced code, using the same contract as nexusdown(). */
+  codeLanguages?: NexusdownOptions['codeLanguages']
   /**
    * 文档变化时回调（对应 `v-model` 的原值回填）。
    * 组字期间若有外部全文替换等待生效，该替换优先，暂不回流旧稿的后续组字变化；
@@ -104,6 +106,7 @@ export function mountEditor(options: MountEditorOptions): EditorView {
          * 不传时 `nexusdown()` 的行为与没有这些参数时**一字不变**。
          */
         nexusdown({
+          codeLanguages: options.codeLanguages,
           mathRenderer: options.mathRenderer,
           mentions: options.mentions,
           mentionCandidates: options.mentionCandidates,

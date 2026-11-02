@@ -190,11 +190,17 @@ setEditorValue(view, '# 新的草稿')
 // 页面或组件卸载时调用 view.destroy()
 ```
 
-`mountEditor` 返回 CodeMirror 的 `EditorView`，包含 Markdown 解析、即时预览、自动换行、多选区、撤销重做及基础快捷键。它还接收可选的 `mathRenderer`、`mentions` 和 `mentionCandidates`。
+`mountEditor` 返回 CodeMirror 的 `EditorView`，包含 Markdown 解析、即时预览、自动换行、多选区、撤销重做及基础快捷键。它还接收可选的 `codeLanguages`、`mathRenderer`、`mentions` 和 `mentionCandidates`。
 
-需要自行组装 CodeMirror 时，使用 `nexusdown(options)` 获取扩展。代码块语言高亮可安装 `@codemirror/language-data`，将其 `languages` 传给 `nexusdown({ codeLanguages: languages })`。组合第三方扩展时，请保持 CodeMirror 依赖解析到同一份模块实例，避免扩展对象不兼容。
+需要自行组装 CodeMirror 时，使用 `nexusdown(options)` 获取扩展。代码块语言高亮可安装 `@codemirror/language-data`，将选定的语言描述传给 `nexusdown({ codeLanguages })`、`mountEditor({ codeLanguages })` 或 `<NexusdownEditor :code-languages="codeLanguages" />`。组合第三方扩展时，请保持 CodeMirror 依赖解析到同一份模块实例，避免扩展对象不兼容。
 
 ## 可选接入
+
+### 围栏代码高亮
+
+`renderMarkdown(markdown, { codeHighlighter })` 给显示侧提供同步、无 DOM 的高亮接线口。回调接收去掉围栏末尾换行的代码和原始语言名；不认识的语言返回 `null`。返回值是按源码顺序排列的 `{ text, classes? }`，全部 `text` 拼接后必须逐字等于代码。类名是 CSS 标识符数组（如 `['hljs-keyword']`），由应用提供样式；不要返回 HTML。Nexusdown 负责转义代码与类名，并保留标题栏、`{lines}` 和 `{highlight="2"}` 的结构。回调抛错、token 无效或代码超过 65,536 个 UTF-16 单位时退回纯文本。应用可用 lowlight 等语法引擎把高亮结果转成这组文本 token。
+
+编辑器侧是另一套 CodeMirror 语言配置；两侧应使用相同的语言名和别名。高亮只改变显示效果，不检查代码是否正确。
 
 ### KaTeX
 
