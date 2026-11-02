@@ -1,10 +1,11 @@
 /** Public declarations for the compiled Vue editor components. */
 import type { DefineComponent } from 'vue'
-import type { EditorView, MentionCandidate, MentionResolutions } from '@nexusmc-cn/nexusdown/cm'
+import type { EditorView, MentionCandidate, MentionResolutions, NexusdownOptions } from '@nexusmc-cn/nexusdown/cm'
 import type { KatexLike } from '@nexusmc-cn/nexusdown/render'
 
 export interface NexusdownEditorProps {
   modelValue: string
+  codeLanguages?: NexusdownOptions['codeLanguages']
   mathRenderer?: KatexLike
   mentionCandidates?: () => Promise<MentionCandidate[]>
   mentions?: MentionResolutions

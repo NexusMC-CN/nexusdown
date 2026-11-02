@@ -67,7 +67,7 @@ import type { MarkdownIt as MarkdownItInstance } from 'markdown-it'
 import type { RenderData } from './feature.js'
 import { wwwOnlyAutolinkPlugin } from './autolink.js'
 import { markPlugin } from './mark.js'
-import { applyNexusdownRenderer } from './renderer.js'
+import { applyNexusdownRenderer, type CodeHighlighter } from './renderer.js'
 import { taskListPlugin } from './task-list.js'
 
 /**
@@ -77,8 +77,15 @@ import { taskListPlugin } from './task-list.js'
  * root, so this is the structural equivalent.
  */
 export type MarkdownItPlugin = (md: MarkdownItInstance) => void
+export type { CodeHighlighter, CodeHighlightToken } from './renderer.js'
 
 export interface RenderMarkdownOptions {
+  /**
+   * Optional synchronous highlighter for fenced code. Return plain-text slices,
+   * never HTML. Invalid tokens and code over 65,536 UTF-16 units render plainly.
+   * The callback is read from each render call, not cached with the parser.
+   */
+  codeHighlighter?: CodeHighlighter
   /**
    * Stable SVG accessibility ID namespace for diagrams. Defaults to
    * `nd-diagram`; use a different prefix for each Markdown fragment on a page
@@ -179,6 +186,7 @@ export function renderMarkdown(markdown: string, options?: RenderMarkdownOptions
   if (typeof markdown !== 'string' || markdown.trim() === '') return ''
   return resolveParser(options?.plugins).render(markdown, {
     data: options?.data,
+    codeHighlighter: options?.codeHighlighter,
     diagramIdPrefix: options?.diagramIdPrefix,
     diagramSequence: 0,
   })
