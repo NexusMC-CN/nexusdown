@@ -34,10 +34,7 @@
  * 也会诱使后来的人给编辑器另抄一份（正是本次要消灭的那件事）。
  * "方言"（dialect）才是这层东西的准确名字 —— 它是**这套方言产出的标记的视觉契约**。
  *
- * ## ⚠️ 目前这里有两族：`mention` 和 `callout`
- *
- * `nd-card`（link-card）/ `nd-embed` / `nd-carousel` 目前仍然没有共享样式 ——
- * **那是另一件事，别顺手补**。要加的时候按同一套路：
+ * Shared mention, callout, link-card and embed styles follow the same pattern:
  *
  * 1. 在下面按「功能名」分节补类名（结构以 `src/render/features/<名字>.ts`
  *    产出的 HTML 为准）；
@@ -457,3 +454,21 @@ div.nd-callout:not(.cm-line) {
 .nd-carousel__dot:hover {
   color: var(--nd-text, var(--ink-1, #1f2328));
 }
+
+/* Link metadata and third-party media share the host's typography and colors. */
+.nd-card { display: flex; gap: 16px; align-items: center; margin: 16px 0; padding: 16px; border: 1px solid var(--nd-border, #dce1e8); border-radius: 10px; color: var(--nd-text, inherit); text-decoration: none; overflow-wrap: anywhere; }
+.nd-card__body { display: flex; flex: 1; min-width: 0; flex-direction: column; gap: 6px; }
+.nd-card__title { font-weight: 600; }
+.nd-card__desc, .nd-card__site { color: var(--nd-text-3, #667085); font-size: .9em; }
+.nd-card__image { width: 112px; height: 80px; flex: none; object-fit: cover; border-radius: 6px; }
+.nd-embed { width: 100%; box-sizing: border-box; margin: 16px 0; padding: 14px; border: 1px solid var(--nd-border, #dce1e8); border-radius: 10px; overflow: hidden; }
+.nd-embed__placeholder { display: flex; align-items: center; gap: 10px; width: 100%; padding: 12px; color: var(--nd-text, inherit); background: var(--nd-surface-2, #f6f7f9); border: 0; border-radius: 6px; font: inherit; text-align: left; cursor: pointer; }
+.nd-embed__placeholder[hidden] { display: none; }
+.nd-embed__label { flex: 1; overflow-wrap: anywhere; }
+.nd-embed__hint { font-size: .85em; color: var(--nd-text-3, #667085); }
+.nd-embed__source { display: inline-block; margin: 8px 0; font-size: .9em; }
+.nd-embed__frame { display: block; width: 100%; height: auto; aspect-ratio: 16 / 9; border: 0; border-radius: 6px; }
+.nd-embed--douyin .nd-embed__frame { max-width: 380px; aspect-ratio: 9 / 16; margin: 0 auto; }
+.nd-embed[data-nd-embed="netease:song"] .nd-embed__frame { height: 86px; aspect-ratio: auto; }
+.nd-embed[data-nd-embed="netease:playlist"] .nd-embed__frame { height: 450px; aspect-ratio: auto; }
+@media (max-width: 480px) { .nd-card { gap: 10px; padding: 12px; } .nd-card__image { width: 72px; height: 64px; } .nd-embed { padding: 10px; } .nd-embed__placeholder { flex-wrap: wrap; } }

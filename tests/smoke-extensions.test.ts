@@ -21,7 +21,8 @@ describe('渲染侧：注册表接对了没有', () => {
   it('embed —— `embed` 围栏产出 iframe 容器', () => {
     const html = renderMarkdown('```embed bilibili video BV1xx411c7mD\n```')
     expect(html).toContain('nd-embed')
-    expect(html).toContain('player.bilibili.com')
+    expect(html).toContain('data-nd-embed-load')
+    expect(html).not.toContain('<iframe')
     expect(html).toContain('BV1xx411c7mD')
   })
 

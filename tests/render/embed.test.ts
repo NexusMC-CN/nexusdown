@@ -44,46 +44,34 @@ const BILI_ID = 'BV1xx411c7mD' // BV + 10 位 = 12
 const DY_ID = '7458617091420114236' // 19 位
 
 describe('embed 渲染侧 —— 围栏', () => {
-  it('★ ```embed bilibili video → .nd-embed + details + iframe，src 由模板构造', () => {
+  it('legacy embed fence produces a source link and an inert load button', () => {
     const html = render('```embed bilibili video ' + BILI_ID + '\n```')
 
-    expect(html).toContain('<div class="nd-embed nd-embed--bilibili" data-nd-embed="bilibili:video">')
-    expect(html).toContain('<details class="nd-embed__gate">')
-    expect(html).toContain('<summary class="nd-embed__placeholder">')
-    // `&` 必须转义成 `&amp;`，否则属性会被截断。
-    expect(html).toContain('src="//player.bilibili.com/player.html?bvid=' + BILI_ID + '&amp;autoplay=0"')
+    expect(html).toContain('data-nd-embed="bilibili:video"')
+    expect(html).toContain('data-nd-embed-load')
+    expect(html).toContain('href="https://www.bilibili.com/video/' + BILI_ID + '"')
+    expect(html).not.toContain('<iframe')
   })
 
-  it('★ iframe 四个属性逐条照契约', () => {
+  it('server HTML contains no live iframe or executable player source', () => {
     const html = render('```embed douyin video ' + DY_ID + '\n```')
 
-    expect(html).toContain(
-      'sandbox="allow-scripts allow-same-origin allow-popups allow-presentation"',
-    )
-    expect(html).toContain('allow="fullscreen; autoplay"')
-    expect(html).toContain('referrerpolicy="strict-origin-when-cross-origin"')
-    expect(html).toContain('loading="lazy"')
-    expect(html).toContain('src="https://open.douyin.com/player/video?vid=' + DY_ID + '&amp;autoplay=0"')
+    expect(html).not.toContain('<iframe')
+    expect(html).not.toContain('open.douyin.com/player')
+    expect(html).toContain('href="https://www.douyin.com/video/' + DY_ID + '"')
   })
 
-  it('★ 默认点击才加载：iframe 在**闭合的** <details> 里，占位条先出现', () => {
+  it('click-to-load placeholder preserves a no-JavaScript source link', () => {
     const html = render('```embed netease song 110761\n```')
 
-    // 没有 `open` 属性 → details 默认闭合。
-    expect(html).not.toContain('<details class="nd-embed__gate" open>')
-    // 占位条在 iframe 之前（先渲染占位，用户点了才展开）。
-    expect(html.indexOf('nd-embed__placeholder')).toBeLessThan(html.indexOf('<iframe'))
-    // 占位条上是「点击加载」。
+    expect(html).not.toContain('<iframe')
+    expect(html).toContain('nd-embed__source')
     expect(html).toContain('点击加载')
   })
 
   it('网易云两种 kind 用不同的 type/height 模板', () => {
-    expect(render('```embed netease song 110761\n```')).toContain(
-      'src="//music.163.com/outchain/player?type=2&amp;id=110761&amp;auto=0&amp;height=66"',
-    )
-    expect(render('```embed netease playlist 473007041\n```')).toContain(
-      'src="//music.163.com/outchain/player?type=0&amp;id=473007041&amp;auto=0&amp;height=430"',
-    )
+    expect(buildSpec('netease', 'song', '110761')?.src).toContain('type=2&id=110761&auto=0&height=66')
+    expect(buildSpec('netease', 'playlist', '473007041')?.src).toContain('type=0&id=473007041&auto=0&height=430')
   })
 
   it('★ 非 embed 的围栏**原样**交还给 baseFence（普通代码块行为不变）', () => {
@@ -119,13 +107,13 @@ describe('embed 渲染侧 —— URL 形式（正典）', () => {
 
     expect(url).toBe(legacy)
     expect(url).toContain('data-nd-embed="bilibili:video"')
-    expect(url).toContain('bvid=' + BILI_ID)
+    expect(url).toContain('/video/' + BILI_ID)
   })
 
   it('无 scheme 的写法也认（`music.163.com/song?id=…`）', () => {
     const html = render('```embed music.163.com/song?id=110761\n```')
     expect(html).toContain('data-nd-embed="netease:song"')
-    expect(html).toContain('type=2&amp;id=110761')
+    expect(html).toContain('/song?id=110761')
   })
 
   it('★ 与「独占一段的长链自动识别」走同一条解析路径（产出逐字节一致）', () => {
@@ -146,17 +134,17 @@ describe('embed 渲染侧 —— URL 形式（正典）', () => {
     }
   })
 
-  it('★ 短链：没数据 → 降级成代码块；有数据（`RenderData.links`）→ 出播放器', () => {
+  it('shortlink without data remains actionable; resolved data enables the player placeholder', () => {
     const src = '```embed https://b23.tv/abcdefg\n```'
     expect(render(src)).not.toContain('nd-embed')
-    expect(render(src)).toContain('class="language-embed"')
+    expect(render(src)).toContain('href="https://b23.tv/abcdefg"')
 
     const data: RenderData = {
       links: new Map([['https://b23.tv/abcdefg', { url: 'https://www.bilibili.com/video/' + BILI_ID }]]),
     }
     const html = render(src, data)
     expect(html).toContain('data-nd-embed="bilibili:video"')
-    expect(html).toContain('bvid=' + BILI_ID)
+    expect(html).toContain('/video/' + BILI_ID)
   })
 
   it('`parseEmbedFence` 两种写法的分支判据是段数', () => {
@@ -245,7 +233,8 @@ describe('embed 渲染侧 —— 链接自动识别', () => {
     it(`独占一段的 ${url} → ${key}`, () => {
       const html = render(url)
       expect(html).toContain(`data-nd-embed="${key}"`)
-      expect(html).toContain('<iframe')
+      expect(html).toContain('data-nd-embed-load')
+      expect(html).not.toContain('<iframe')
     })
   }
 
@@ -285,7 +274,7 @@ describe('embed 渲染侧 —— 短链降级', () => {
     }
     const html = render('https://b23.tv/abcdefg', data)
     expect(html).toContain('data-nd-embed="bilibili:video"')
-    expect(html).toContain('bvid=' + BILI_ID)
+    expect(html).toContain('/video/' + BILI_ID)
   })
 
   it('★ 有数据但跳转目标不是已知平台 → 也降级', () => {

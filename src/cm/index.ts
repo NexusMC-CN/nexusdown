@@ -342,6 +342,8 @@ export type { BlockKind, BlockRange } from './commands';
 export { blockRangeAt, isTaskList } from './commands';
 export { addTab, removeTab, tabGroupAt, type TabGroup } from './tabs-actions';
 export { variantItemsFor } from './variants';
+export { extractLinkUrl, captureLinkEditTarget, applyLinkEdit } from './link-edit';
+export type { LinkDisplayMode, LinkEditTarget, ResolveLinks } from './link-edit';
 export type { VariantItem } from './variants';
 /*
  * 提及候选的形状 —— 工具栏的「提及」选择器用它。消费方按这个形状把候选
