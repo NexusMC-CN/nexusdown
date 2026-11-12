@@ -72,6 +72,7 @@ function installCardCore(ctx: RenderFeatureContext): void {
     for (let i = 0; i < tokens.length; i++) {
       const open = tokens[i]
       if (!open || open.type !== 'paragraph_open' || open.level !== 0) continue
+      if (/(?:^|\s)nd-no-card(?:\s|$)/.test(String(open.attrGet('class') ?? ''))) continue
 
       const inline = tokens[i + 1]
       const close = tokens[i + 2]

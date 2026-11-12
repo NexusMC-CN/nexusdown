@@ -441,7 +441,7 @@ export const fixtures: Fixture[] = [
     label: 'embed（URL 形式）',
     markdown: embed,
     covers: ['embed'],
-    expects: ['data-nd-embed="bilibili:video"', '<iframe class="nd-embed__frame"'],
+    expects: ['data-nd-embed="bilibili:video"', 'data-nd-embed-load', 'nd-embed__source'],
   },
   {
     id: 'image',

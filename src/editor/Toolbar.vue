@@ -46,7 +46,7 @@ defineOptions({ name: 'NexusdownToolbar' })
  * 这个项目已经踩过"运行时从 CDN 拉图标、离线时静默变空标签"的坑，
  * 十几个路径写在文件里，离线、SSR、剪包都不会出问题。
  */
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, shallowRef, watch } from 'vue'
 /*
  * ⚠️ **运行时依赖一律从引擎拿**（`../cm/index`），不要直接 import `@codemirror/*`。
  *
@@ -65,9 +65,8 @@ import {
   syntaxTree,
   undo,
   insertBlockMath,
-  insertEmbed,
   insertInlineMath,
-  insertLink,
+  captureLinkEditTarget,
   insertMention,
   insertTable,
   toggleBold,
@@ -96,6 +95,8 @@ import {
  * Motion Lab 没法单独渲染它们，也就没法逐帧审片。
  */
 import DemoStage from './demos/DemoStage.vue'
+import LinkPanel from './LinkPanel.vue'
+import type { LinkEditTarget, ResolveLinks } from '@nexusmc-cn/nexusdown/cm'
 import { getDemo, type DemoId, type DemoSpec } from './demos/demos'
 
 const props = defineProps<{
@@ -110,6 +111,7 @@ const props = defineProps<{
    * （理由见 `openMention`）。
    */
   mentionCandidates?: () => Promise<MentionCandidate[]>
+  resolveLinks?: ResolveLinks
 }>()
 
 /* ---------------------------------------------------------------- 图标 */
@@ -529,23 +531,14 @@ function runCommand(cmd: Command) {
 /* ---------------------------------------------------------------- 链接输入框 */
 
 const linkOpen = ref(false)
-const linkHref = ref('')
-const linkInput = ref<HTMLInputElement | null>(null)
+const linkTarget = shallowRef<LinkEditTarget | null>(null)
+const linkSession = ref(0)
 
 function openLink() {
-  if (!props.view) return
-  linkHref.value = ''
+  if (!props.view || props.view.state.readOnly) return
+  linkTarget.value = captureLinkEditTarget(props.view)
+  linkSession.value++
   linkOpen.value = true
-  nextTick(() => linkInput.value?.focus())
-}
-
-function confirmLink() {
-  const view = props.view
-  linkOpen.value = false
-  if (!view) return
-  if (linkHref.value.trim()) insertLink(linkHref.value)(view)
-  // 没填 URL 就只是关掉输入框，不往正文里插半截 `[](`
-  view.focus()
 }
 
 function cancelLink() {
@@ -801,7 +794,7 @@ const GROUPS: ToolButton[][] = [
        注意 `codeBlock` 有 `kind` 而这两个没有：前者会随光标进入代码块点亮，
        后两者是纯插入，编辑器侧也没有对应的"光标在里面"判定（`detectActive` 里没有它们）。 */
     { icon: 'blockMath', demo: 'blockMath', title: '块级公式', act: () => runCommand(insertBlockMath) },
-    { icon: 'embed', demo: 'embed', title: '嵌入', act: () => runCommand(insertEmbed) },
+    { icon: 'embed', demo: 'embed', title: '链接与媒体', act: openLink },
   ],
   [
     /* 撤销 / 重做是**动作**不是**开关**，没有 `kind` —— 不给它们写 `aria-pressed`。 */
@@ -1055,25 +1048,7 @@ function replayDemos(event: MouseEvent | FocusEvent) {
       Tab 会跳进一个看不见的输入框（0 高度 + `overflow: hidden` 只是**看不见**，
       元素照样在 tab 序列里）。
     -->
-    <div class="link-slot" :class="{ open: linkOpen }">
-      <div class="link-clip">
-        <div class="row link-row">
-          <input
-            ref="linkInput"
-            v-model="linkHref"
-            class="link-input"
-            type="url"
-            inputmode="url"
-            placeholder="https://example.com"
-            aria-label="链接地址"
-            @keydown.enter.prevent="confirmLink"
-            @keydown.esc.prevent="cancelLink"
-          >
-          <button type="button" class="tb txt primary" @mousedown.prevent @click="confirmLink">确定</button>
-          <button type="button" class="tb txt" @mousedown.prevent @click="cancelLink">取消</button>
-        </div>
-      </div>
-    </div>
+    <LinkPanel v-if="linkOpen && view && linkTarget" :key="linkSession" :view="view" :target="linkTarget" :resolve-links="resolveLinks" @close="cancelLink" />
 
     <!--
       提及选择器。**浮层**（不是链接那种内联输入行）：候选可能有几十上百个，

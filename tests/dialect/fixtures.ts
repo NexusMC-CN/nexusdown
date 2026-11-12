@@ -432,7 +432,7 @@ export const PARITY_CASES: readonly ParityCase[] = [
     axis: 'atomic',
     markdown: doc('```embed bilibili video BV1xx411c7mD\n```'),
     render: {
-      tags: ['div', 'iframe'],
+      tags: ['div', 'button', 'a'],
       classes: ['nd-embed', 'nd-embed--bilibili'],
     },
     // ⚠️ 编辑器侧是另一套类名（`nd-embed-card*`）—— 两侧**没有**共享契约。

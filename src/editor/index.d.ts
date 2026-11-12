@@ -1,6 +1,6 @@
 /** Public declarations for the compiled Vue editor components. */
 import type { DefineComponent } from 'vue'
-import type { EditorView, MentionCandidate, MentionResolutions, NexusdownOptions } from '@nexusmc-cn/nexusdown/cm'
+import type { EditorView, MentionCandidate, MentionResolutions, NexusdownOptions, ResolveLinks } from '@nexusmc-cn/nexusdown/cm'
 import type { KatexLike } from '@nexusmc-cn/nexusdown/render'
 
 export interface NexusdownEditorProps {
@@ -9,12 +9,14 @@ export interface NexusdownEditorProps {
   mathRenderer?: KatexLike
   mentionCandidates?: () => Promise<MentionCandidate[]>
   mentions?: MentionResolutions
+  resolveLinks?: ResolveLinks
   'onUpdate:modelValue'?: (value: string) => void
 }
 
 export interface NexusdownToolbarProps {
   view: EditorView | null
   mentionCandidates?: () => Promise<MentionCandidate[]>
+  resolveLinks?: ResolveLinks
 }
 
 /** 成品编辑器：CM6 宿主 + 工具栏 + 正文排版。 */

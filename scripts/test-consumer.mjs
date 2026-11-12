@@ -171,8 +171,16 @@ try {
       const { EditorView } = await import('@codemirror/view');
       const root = await import('@nexusmc-cn/nexusdown');
       const cm = await import('@nexusmc-cn/nexusdown/cm');
+      const media = await import('@nexusmc-cn/nexusdown/embed');
       const views = [];
       try {
+        const mediaRoot = document.createElement('div');
+        mediaRoot.innerHTML = root.renderMarkdown('https://www.bilibili.com/video/BV1xx411c7mD/');
+        const disposeMedia = media.mountEmbeds(mediaRoot);
+        if (!mediaRoot.querySelector('[data-nd-embed-load]') || mediaRoot.querySelector('iframe')) throw new Error('Media must stay inert until reader click');
+        mediaRoot.querySelector('button').click();
+        if (mediaRoot.querySelector('iframe')) throw new Error('Synthetic click loaded third-party media');
+        disposeMedia();
         for (const source of ${JSON.stringify([fence, tabbed])}) {
           for (const api of [root, cm]) {
             const doc = source + '\\n\\nTail';

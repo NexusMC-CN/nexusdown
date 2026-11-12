@@ -36,7 +36,7 @@ defineOptions({ name: 'NexusdownEditor' })
  * （`undo(view)` / `syntaxTree(view.state)`），而 `undo` / `syntaxTree`
  * 也是从同一个 `@nexusmc-cn/nexusdown/cm` 来的 ✓。
  */
-import type { EditorView, MentionCandidate, MentionResolutions, NexusdownOptions } from '@nexusmc-cn/nexusdown/cm'
+import type { EditorView, MentionCandidate, MentionResolutions, NexusdownOptions, ResolveLinks } from '@nexusmc-cn/nexusdown/cm'
 /*
  * ⚠️ **只 import type**（同上一行的 `EditorView`）—— `KatexLike` 是纯类型，
  * 编译期就被擦掉，不会变成运行时 import，也就不会把"第二份 CM6 / markdown-it"
@@ -107,6 +107,7 @@ const props = defineProps<{
    * 不传时**不报错**：卡片只显示源码 slug（**不画空的图标方块**）。
    */
   mentions?: MentionResolutions
+  resolveLinks?: ResolveLinks
 }>()
 
 const emit = defineEmits<{
@@ -212,7 +213,7 @@ defineExpose({ view })
 
 <template>
   <div class="nd-editor">
-    <NexusdownToolbar :view="view" :mention-candidates="mentionCandidates" />
+    <NexusdownToolbar :view="view" :mention-candidates="mentionCandidates" :resolve-links="resolveLinks" />
 
     <!--
       CodeMirror 自己往这个容器里塞 DOM。

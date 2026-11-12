@@ -4,6 +4,7 @@ export default defineConfig({
   entry: {
     index: 'src/index.ts',
     'render/index': 'src/render/index.ts',
+    'embed/index': 'src/embed/index.ts',
     // CodeMirror 6 引擎（「文本为真相」路线）
     'cm/index': 'src/cm/index.ts',
   },

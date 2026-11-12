@@ -287,7 +287,7 @@ src 仍由模板拼出来，用户给的 URL 本身**不进输出**。
 
 **短链**（`b23.tv` / `v.douyin.com` / `163cn.tv`）**渲染期解不了**（同步、不联网）：
 走 `RenderData.links` —— 消费方预先解析好传进来；没传就**降级成普通链接**（不要报错）。
-` ```embed <短链> ` 同理：有数据 → 播放器，没数据 → 普通代码块。
+` ```embed <短链> ` 同理：有数据 → 播放器占位，没数据 → 可操作的原链接。
 
 **编辑器侧**：复用 `fence.ts` 的逐行装饰（**不碰 block widget**）。
 非揭示态显示一张占位卡（provider 图标 + 标题），揭示态显示源码。
@@ -295,15 +295,23 @@ src 仍由模板拼出来，用户给的 URL 本身**不进输出**。
 ⚠️ **编辑器没有 `env`**，所以 ` ```embed <短链> ` 在编辑器里显示成**代码块**
 （渲染侧有数据时是播放器）—— 这是刻意的降级，因为编辑器不联网、也没有 `RenderData`。
 
-**渲染侧**：输出 `<div class="nd-embed">` + `<iframe>`：
+**渲染侧**：仅输出 `.nd-embed` 占位、`data-nd-embed-load` 按钮和始终可用的原站链接，不输出 iframe。浏览器宿主在正文挂载后调用独立入口：
+```ts
+import { mountEmbeds } from '@nexusmc-cn/nexusdown/embed'
+const dispose = mountEmbeds(container)
+// 导航或正文替换前：dispose()
+```
+`mountEmbeds` 只在可信用户点击后重新识别已知平台并按固定模板创建 iframe；委托监听也支持后续追加回复。清理函数移除监听和本次创建的播放器。`/render` 仍同步、无 DOM、无网络。iframe 使用：
 ```
 sandbox="allow-scripts allow-same-origin allow-popups allow-presentation"
-allow="fullscreen; autoplay"
+allow="fullscreen"
 referrerpolicy="strict-origin-when-cross-origin"
 loading="lazy"
 ```
 ⚠️ **默认点击才加载**（防首屏第三方追踪）：先渲染占位，用户点了才注入 iframe。
-⚠️ 离线时 iframe 空白 —— 必须有**可控的降级占位**。
+播放器 URL 默认禁用自动播放。跨源内部错误不可保证检测，原站入口始终保留。B 站保留 `p` 和 `t` 并接受结尾斜杠和 AV；网易云兼容 `/#/song` 和 `/#/playlist`。抖音竖屏、B 站横屏、歌曲和歌单使用各自高度。
+
+成品编辑器和独立工具栏均接受可选 `resolveLinks(urls, {signal}) => Promise<Record<string, LinkResolution>>`。统一“链接与媒体”面板接受一个 URL 或含一条 URL 的分享文案，提供普通链接、OG 卡片和已知平台播放器。模式保存在既有 `.no-card`、`.card` 和 `embed` 围栏中；显式模式优先于自动识别。元数据只作为文本与安全图片 URL 使用，不能注入 HTML 或任意 iframe。输入改变／关闭会取消旧请求；迟到结果不覆盖新输入；正文已变化时不覆盖旧选区。
 
 ---
 

@@ -44,6 +44,7 @@ const HOST_OPEN_TYPES: ReadonlySet<string> = new Set([
   'table_open',
   'fence',
   'blockquote_open',
+  'paragraph_open',
 ])
 
 /** 已实现的类变体。 */
@@ -178,6 +179,25 @@ export const attrsFeature: RenderFeature = {
     ctx.md.core.ruler.push('nd_attrs', (state) => {
       const tokens = state.tokens
 
+      // A mode suffix directly below a standalone link is part of the same
+      // Markdown paragraph. Remove only that suffix, preserving other breaks.
+      for (let i = 0; i < tokens.length; i++) {
+        const open = tokens[i]!
+        const inline = tokens[i + 1]
+        if (open.type !== 'paragraph_open' || open.level !== 0 || inline?.type !== 'inline') continue
+        const lines = inline.content.split('\n')
+        if (lines.length !== 2) continue
+        const attrs = parseAttrLine(lines[1]!)
+        if (!attrs?.some(attr => attr.kind === 'class' && ['card', 'no-card'].includes(attr.name))) continue
+        const children = inline.children ?? []
+        const breakIndex = children.findIndex(token => token.type === 'softbreak' || token.type === 'hardbreak')
+        const link = children.slice(0, breakIndex)
+        if (link.length !== 3 || link[0]?.type !== 'link_open' || link[1]?.type !== 'text' || link[2]?.type !== 'link_close') continue
+        if (!applyAttrs(open, attrs, warn)) continue
+        inline.content = lines[0]!.trimEnd()
+        inline.children = link
+      }
+
       for (let i = 0; i < tokens.length; i += 1) {
         const open = tokens[i]!
         if (open.type !== 'paragraph_open' || open.level !== 0) continue
@@ -191,6 +211,12 @@ export const attrsFeature: RenderFeature = {
 
         const host = findHost(tokens, i)
         if (!host) continue
+        if (host.type === 'paragraph_open') {
+          if (!attrs.some(attr => attr.kind === 'class' && ['card', 'no-card'].includes(attr.name))) continue
+          const index = tokens.indexOf(host)
+          const content = tokens[index + 1]?.children ?? []
+          if (content.length !== 3 || content[0]?.type !== 'link_open' || content[1]?.type !== 'text' || content[2]?.type !== 'link_close') continue
+        }
 
         // 一个都没认出来 → 保留原文（见文件头）。
         if (!applyAttrs(host, attrs, warn)) continue
