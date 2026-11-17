@@ -59,6 +59,7 @@ import { Decoration, WidgetType } from '@codemirror/view'
 
 import { renderMarkdown } from '../../render/index.js'
 import { parseAttrLine } from '../../shared/attrs.js'
+import type { ContentReferenceResolutions } from '../../shared/content-reference.js'
 import { setEditingBlock, setEditingRange } from '../plugin.js';
 import type { EditorFeature } from '../feature.js'
 import type { DecorationRanges, MarkdownNode } from '../types.js'
@@ -134,6 +135,7 @@ export class TableWidget extends WidgetType {
     readonly to = -1,
     /** `caption="…"` —— 渲染成 `<caption>`，和显示侧同一个标签。 */
     readonly caption?: string,
+    readonly contentReferences?: ContentReferenceResolutions,
   ) {
     super()
     this.lines = []
@@ -156,6 +158,7 @@ export class TableWidget extends WidgetType {
       other.from === this.from &&
       other.fields === this.fields &&
       other.caption === this.caption &&
+      other.contentReferences === this.contentReferences &&
       other.to === this.to
     )
   }
@@ -165,7 +168,7 @@ export class TableWidget extends WidgetType {
     wrap.className = this.fields ? 'nd-table nd-table--fields' : 'nd-table'
 
     try {
-      wrap.innerHTML = renderMarkdown(this.source)
+      wrap.innerHTML = renderMarkdown(this.source, { data: { contentReferences: this.contentReferences } })
       wrap.dataset.line = String(view.state.doc.lineAt(this.from).number)
       wrap.dataset.from = String(this.from)
       wrap.dataset.to = String(this.to)
@@ -287,8 +290,8 @@ export const tableFeature: EditorFeature = {
    * 见文件头「走的是块级通道」）。
    */
   block: true,
-  decorate(ranges, _atomicRanges, node, doc, selection, _context, blockEditing) {
-    decorateTable(ranges, node, doc, selection, blockEditing ?? null)
+  decorate(ranges, _atomicRanges, node, doc, selection, context, blockEditing) {
+    decorateTable(ranges, node, doc, selection, blockEditing ?? null, context?.contentReferences)
   },
 }
 
@@ -298,6 +301,7 @@ function decorateTable(
   doc: Text,
   selection: EditorSelection,
   blockEditing: number | null,
+  contentReferences?: ContentReferenceResolutions,
 ): void {
   /*
    * 块级 replace **必须**落在行首/行尾（CM6 要求整行）——
@@ -353,7 +357,7 @@ function decorateTable(
   ranges.push(
     Decoration.replace({
       block: true,
-      widget: new TableWidget(doc.sliceString(from, sourceTo), from, fields, to, caption?.value),
+      widget: new TableWidget(doc.sliceString(from, sourceTo), from, fields, to, caption?.value, contentReferences),
     }).range(from, to),
   )
 }

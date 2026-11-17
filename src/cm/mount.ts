@@ -38,6 +38,9 @@ import { nexusdown, type NexusdownOptions } from './index.js'
 import { setEditingBlock, setEditingRange } from './plugin.js'
 
 export interface MountEditorOptions {
+  /** Current content reference results. Updates never replace Markdown source. */
+  contentReferences?: NexusdownOptions['contentReferences']
+  contentReferenceProvider?: NexusdownOptions['contentReferenceProvider']
   /** CM6 往这个容器里塞 DOM。 */
   parent: HTMLElement
   /** 初始文档。 */
@@ -106,6 +109,8 @@ export function mountEditor(options: MountEditorOptions): EditorView {
          * 不传时 `nexusdown()` 的行为与没有这些参数时**一字不变**。
          */
         nexusdown({
+          contentReferences: options.contentReferences,
+          contentReferenceProvider: options.contentReferenceProvider,
           codeLanguages: options.codeLanguages,
           mathRenderer: options.mathRenderer,
           mentions: options.mentions,

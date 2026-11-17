@@ -62,13 +62,17 @@
  * run the result through a sanitiser (e.g. DOMPurify) before inserting it.
  */
 import MarkdownIt from 'markdown-it'
-import type { MarkdownIt as MarkdownItInstance } from 'markdown-it'
+import type { MarkdownIt as MarkdownItInstance, Token } from 'markdown-it'
+import { contentReferenceKey, type ContentReferenceTarget } from '../shared/content-reference.js'
+import { contentReferenceTargetOf } from './features/content-reference.js'
 
 import type { RenderData } from './feature.js'
 import { wwwOnlyAutolinkPlugin } from './autolink.js'
 import { markPlugin } from './mark.js'
 import { applyNexusdownRenderer, type CodeHighlighter } from './renderer.js'
 import { taskListPlugin } from './task-list.js'
+import { analyzeBlocks, type MarkdownBlock } from './markdown-blocks.js'
+export type { MarkdownBlock, MarkdownBlockKind } from './markdown-blocks.js'
 
 /**
  * A markdown-it plugin: a function that configures a parser instance.
@@ -80,6 +84,10 @@ export type MarkdownItPlugin = (md: MarkdownItInstance) => void
 export type { CodeHighlighter, CodeHighlightToken } from './renderer.js'
 
 export interface RenderMarkdownOptions {
+  /** Stable, distinct namespace per fragment, identical for SSR and hydration. */
+  idPrefix?: string
+  /** Display hierarchical heading numbers. Defaults to false. */
+  headingNumbers?: boolean
   /**
    * Optional synchronous highlighter for fenced code. Return plain-text slices,
    * never HTML. Invalid tokens and code over 65,536 UTF-16 units render plainly.
@@ -185,11 +193,28 @@ function resolveParser(plugins: MarkdownItPlugin[] | undefined): MarkdownItInsta
 export function renderMarkdown(markdown: string, options?: RenderMarkdownOptions): string {
   if (typeof markdown !== 'string' || markdown.trim() === '') return ''
   return resolveParser(options?.plugins).render(markdown, {
+    idPrefix: options?.idPrefix,
+    headingNumbers: options?.headingNumbers,
     data: options?.data,
     codeHighlighter: options?.codeHighlighter,
     diagramIdPrefix: options?.diagramIdPrefix,
     diagramSequence: 0,
   })
+}
+
+/** Same grammar and document context as renderMarkdown; never touches the DOM. */
+export function analyzeMarkdownBlocks(markdown: string, options?: RenderMarkdownOptions): MarkdownBlock[] {
+  if (typeof markdown !== 'string' || markdown.trim() === '') return []
+  const env = {
+    data: options?.data,
+    codeHighlighter: options?.codeHighlighter,
+    diagramIdPrefix: options?.diagramIdPrefix,
+    diagramSequence: 0,
+    idPrefix: options?.idPrefix,
+    headingNumbers: options?.headingNumbers,
+    ndFootnoteDefinitions: undefined,
+  }
+  return analyzeBlocks(resolveParser(options?.plugins), markdown, env)
 }
 
 /*
@@ -260,4 +285,29 @@ export {
  * ```
  */
 export { scanMentions, type MentionSpan } from '../shared/mention.js'
+
+export { contentReferenceKey, formatContentReference } from '../shared/content-reference.js'
+export type {
+  ContentReferenceTarget, ContentReferenceResolution, ContentReferenceResolutions,
+  ContentReferenceCandidate, ContentReferenceProvider,
+} from '../shared/content-reference.js'
+
+/** Extract facts from the same semantic tokens as rendering, never raw text. */
+export function extractContentReferences(markdown: string): ContentReferenceTarget[] {
+  if (typeof markdown !== 'string' || !markdown.trim()) return []
+  const targets = new Map<string, ContentReferenceTarget>()
+  function visit(tokens: readonly Token[]): void {
+    let linkDepth = 0
+    for (const token of tokens) {
+      if (token.type === 'link_open') linkDepth++
+      if (token.type === 'link_close') linkDepth--
+      if (linkDepth > 0 || token.type === 'image') continue
+      const target = contentReferenceTargetOf(token)
+      if (target) targets.set(contentReferenceKey(target), target)
+      if (token.children) visit(token.children)
+    }
+  }
+  visit(resolveParser(undefined).parse(markdown, {}))
+  return [...targets.values()]
+}
 

@@ -1,4 +1,5 @@
 import type { MarkdownIt as MarkdownItInstance, RendererRule } from 'markdown-it'
+import type { ContentReferenceResolutions } from '../shared/content-reference.js'
 
 /**
  * 一个**渲染侧功能模块**。
@@ -82,6 +83,8 @@ export function readRenderData(env: unknown): RenderData | undefined {
  * 因为渲染期只能做字符串匹配、不能规范化 URL。消费方在预取时按同样的原文建表即可。
  */
 export interface RenderData {
+  /** Full stable target key → current public result; never shared between requests. */
+  contentReferences?: ContentReferenceResolutions
   /** 原始链接文本 → 解析结果。 */
   links?: ReadonlyMap<string, LinkResolution>
 

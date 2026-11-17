@@ -44,6 +44,11 @@
     "src/shared"
   ],
   "exports": {
+    "./lightbox": {
+      "types": "./dist/lightbox/index.d.ts",
+      "import": "./dist/lightbox/index.js",
+      "require": "./dist/lightbox/index.cjs"
+    },
     "./embed": {
       "types": "./dist/embed/index.d.ts",
       "import": "./dist/embed/index.js",
@@ -137,6 +142,9 @@
   },
   "dependencies": {
     "markdown-it": "^15.0.2",
+    "markdown-it-container": "4.0.0",
+    "markdown-it-deflist": "4.0.0",
+    "markdown-it-footnote": "4.0.0",
     "pele": "1.7.0"
   },
   "devDependencies": {

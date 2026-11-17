@@ -387,6 +387,43 @@ div.nd-callout:not(.cm-line) {
   vertical-align: top;
 }
 
+/* Stable content references share the document palette in display and preview. */
+.nd-content-reference {
+  color: var(--nd-mention-fg, var(--nd-brand, var(--brand-ink, #0b6bcb)));
+  text-decoration: underline;
+  text-underline-offset: 0.16em;
+  overflow-wrap: anywhere;
+}
+.nd-content-reference__target::before { content: ' · '; }
+.nd-content-reference--unavailable {
+  color: var(--nd-text-3, var(--ink-3, #6b7280));
+  text-decoration: none;
+}
+.nd-content-reference-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15em;
+  box-sizing: border-box;
+  min-width: 0;
+  padding: 0.65em 0.85em;
+  border: 1px solid var(--nd-border, var(--line, #d0d7de));
+  border-radius: var(--nd-radius-sm, var(--r-sm, 6px));
+  color: inherit;
+  background: var(--nd-editor-bg, transparent);
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+.nd-content-reference-card__title { font-weight: 600; }
+.nd-content-reference-card__target,
+.nd-content-reference-card__summary { font-size: 0.9em; color: var(--nd-text-3, var(--ink-3, #6b7280)); }
+.nd-content-reference-card__summary {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+}
+.cm-editor .nd-content-reference-card { display: inline-flex; width: 100%; vertical-align: top; }
+
 /* =========================================================================
  * carousel —— 连续图片独占一段（渲染侧独有，编辑器侧仍是单张 ImageWidget）
  *
@@ -456,6 +493,42 @@ div.nd-callout:not(.cm-line) {
 }
 
 /* Link metadata and third-party media share the host's typography and colors. */
+.nd-container {
+  --nd-container-accent: var(--nd-callout-note, var(--info, #0969da));
+  margin: 1em 0;
+  padding: 0.85em 1em;
+  border: 1px solid var(--nd-border, #dce1e8);
+  border-left: 3px solid var(--nd-container-accent);
+  border-radius: var(--nd-radius, 6px);
+  color: var(--nd-text, inherit);
+  background: var(--nd-surface-2, transparent);
+  overflow-wrap: anywhere;
+}
+.nd-container--tip { --nd-container-accent: var(--nd-callout-tip, var(--success, #0f7b6c)); }
+.nd-container--info { --nd-container-accent: var(--nd-callout-info, var(--info, #0a7ea4)); }
+.nd-container--warning { --nd-container-accent: var(--nd-callout-warning, var(--warning, #9a6700)); }
+.nd-container--danger { --nd-container-accent: var(--nd-callout-danger, var(--danger, #cf222e)); }
+.nd-container__title, .nd-container > summary { margin: 0 0 0.5em; font-weight: 650; color: var(--nd-container-accent); }
+.nd-container > summary { cursor: pointer; }
+.nd-container > :last-child { margin-bottom: 0; }
+.nd-toc { margin: 1em 0; padding: 1em; border: 1px solid var(--nd-border, #dce1e8); border-radius: var(--nd-radius, 6px); }
+.nd-toc > ol { margin: 0; padding: 0; list-style: none; }
+.nd-toc li { margin: 0.25em 0; overflow-wrap: anywhere; }
+.nd-toc__level-2 { padding-inline-start: 1em; }
+.nd-toc__level-3 { padding-inline-start: 2em; }
+.nd-toc__level-4 { padding-inline-start: 3em; }
+.nd-toc__level-5 { padding-inline-start: 4em; }
+.nd-toc__level-6 { padding-inline-start: 5em; }
+.nd-heading-number { color: var(--nd-text-3, #667085); font-variant-numeric: tabular-nums; }
+.footnotes { margin: 1em 0; font-size: 0.9em; overflow-wrap: anywhere; }
+.footnotes-list { padding-inline-start: 1.75em; }
+.footnote-ref { font-size: 0.75em; }
+.footnote-ref a, .footnote-backref { text-decoration: none; }
+.footnote-item { scroll-margin-top: 4em; }
+.nd-footnote-label { font-weight: 600; margin-inline-end: 0.5em; }
+.nd-markdown-block dt, .markdown-body dt { font-weight: 650; margin-block-start: 0.75em; }
+.nd-markdown-block dd, .markdown-body dd { margin-inline-start: 1.5em; margin-block-end: 0.5em; }
+
 .nd-card { display: flex; gap: 16px; align-items: center; margin: 16px 0; padding: 16px; border: 1px solid var(--nd-border, #dce1e8); border-radius: 10px; color: var(--nd-text, inherit); text-decoration: none; overflow-wrap: anywhere; }
 .nd-card__body { display: flex; flex: 1; min-width: 0; flex-direction: column; gap: 6px; }
 .nd-card__title { font-weight: 600; }

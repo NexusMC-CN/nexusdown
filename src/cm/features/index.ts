@@ -1,5 +1,6 @@
 import { indexFeatures, type EditorFeature, type NormalizedFeatureIndex } from '../feature';
 import { attrsFeature } from './attrs';
+import { contentReferenceEditorFeature } from './content-reference';
 import { diagramFeature } from './diagram';
 import { emojiFeature } from './emoji';
 import { embedFeature } from './embed';
@@ -22,6 +23,7 @@ import { tabsFeature } from './tabs';
  * `createEditorFeatureMap()`，它会把消费方注入的渲染函数带进去。
  */
 export const EDITOR_FEATURES: readonly EditorFeature[] = [
+  contentReferenceEditorFeature,
   diagramFeature,
   emojiFeature,
   mathFeature,
@@ -62,6 +64,7 @@ export function createEditorFeatureMap(
 ): NormalizedFeatureIndex {
   if (!opts.mathRenderer && !opts.mentions) return EDITOR_FEATURE_BY_NODE;
   return indexFeatures([
+    contentReferenceEditorFeature,
     diagramFeature,
     emojiFeature,
     opts.mathRenderer ? createMathFeature(opts.mathRenderer) : mathFeature,

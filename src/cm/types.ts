@@ -1,6 +1,7 @@
 import type { EditorSelection, Range, Text } from '@codemirror/state';
 import type { Decoration, DecorationSet } from '@codemirror/view';
 import type { SyntaxNode } from '@lezer/common';
+import type { ContentReferenceResolutions } from '../shared/content-reference.js';
 
 /**
  * 装饰器看到的语法树节点：**稳定的** `SyntaxNode`。
@@ -52,6 +53,8 @@ export interface SourceRange {
 export interface DecorateContext {
   /** 这个 `FencedCode` 当前是否被折叠（内容行藏起来、只留标题栏）。 */
   folded: boolean;
+  /** Latest per-editor resolver data, read during each decoration build. */
+  contentReferences?: ContentReferenceResolutions;
 }
 
 /**

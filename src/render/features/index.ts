@@ -2,9 +2,14 @@ import type { RenderFeature } from '../feature'
 import { attrsFeature } from './attrs'
 import { calloutFeature } from './callout'
 import { carouselFeature } from './carousel'
+import { containerFeature } from './container'
+import { contentReferenceFeature } from './content-reference'
+import { definitionListFeature } from './definition-list'
 import { diagramFeature } from './diagram'
+import { documentFeature } from './document'
 import { emojiFeature } from './emoji'
 import { embedFeature } from './embed'
+import { footnoteFeature } from './footnote'
 import { linkCardFeature } from './link-card'
 import { mathFeature } from './math'
 import { mentionFeature } from './mention'
@@ -25,6 +30,9 @@ import { tabsFeature } from './tabs'
  *   它只动引用块内部的 token，不会让别的功能少看到东西。
  */
 export const RENDER_FEATURES: readonly RenderFeature[] = [
+  footnoteFeature,
+  containerFeature,
+  definitionListFeature,
   attrsFeature,
   tabsFeature,
   calloutFeature,
@@ -35,4 +43,6 @@ export const RENDER_FEATURES: readonly RenderFeature[] = [
   embedFeature,
   linkCardFeature,
   mentionFeature,
+  documentFeature,
+  contentReferenceFeature,
 ]

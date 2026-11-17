@@ -28,6 +28,9 @@ import { variantHover } from './features/variant-hover';
 import { nexusdownLivePreview } from './plugin';
 import { markdownKeymap } from './shortcuts';
 import { lineNumbersWithCode } from './line-numbers';
+import { contentReferenceMarkdown } from './features/content-reference';
+import { contentReferenceDataExtension } from './content-reference-data';
+import type { ContentReferenceProvider, ContentReferenceResolutions } from '../shared/content-reference.js';
 
 import { baseTheme } from './theme';
 import type { LinkReferences, UrlPolicy } from './types';
@@ -72,6 +75,10 @@ const codeHighlightStyle = HighlightStyle.define([
 ]);
 
 export interface NexusdownOptions {
+  /** Current results keyed by contentReferenceKey(target); update with updateContentReferences. */
+  contentReferences?: ContentReferenceResolutions;
+  /** Shared candidate provider for consumer toolbars. It never runs during rendering. */
+  contentReferenceProvider?: ContentReferenceProvider;
   /**
    * 代码块的语言支持。
    *
@@ -170,7 +177,8 @@ export function nexusdown(opts: NexusdownOptions = {}): Extension {
     //    不要用 `extensions: [...]` —— 那会整体**替换** base，丢掉 GFM，
     //    `~~删除线~~` 就不再被解析了。
     //    `addKeymap: false`：快捷键统一由 `shortcuts.ts` 提供，避免两份 keymap 打架。
-    markdown({ base: markdownLanguage, codeLanguages, defaultCodeLanguage, addKeymap: false }),
+    markdown({ base: markdownLanguage, extensions: [contentReferenceMarkdown], codeLanguages, defaultCodeLanguage, addKeymap: false }),
+    contentReferenceDataExtension(opts.contentReferences),
 
     nexusdownLivePreview({
       decorators: {
@@ -286,6 +294,14 @@ export { foldedBlocks, toggleFold } from './fold';
  * 详见 `mount.ts` 的文件头。
  */
 export { mountEditor, setEditorValue, type MountEditorOptions } from './mount';
+export { renderEditorPreview, type RenderEditorPreviewOptions } from './preview';
+export { insertContentReference } from './features/content-reference';
+export { updateContentReferences } from './content-reference-data';
+export { contentReferenceKey, formatContentReference } from '../shared/content-reference.js';
+export type {
+  ContentReferenceTarget, ContentReferenceResolution, ContentReferenceResolutions,
+  ContentReferenceCandidate, ContentReferenceProvider,
+} from '../shared/content-reference.js';
 /*
  * ★ **CM6 原语，给 `@nexusmc-cn/nexusdown/editor` 用。**
  *
