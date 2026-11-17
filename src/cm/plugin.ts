@@ -29,6 +29,7 @@ import {
 import type { EditorFeature, FeatureIndex, NormalizedFeatureIndex } from './feature.js';
 import { normalizeFeatures } from './feature.js';
 import { foldedBlocks } from './fold.js';
+import { contentReferenceData } from './content-reference-data.js';
 import type {
   DecorationBuild,
   SourceRange,
@@ -192,10 +193,13 @@ export function nexusdownLivePreview(opts: LivePreviewOptions = {}): Extension {
         u.startState.field(foldedBlocks, false) !== u.state.field(foldedBlocks, false);
       const sourceChanged =
         u.startState.field(editingRange, false) !== u.state.field(editingRange, false);
+      const contentReferencesChanged =
+        u.startState.field(contentReferenceData, false) !== u.state.field(contentReferenceData, false);
 
       if (
         foldChanged ||
         sourceChanged ||
+        contentReferencesChanged ||
         justEndedComposing ||
         u.docChanged ||
         u.viewportChanged ||
@@ -296,10 +300,10 @@ export function nexusdownLivePreview(opts: LivePreviewOptions = {}): Extension {
                * 只有围栏需要文档级状态，所以只对它读 field —— 别让每个被认领的
                * 节点都去 `field()` 一次。
                */
-              const context =
-                name === 'FencedCode'
-                  ? { folded: view.state.field(foldedBlocks, false)?.has(node.from) ?? false }
-                  : undefined;
+              const context = {
+                folded: name === 'FencedCode' && (view.state.field(foldedBlocks, false)?.has(node.from) ?? false),
+                contentReferences: view.state.field(contentReferenceData, false)?.resolutions,
+              };
               for (const feature of features) {
                 feature.decorate(ranges, atomicRanges, node, doc, selection, context);
               }
@@ -649,7 +653,7 @@ function blockDecorations(
       for (const feature of list) {
         feature.decorate(
           ranges, atomicRanges, node, doc, selection,
-          undefined, // context：块级功能不需要视图层的 folded ✓
+          { folded: false, contentReferences: state.field(contentReferenceData, false)?.resolutions },
           editing,
           source,
         );
@@ -677,7 +681,8 @@ function blockDecorations(
         syntaxTree(tr.startState) === syntaxTree(tr.state) &&
         tr.startState.selection.eq(tr.state.selection) &&
         tr.startState.field(editingBlock) === tr.state.field(editingBlock) &&
-        tr.startState.field(editingRange, false) === tr.state.field(editingRange, false)
+        tr.startState.field(editingRange, false) === tr.state.field(editingRange, false) &&
+        tr.startState.field(contentReferenceData, false) === tr.state.field(contentReferenceData, false)
       ) {
         return deco;
       }

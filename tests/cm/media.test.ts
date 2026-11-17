@@ -89,7 +89,7 @@ describe('media —— 两侧白名单一致（data:image 维度）', () => {
 describe('media —— 端到端：渲染侧 renderMarkdown', () => {
   it('放行的 data:image 渲染成真 <img>', () => {
     expect(renderMarkdown('![x](data:image/png;base64,AAAA)')).toBe(
-      '<p><img src="data:image/png;base64,AAAA" alt="x"/></p>',
+      '<p><img data-nd-image src="data:image/png;base64,AAAA" alt="x"/></p>',
     )
   })
 

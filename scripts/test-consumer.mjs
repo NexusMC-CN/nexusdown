@@ -207,15 +207,22 @@ try {
 	for (const format of ['esm', 'cjs']) {
 		step(`engine and renderer load in bare Node (${format})`, () => {
 			const imports = format === 'esm'
-				? "const engine = await import('@nexusmc-cn/nexusdown'); const cm = await import('@nexusmc-cn/nexusdown/cm'); const renderer = await import('@nexusmc-cn/nexusdown/render');"
-				: "const engine = require('@nexusmc-cn/nexusdown'); const cm = require('@nexusmc-cn/nexusdown/cm'); const renderer = require('@nexusmc-cn/nexusdown/render');"
+				? "const engine = await import('@nexusmc-cn/nexusdown'); const cm = await import('@nexusmc-cn/nexusdown/cm'); const renderer = await import('@nexusmc-cn/nexusdown/render'); const lightbox = await import('@nexusmc-cn/nexusdown/lightbox');"
+				: "const engine = require('@nexusmc-cn/nexusdown'); const cm = require('@nexusmc-cn/nexusdown/cm'); const renderer = require('@nexusmc-cn/nexusdown/render'); const lightbox = require('@nexusmc-cn/nexusdown/lightbox');"
 			const script = `${imports}
 				for (const api of [engine, cm]) {
-					for (const name of ['nexusdown', 'mountEditor', 'setEditorValue']) {
+					for (const name of ['nexusdown', 'mountEditor', 'setEditorValue', 'insertContentReference', 'updateContentReferences', 'contentReferenceKey', 'formatContentReference']) {
 						if (typeof api[name] !== 'function') throw new Error('Missing ' + name);
 					}
 				}
+				if (typeof lightbox.mountImageLightbox !== 'function') throw new Error('Missing lightbox export');
 				for (const api of [engine, renderer]) {
+					const target = { kind: 'tutorial', id: 'tutorial-1', fragmentType: 'block', fragmentId: 'block-1' };
+					if (api.contentReferenceKey(target) !== 'tutorial:tutorial-1#block:block-1' || api.formatContentReference(target) !== '[[tutorial:tutorial-1#block:block-1]]') throw new Error('Stable reference exports are incorrect');
+					const source = '[[tutorial:tutorial-1#block:block-1]]';
+					if (JSON.stringify(api.extractContentReferences(source)) !== JSON.stringify([target])) throw new Error('Semantic reference extraction failed');
+					const html = api.renderMarkdown(source, { data: { contentReferences: new Map([['tutorial:tutorial-1#block:block-1', { status: 'available', kind: 'tutorial', title: 'Current title', href: '/tutorials/current#block-block-1' }]]) } });
+					if (!html.includes('nd-content-reference-card') || !html.includes('Current title')) throw new Error('Current reference rendering failed');
 					if (!api.renderMarkdown('**consumer-ok**').includes('<strong>consumer-ok</strong>')) {
 						throw new Error('Renderer output is incorrect');
 					}
@@ -230,6 +237,73 @@ try {
 			return 'public functions and Markdown rendering verified'
 		})
 	}
+
+  step('packed content references refresh live data without replacing source or undo', () => {
+    const script = `
+      import { JSDOM } from 'jsdom';
+      const dom = new JSDOM('<!doctype html><body></body>', { pretendToBeVisual: true });
+      for (const key of ['window', 'document', 'navigator', 'MutationObserver', 'HTMLElement', 'Element', 'Node', 'Text', 'getComputedStyle', 'requestAnimationFrame', 'cancelAnimationFrame']) {
+        Object.defineProperty(globalThis, key, { value: dom.window[key], configurable: true });
+      }
+      const root = await import('@nexusmc-cn/nexusdown');
+      const cm = await import('@nexusmc-cn/nexusdown/cm');
+      const views = [];
+      try {
+        for (const api of [root, cm]) {
+          const source = 'intro\\n\\n[[post:p1]]';
+          const data = title => new Map([['post:p1', { status: 'available', kind: 'post', title, href: '/posts/p1' }]]);
+          const view = api.mountEditor({ parent: document.body, doc: source, contentReferences: data('First') });
+          views.push(view);
+          if (!view.contentDOM.querySelector('.nd-content-reference-card')?.textContent.includes('First')) throw new Error('Packed live preview missing');
+          view.dispatch({ changes: { from: 0, insert: 'x' }, selection: { anchor: 1 }, userEvent: 'input.type' });
+          const selection = view.state.selection;
+          api.updateContentReferences(view, data('Renamed'));
+          if (!view.contentDOM.querySelector('.nd-content-reference-card')?.textContent.includes('Renamed')) throw new Error('Packed current data update failed');
+          if (view.state.doc.toString() !== 'x' + source || !view.state.selection.eq(selection)) throw new Error('Data update changed source or selection');
+          if (!api.undo(view) || view.state.doc.toString() !== source) throw new Error('Data update changed undo history');
+          view.dispatch({ selection: { anchor: view.state.doc.length } });
+          if (!api.insertContentReference({ kind: 'resource', id: 'r1' })(view) || !view.state.doc.toString().endsWith('[[resource:r1]]')) throw new Error('Packed insertion command failed');
+        }
+      } finally {
+        for (const view of views) view.destroy();
+        dom.window.close();
+      }
+    `
+    run(process.execPath, ['--input-type=module', '-e', script], { cwd: appDir })
+    return 'root and /cm entrypoints keep live data, insertion, selection and undo intact'
+  })
+
+  // -------------------------------------------------------------------------
+  step('packed image lightbox delegates, views and disposes', () => {
+    const script = `
+      import { JSDOM } from 'jsdom';
+      import { renderMarkdown } from '@nexusmc-cn/nexusdown/render';
+      import { mountImageLightbox } from '@nexusmc-cn/nexusdown/lightbox';
+      const dom = new JSDOM('<!doctype html><body></body>', { url: 'https://consumer.invalid/' });
+      const document = dom.window.document;
+      const root = document.createElement('article');
+      document.body.append(root);
+      root.innerHTML = renderMarkdown('![First](/a.png) ![Second](/b.png)', { idPrefix: 'consumer' });
+      const events = [];
+      const delegate = mountImageLightbox(root, { onOpen: (images,index) => events.push({images,index}) });
+      root.querySelectorAll('img')[1].click();
+      if (events.length !== 1 || events[0].index !== 1 || events[0].images.length !== 2) throw new Error('Incorrect delegated image group');
+      if (document.querySelector('[role=dialog]')) throw new Error('Delegation created a default viewer');
+      delegate(); delegate();
+      document.body.style.overflow = 'scroll';
+      const dispose = mountImageLightbox(root);
+      root.querySelector('img').click();
+      if (!document.querySelector('[role=dialog]') || document.body.style.overflow !== 'hidden') throw new Error('Default viewer did not open');
+      const close = document.querySelector('[role=dialog] button[aria-label=关闭]');
+      close.click();
+      if (document.querySelector('[role=dialog]') || document.body.style.overflow !== 'scroll') throw new Error('Viewer close did not restore scrolling');
+      dispose(); dispose();
+      if (root.querySelector('img').hasAttribute('tabindex')) throw new Error('Image enhancement survived cleanup');
+      dom.window.close();
+    `
+    run(process.execPath, ['--input-type=module', '-e', script], { cwd: appDir })
+    return 'actual tarball image activation and default viewer verified'
+  })
 
   // -------------------------------------------------------------------------
   // Real consumer: checks published declarations, compiled editor and styles.
@@ -249,23 +323,38 @@ try {
       [
 				"import { createApp, h } from 'vue'",
 				"import { NexusdownEditor, NexusdownToolbar } from '@nexusmc-cn/nexusdown/editor'",
-				"import { nexusdown, mountEditor } from '@nexusmc-cn/nexusdown/cm'",
-				"import { renderMarkdown } from '@nexusmc-cn/nexusdown/render'",
+				"import { nexusdown, mountEditor, renderEditorPreview, insertContentReference, updateContentReferences, type ContentReferenceProvider } from '@nexusmc-cn/nexusdown/cm'",
+				"import { renderMarkdown, extractContentReferences, contentReferenceKey, formatContentReference, type ContentReferenceTarget, type ContentReferenceResolution } from '@nexusmc-cn/nexusdown/render'",
+				"import { mountImageLightbox, type ImageLightboxOptions } from '@nexusmc-cn/nexusdown/lightbox'",
 				"import '@nexusmc-cn/nexusdown/editor/style.css'",
 				"import '@nexusmc-cn/nexusdown/cm/theme.css'",
 				"import '@nexusmc-cn/nexusdown/dialect.css'",
-				"const html: string = renderMarkdown('**consumer-ok**')",
+				"const html: string = renderMarkdown('**consumer-ok**', { idPrefix: 'consumer', headingNumbers: true })",
+				"const preview: string = renderEditorPreview('# Consumer', { idPrefix: 'preview', headingNumbers: true })",
+				"const lightboxOptions: ImageLightboxOptions = { onOpen: (images, index) => console.log(images[index]?.url) }",
+				'console.log(preview, mountImageLightbox, lightboxOptions)',
 				'console.log(html, nexusdown(), mountEditor, NexusdownToolbar)',
+				"const target: ContentReferenceTarget = { kind: 'tutorial', id: 't1', fragmentType: 'block', fragmentId: 'b1' }",
+				"const resolution: ContentReferenceResolution = { status: 'available', kind: 'tutorial', title: 'Current', href: '/tutorials/t1#block-b1' }",
+				"const contentReferences = new Map([[contentReferenceKey(target), resolution]])",
+				"const contentReferenceProvider: ContentReferenceProvider = async ({ query, target, signal }) => signal.aborted ? [] : [{ target: target ?? { kind: 'resource', id: 'r1' }, title: query || 'Current' }]",
+				'console.log(formatContentReference(target), extractContentReferences(formatContentReference(target)), insertContentReference(target), updateContentReferences)',
 				"const editorProps: InstanceType<typeof NexusdownEditor>['$props'] = {",
 				"  modelValue: '# Hello',",
+				"  idPrefix: 'consumer-editor',",
+				"  headingNumbers: true,",
+				"  renderData: { links: new Map() },",
 				"  mathRenderer: { renderToString: (tex: string) => tex },",
 				"  mentionCandidates: async () => [{ slug: 'demo', title: 'Demo', kind: 'post' }],",
 				"  mentions: new Map(),",
+				"  contentReferences,",
+				"  contentReferenceProvider,",
 				"  'onUpdate:modelValue': (value: string) => console.log(value),",
 				'}',
 				"const toolbarProps: InstanceType<typeof NexusdownToolbar>['$props'] = {",
 				"  view: null,",
 				"  mentionCandidates: editorProps.mentionCandidates,",
+				"  contentReferenceProvider,",
 				'}',
 				'console.log(toolbarProps)',
 				"createApp({ render: () => h(NexusdownEditor, editorProps) }).mount('#app')",

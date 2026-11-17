@@ -121,6 +121,10 @@ const html = computed(() => renderMarkdown(markdown.value))
 
 ## 支持的内容
 
+内置脚注、自定义容器、定义列表、[TOC] 与可选标题编号；表格支持左、中、右对齐，常用 Emoji 和删除线继续沿用现有语法。完整示例、命名空间与编辑器预览接口见 [Markdown 扩展说明](./docs/markdown-extensions.md)。
+
+正文图片可通过独立入口启用灯箱，并交给宿主的 GSAP 查看器接管；分组、键盘、触摸与卸载用法见 [图片灯箱说明](./docs/image-lightbox.md)。
+
 | 内容 | 用法与边界 |
 | --- | --- |
 | Markdown 与 GFM | 标题、强调、删除线、行内代码、代码块、引用、列表、任务列表、链接、图片、表格、分隔线和硬换行 |

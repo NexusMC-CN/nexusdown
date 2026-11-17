@@ -57,7 +57,7 @@ import { computed, nextTick, onMounted, onUnmounted, ref, shallowRef, watch } fr
  *
  * 类型 import（`type`）是安全的 —— 编译期就擦掉了，不进运行时。
  */
-import type { BlockKind, Command, EditorView, MentionCandidate, VariantItem } from '@nexusmc-cn/nexusdown/cm'
+import type { BlockKind, Command, ContentReferenceProvider, EditorView, MentionCandidate, VariantItem } from '@nexusmc-cn/nexusdown/cm'
 import {
   applyBlockAttrs,
   blockKindAt,
@@ -96,6 +96,7 @@ import {
  */
 import DemoStage from './demos/DemoStage.vue'
 import LinkPanel from './LinkPanel.vue'
+import ContentReferencePanel from './ContentReferencePanel.vue'
 import type { LinkEditTarget, ResolveLinks } from '@nexusmc-cn/nexusdown/cm'
 import { getDemo, type DemoId, type DemoSpec } from './demos/demos'
 
@@ -112,6 +113,7 @@ const props = defineProps<{
    */
   mentionCandidates?: () => Promise<MentionCandidate[]>
   resolveLinks?: ResolveLinks
+  contentReferenceProvider?: ContentReferenceProvider
 }>()
 
 /* ---------------------------------------------------------------- 图标 */
@@ -536,6 +538,7 @@ const linkSession = ref(0)
 
 function openLink() {
   if (!props.view || props.view.state.readOnly) return
+  referenceOpen.value = false
   linkTarget.value = captureLinkEditTarget(props.view)
   linkSession.value++
   linkOpen.value = true
@@ -543,6 +546,19 @@ function openLink() {
 
 function cancelLink() {
   linkOpen.value = false
+  props.view?.focus()
+}
+
+const referenceOpen = ref(false)
+function openReference() {
+  const view = props.view
+  if (!view || !props.contentReferenceProvider || view.state.readOnly || view.compositionStarted || view.composing) return
+  referenceOpen.value = !referenceOpen.value
+  linkOpen.value = false
+  closeMention()
+}
+function closeReference() {
+  referenceOpen.value = false
   props.view?.focus()
 }
 
@@ -970,6 +986,18 @@ function replayDemos(event: MouseEvent | FocusEvent) {
         </div>
       </template>
 
+      <button
+        type="button"
+        class="tb tb-reference"
+        aria-label="插入引用"
+        aria-haspopup="dialog"
+        :aria-expanded="referenceOpen"
+        :disabled="!view || !contentReferenceProvider || view.state.readOnly"
+        @mousedown.prevent
+        @click="openReference"
+      >
+        插入引用
+      </button>
       <!--
         「＋ 变体」—— 给**光标所在的块**补一行属性（`{.steps}` / `{.fields}` / `{title="…"}`）。
 
@@ -1049,6 +1077,7 @@ function replayDemos(event: MouseEvent | FocusEvent) {
       元素照样在 tab 序列里）。
     -->
     <LinkPanel v-if="linkOpen && view && linkTarget" :key="linkSession" :view="view" :target="linkTarget" :resolve-links="resolveLinks" @close="cancelLink" />
+    <ContentReferencePanel v-if="referenceOpen && view && contentReferenceProvider" :view="view" :provider="contentReferenceProvider" @close="closeReference" />
 
     <!--
       提及选择器。**浮层**（不是链接那种内联输入行）：候选可能有几十上百个，
@@ -1179,6 +1208,7 @@ function replayDemos(event: MouseEvent | FocusEvent) {
   height: 16px;
   display: block;
 }
+.tb-reference { width: auto; padding: 0 8px; white-space: nowrap; }
 
 /* 图标里的数字（H1/H2/H3 的序号、有序列表的 1/2/3）。
    `stroke: none` 是必须的 —— `<svg>` 根上的 `stroke="currentColor"` 会继承下来，

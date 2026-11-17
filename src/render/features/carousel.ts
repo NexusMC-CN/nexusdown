@@ -35,6 +35,7 @@
  * 后者在 SSR 并发下会串号。
  */
 import type { StateCore, Token } from 'markdown-it'
+import { scopedRenderId } from '../../shared/render-ids.js'
 
 import type { RenderFeature, RenderFeatureContext } from '../feature.js'
 
@@ -124,7 +125,7 @@ function installCarouselCore(ctx: RenderFeatureContext): void {
 
       const token = new state.Token(CAROUSEL_TOKEN, '', 0)
       token.block = true
-      token.meta = { [CAROUSEL_META]: { images, prefix: `nd-c-${nextSeq(state.env)}` } }
+      token.meta = { [CAROUSEL_META]: { images, prefix: scopedRenderId(state.env, 'c-' + nextSeq(state.env)) } }
       // 三个 token 换一个，`i` 落到新 token 上；下一轮 `i++` 跳过它继续扫。
       tokens.splice(i, 3, token)
     }
@@ -135,10 +136,8 @@ function installCarouselCore(ctx: RenderFeatureContext): void {
  * 本次渲染内递增的轮播序号。
  *
  * ⚠️ 状态存在 `env`（每次 `md.render` 一份）而不是模块级变量：模块级计数器在
- * SSR 并发渲染下会互相串号。`env` 被冻结（罕见）时退化成进程级计数 —— 那样
- * id 可能重复，但**不会抛**（渲染永远优先保证不炸）。
+ * SSR 并发渲染下会互相串号。不可写 env 使用固定降级值，不修改模块级状态。
  */
-let fallbackSeq = 0
 function nextSeq(env: unknown): number {
   if (env && typeof env === 'object') {
     try {
@@ -147,10 +146,10 @@ function nextSeq(env: unknown): number {
       bag.__ndCarouselSeq = next
       return next
     } catch {
-      // `env` 不可写（冻结 / 只读代理）→ 落到进程级计数。
+      // 不可写的第三方 env 使用固定降级值。
     }
   }
-  return ++fallbackSeq
+  return 1
 }
 
 /**

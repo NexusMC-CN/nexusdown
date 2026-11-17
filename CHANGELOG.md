@@ -9,6 +9,18 @@
 
 ## [Unreleased]
 
+### 新增
+
+- 内置脚注、受控的 note/tip/info/warning/danger/details 容器、定义列表与 [TOC]；标题支持显式锚点及按需编号，普通标题默认保持原输出。
+- RenderMarkdownOptions 增加 idPrefix 与 headingNumbers；标题、脚注和图片轮播使用每次渲染独立的命名空间与计数，服务端与客户端可复现。
+- 导出 analyzeMarkdownBlocks，为编辑器返回同一解析器生成的源码范围与预览 HTML，不引入 DOM 或网络。
+- 正文图片增加 data-nd-image 标记，供独立灯箱入口激活；卡片缩略图保持普通链接行为。新增图片灯箱接入说明。
+
+### 兼容性提示
+
+- 表格三向对齐、226 个常用 Emoji shortcode 与 GFM 删除线继续保持；代码中的语法标记仍按原文显示。
+- 接受用户内容的应用仍需按自身策略消毒 HTML，并允许所需的语义标签、受控对齐和图片标记。默认不开放原始 HTML。
+
 ## [0.1.0] - 2026-10-28
 
 ### 新增

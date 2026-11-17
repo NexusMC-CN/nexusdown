@@ -448,7 +448,7 @@ export const fixtures: Fixture[] = [
     label: '图片',
     markdown: image,
     covers: ['image'],
-    expects: ['<img src="/img-a.svg" alt="示例图"/>'],
+    expects: ['<img data-nd-image src="/img-a.svg" alt="示例图"/>'],
   },
   {
     id: 'carousel',

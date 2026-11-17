@@ -119,7 +119,7 @@ export function applyNexusdownRenderer(md: MarkdownIt): void {
     // markdown-it's own rule does — so this cannot just read the `alt` attribute.
     const alt = self.renderInlineAsText(token.children ?? [], options, env)
     return (
-      `<img src="${escapeHtml(String(src))}" alt="${escapeHtml(alt)}"` +
+      `<img data-nd-image src="${escapeHtml(String(src))}" alt="${escapeHtml(alt)}"` +
       `${title ? ` title="${escapeHtml(String(title))}"` : ''}/>`
     )
   }
