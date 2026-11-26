@@ -63,7 +63,6 @@ class VariantHover {
 
   private readonly onMove = (event: MouseEvent): void => this.handleMove(event)
   private readonly onLeave = (): void => this.scheduleHide()
-  private readonly onScroll = (): void => this.hide()
 
   constructor(private readonly view: EditorView) {
     const button = document.createElement('button')
@@ -85,7 +84,6 @@ class VariantHover {
     view.dom.appendChild(button)
     view.dom.addEventListener('mousemove', this.onMove)
     view.dom.addEventListener('mouseleave', this.onLeave)
-    view.scrollDOM.addEventListener('scroll', this.onScroll, { passive: true })
 
     this.button = button
   }
@@ -103,7 +101,11 @@ class VariantHover {
     this.button.remove()
     this.view.dom.removeEventListener('mousemove', this.onMove)
     this.view.dom.removeEventListener('mouseleave', this.onLeave)
-    this.view.scrollDOM.removeEventListener('scroll', this.onScroll)
+  }
+
+  onScroll(): void {
+    this.closeMenu()
+    this.hide()
   }
 
   private handleMove(event: MouseEvent): void {
@@ -422,7 +424,10 @@ class VariantHover {
  * 只做悬停 UI；没有变体可用的块（例如普通段落之外的东西）不会出现按钮。
  */
 export function variantHover() {
-  return ViewPlugin.fromClass(VariantHover)
+  return ViewPlugin.fromClass(VariantHover, {
+    // CM observes its scroller and ancestor scrollports, and owns disposal.
+    eventObservers: { scroll() { this.onScroll() } },
+  })
 }
 
 

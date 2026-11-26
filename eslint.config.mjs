@@ -8,6 +8,8 @@ export default tseslint.config(
     ignores: [
       'dist/**',
       'node_modules/**',
+      '.local/**',
+      '.superpowers/**',
       'examples/**/dist/**',
       'examples/**/node_modules/**',
       'examples/**/.astro/**',

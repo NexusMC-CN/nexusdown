@@ -46,7 +46,7 @@ defineOptions({ name: 'NexusdownToolbar' })
  * 这个项目已经踩过"运行时从 CDN 拉图标、离线时静默变空标签"的坑，
  * 十几个路径写在文件里，离线、SSR、剪包都不会出问题。
  */
-import { computed, nextTick, onMounted, onUnmounted, ref, shallowRef, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, shallowRef, toRaw, watch } from 'vue'
 /*
  * ⚠️ **运行时依赖一律从引擎拿**（`../cm/index`），不要直接 import `@codemirror/*`。
  *
@@ -85,6 +85,7 @@ import {
   removeTab,
   type TabGroup,
   wrapCodeBlock,
+  observeEditorUpdates,
 } from '@nexusmc-cn/nexusdown/cm'
 /*
  * 演示注册表 + 画布外壳。
@@ -99,6 +100,7 @@ import LinkPanel from './LinkPanel.vue'
 import ContentReferencePanel from './ContentReferencePanel.vue'
 import type { LinkEditTarget, ResolveLinks } from '@nexusmc-cn/nexusdown/cm'
 import { getDemo, type DemoId, type DemoSpec } from './demos/demos'
+import { defaultToolbarGroups, type ToolbarAction, type ToolbarActionError, type ToolbarBuiltinId, type ToolbarConfig, type ToolbarContext } from './toolbar'
 
 const props = defineProps<{
   /** 编辑器实例。还没挂上时是 `null` —— 那时所有按钮都禁用。 */
@@ -114,6 +116,11 @@ const props = defineProps<{
   mentionCandidates?: () => Promise<MentionCandidate[]>
   resolveLinks?: ResolveLinks
   contentReferenceProvider?: ContentReferenceProvider
+  config?: ToolbarConfig
+}>()
+
+const emit = defineEmits<{
+  (event: 'action-error', value: ToolbarActionError): void
 }>()
 
 /* ---------------------------------------------------------------- 图标 */
@@ -281,21 +288,7 @@ const ICONS: Record<IconName, Shape[]> = {
 
 /* ---------------------------------------------------------------- 光标状态 */
 
-/**
- * 「光标现在在什么里」。用来给按钮点灯 —— 这是工具栏"有反馈"的一半
- * （另一半是按下时的下沉，见样式里的 `:active`）。
- *
- * ⚠️ **不能靠 `View.updateListener`**：那个得作为 Extension 在 `EditorState.create()`
- * 时挂上，而 view 是在 `new.vue` 里建的（本组件只拿到一个只读的 `view`）。
- * CM6 也**没有**"给已存在的 view 追加 extension"的 API。
- * 所以退一步：在 `view.dom` 和 `document` 上挂几个原生事件，
- * 事件里直接读 `view.state`。**只读不写，不碰编辑器本体。**
- *
- * 触发点选得比较宽（`selectionchange` + `keyup`/`mouseup`/`input`/`focus`）：
- * 光标可能被键盘、鼠标、输入法、粘贴、撤销……任何一条路径改掉，
- * 少挂一个就会"点了加粗灯不亮"。重算本身是 O(树深)，很便宜；
- * 真正要防的是**无谓的 Vue 重渲染**，所以下面用 `lastKey` 挡一道。
- */
+/** Active formatting follows real CodeMirror transactions, including API edits. */
 type Kind =
   | 'bold' | 'italic' | 'inlineCode'
   | 'h1' | 'h2' | 'h3'
@@ -359,10 +352,17 @@ const activeKinds = ref<Kind[]>([])
 const variantKind = ref<BlockKind | null>(null)
 /** 上一次算出来的结果。相同就**不写 ref**，省掉一次整表重渲染。 */
 let lastKey = ''
+const stateRevision = ref(0)
 
 function refreshActive() {
+  stateRevision.value++
   const view = props.view
   if (!view) return
+  if (view.state.readOnly) {
+    closeFloatingMenus()
+    linkOpen.value = false
+    referenceOpen.value = false
+  }
   let next: Kind[]
   try {
     next = detectActive(view)
@@ -408,7 +408,7 @@ const variantTabGroup = ref<TabGroup | null>(null)
 
 function toggleVariants() {
   const view = props.view
-  if (!view) return
+  if (!view || view.state.readOnly) return
 
   /*
    * ⚠️ 打开菜单时**重新按当前光标算一次块类型**，不能依赖 `refreshActive` 的缓存：
@@ -449,21 +449,24 @@ function toggleVariants() {
 function addTabFromToolbar() {
   const view = props.view
   const group = variantTabGroup.value
-  if (!view || !group) return
+  if (!view || !group || view.state.readOnly) return
   variantOpen.value = false
+  closeDropdown()
   addTab(view, group)
 }
 
 function removeTabFromToolbar() {
   const view = props.view
   const group = variantTabGroup.value
-  if (!view || !group) return
+  if (!view || !group || view.state.readOnly) return
   variantOpen.value = false
+  closeDropdown()
   removeTab(view, group, 0)
 }
 
 function applyVariant(item: VariantItem) {
   variantOpen.value = false
+  closeDropdown()
   // 和悬停菜单同一套语义：互斥替换 + 已应用再点一次取消。
   runCommand(
     applyBlockAttrs(item.attr, variantTarget.value ?? undefined, {
@@ -475,42 +478,12 @@ function applyVariant(item: VariantItem) {
 
 function onVariantPointerDown(event: PointerEvent) {
   if (!variantOpen.value) return
-  const root = variantRoot.value
+  const root = mentionRoot.value
   if (root && !root.contains(event.target as Node)) variantOpen.value = false
 }
 
 onMounted(() => document.addEventListener('pointerdown', onVariantPointerDown))
 onUnmounted(() => document.removeEventListener('pointerdown', onVariantPointerDown))
-
-/** 从 view 上摘监听。view 换了（正常只有一次）或组件卸载时调用。 */
-let detach: (() => void) | null = null
-
-watch(
-  () => props.view,
-  (view) => {
-    detach?.()
-    detach = null
-    lastKey = ''
-    activeKinds.value = []
-    if (!view) return
-
-    const onAny = () => refreshActive()
-    const events = ['keyup', 'mouseup', 'input', 'focus'] as const
-    for (const e of events) view.dom.addEventListener(e, onAny)
-    /* 纯键盘移动光标（方向键）在 `keyup` 里能兜住，但输入法选词、粘贴、
-       点空白处落光标这些**不产生按键**的路径只有 `selectionchange` 看得见。 */
-    document.addEventListener('selectionchange', onAny)
-
-    detach = () => {
-      for (const e of events) view.dom.removeEventListener(e, onAny)
-      document.removeEventListener('selectionchange', onAny)
-    }
-    refreshActive()
-  },
-  { immediate: true },
-)
-
-onUnmounted(() => detach?.())
 
 /* ---------------------------------------------------------------- 命令 */
 
@@ -520,14 +493,13 @@ onUnmounted(() => detach?.())
  * `cmd(view)` 的返回值是「这次改动成没成立」（`false` = 没改，比如解包时
  * 节点里没有定界符），这里**不看它** —— 焦点该还还是要还。
  */
-function runCommand(cmd: Command) {
+function runCommand(cmd: Command): boolean {
   const view = props.view
-  if (!view) return
-  cmd(view)
+  if (!view || view.state.readOnly || disposed) return false
+  const result = cmd(view)
   view.focus()
-  /* 立刻重算一次，不等 `selectionchange` —— 那是异步的，
-     等它回来按钮会先闪一下旧状态再变，观感是"点了没反应"。 */
   refreshActive()
+  return result
 }
 
 /* ---------------------------------------------------------------- 链接输入框 */
@@ -626,7 +598,7 @@ let mentionToken = 0
 
 function openMention() {
   const view = props.view
-  if (!view) return
+  if (!view || view.state.readOnly) return
   // 已经开着 → 再点一次就是关掉（开关语义，和链接按钮的"只开不关"不同，
   // 因为它是个浮层，用户会想用同一个按钮收起它）。
   if (mentionOpen.value) {
@@ -754,15 +726,14 @@ onUnmounted(() => document.removeEventListener('pointerdown', onDocPointerDown))
 type DemoName = DemoId
 
 interface ToolButton {
-  /** `ICONS` 里的键。纯装饰，可读的名字在 `title` / `aria-label` 上。 */
-  icon: IconName
-  /** 悬停卡片里放哪一段演示。见 `DemoName`。 */
-  demo: DemoName
-  /** 悬停提示 + `aria-label`。快捷键要写进去 —— 用户从提示里学会键盘操作。 */
+  id: string
+  icon?: IconName
+  component?: ToolbarAction['icon']
+  demo?: DemoName
   title: string
-  act: () => void
-  /** 有这一项 = 是个"开关"，光标进去时点亮，并且会写 `aria-pressed`。 */
+  act?: () => void
   kind?: Kind
+  custom?: ToolbarAction
 }
 
 /**
@@ -778,46 +749,256 @@ function demoSpec(id: DemoId): DemoSpec {
   return spec
 }
 
-const GROUPS: ToolButton[][] = [
-  [
-    { icon: 'bold', demo: 'bold', title: '加粗（Ctrl/⌘ + B）', act: () => runCommand(toggleBold), kind: 'bold' },
-    { icon: 'italic', demo: 'italic', title: '斜体（Ctrl/⌘ + I）', act: () => runCommand(toggleItalic), kind: 'italic' },
-    { icon: 'inlineCode', demo: 'inlineCode', title: '行内代码（Ctrl/⌘ + `）', act: () => runCommand(toggleInlineCode), kind: 'inlineCode' },
-    /* 行内公式和上面三个同类（都是"一对定界符包住一段文字"），所以并在一组。
-       它**没有** `kind` —— 插入类按钮不是开关，不点亮 `aria-pressed`。 */
-    { icon: 'inlineMath', demo: 'inlineMath', title: '行内公式', act: () => runCommand(insertInlineMath) },
-  ],
-  [
-    { icon: 'h1', demo: 'h1', title: '一级标题', act: () => runCommand(toggleHeading(1)), kind: 'h1' },
-    { icon: 'h2', demo: 'h2', title: '二级标题', act: () => runCommand(toggleHeading(2)), kind: 'h2' },
-    { icon: 'h3', demo: 'h3', title: '三级标题', act: () => runCommand(toggleHeading(3)), kind: 'h3' },
-  ],
-  [
-    { icon: 'bullet', demo: 'bullet', title: '无序列表', act: () => runCommand(toggleBulletList), kind: 'bullet' },
-    { icon: 'ordered', demo: 'ordered', title: '有序列表', act: () => runCommand(toggleOrderedList), kind: 'ordered' },
-    { icon: 'quote', demo: 'quote', title: '引用', act: () => runCommand(toggleQuote), kind: 'quote' },
-    /* 表格是**块级结构**（GFM 管道表），和列表 / 引用同类，所以并进这一组。 */
-    { icon: 'table', demo: 'table', title: '插入表格', act: () => runCommand(insertTable) },
-  ],
-  [
-    { icon: 'link', demo: 'link', title: '插入链接', act: openLink },
-    /* 提及和链接一样是「插入一个指向」，所以并在一组、紧挨着放。
-       它**没有** `kind` —— 插入类不是开关，不点亮 `aria-pressed`
-       （和行内公式 / 表格 / 块级公式 / 嵌入同一条）。 */
-    { icon: 'mention', demo: 'mention', title: '提及', act: openMention },
-    { icon: 'codeBlock', demo: 'codeBlock', title: '插入代码块', act: () => runCommand(wrapCodeBlock), kind: 'codeBlock' },
-    /* 块级公式 / 嵌入和代码块一样是**围栏**（```math / ```embed），并在一组。
-       注意 `codeBlock` 有 `kind` 而这两个没有：前者会随光标进入代码块点亮，
-       后两者是纯插入，编辑器侧也没有对应的"光标在里面"判定（`detectActive` 里没有它们）。 */
-    { icon: 'blockMath', demo: 'blockMath', title: '块级公式', act: () => runCommand(insertBlockMath) },
-    { icon: 'embed', demo: 'embed', title: '链接与媒体', act: openLink },
-  ],
-  [
-    /* 撤销 / 重做是**动作**不是**开关**，没有 `kind` —— 不给它们写 `aria-pressed`。 */
-    { icon: 'undo', demo: 'undo', title: '撤销（Ctrl/⌘ + Z）', act: () => runCommand(undo) },
-    { icon: 'redo', demo: 'redo', title: '重做（Ctrl/⌘ + Shift + Z）', act: () => runCommand(redo) },
-  ],
-]
+const BUILTINS: Record<ToolbarBuiltinId, ToolButton> = {
+  bold: { id: 'bold', icon: 'bold', demo: 'bold', title: '加粗（Ctrl/⌘ + B）', act: () => runCommand(toggleBold), kind: 'bold' },
+  italic: { id: 'italic', icon: 'italic', demo: 'italic', title: '斜体（Ctrl/⌘ + I）', act: () => runCommand(toggleItalic), kind: 'italic' },
+  inlineCode: { id: 'inlineCode', icon: 'inlineCode', demo: 'inlineCode', title: '行内代码（Ctrl/⌘ + `）', act: () => runCommand(toggleInlineCode), kind: 'inlineCode' },
+  inlineMath: { id: 'inlineMath', icon: 'inlineMath', demo: 'inlineMath', title: '行内公式', act: () => runCommand(insertInlineMath) },
+  h1: { id: 'h1', icon: 'h1', demo: 'h1', title: '一级标题', act: () => runCommand(toggleHeading(1)), kind: 'h1' },
+  h2: { id: 'h2', icon: 'h2', demo: 'h2', title: '二级标题', act: () => runCommand(toggleHeading(2)), kind: 'h2' },
+  h3: { id: 'h3', icon: 'h3', demo: 'h3', title: '三级标题', act: () => runCommand(toggleHeading(3)), kind: 'h3' },
+  bullet: { id: 'bullet', icon: 'bullet', demo: 'bullet', title: '无序列表', act: () => runCommand(toggleBulletList), kind: 'bullet' },
+  ordered: { id: 'ordered', icon: 'ordered', demo: 'ordered', title: '有序列表', act: () => runCommand(toggleOrderedList), kind: 'ordered' },
+  quote: { id: 'quote', icon: 'quote', demo: 'quote', title: '引用', act: () => runCommand(toggleQuote), kind: 'quote' },
+  table: { id: 'table', icon: 'table', demo: 'table', title: '插入表格', act: () => runCommand(insertTable) },
+  link: { id: 'link', icon: 'link', demo: 'link', title: '插入链接', act: openLink },
+  mention: { id: 'mention', icon: 'mention', demo: 'mention', title: '提及', act: openMention },
+  codeBlock: { id: 'codeBlock', icon: 'codeBlock', demo: 'codeBlock', title: '插入代码块', act: () => runCommand(wrapCodeBlock), kind: 'codeBlock' },
+  blockMath: { id: 'blockMath', icon: 'blockMath', demo: 'blockMath', title: '块级公式', act: () => runCommand(insertBlockMath) },
+  embed: { id: 'embed', icon: 'embed', demo: 'embed', title: '链接与媒体', act: openLink },
+  undo: { id: 'undo', icon: 'undo', demo: 'undo', title: '撤销（Ctrl/⌘ + Z）', act: () => runCommand(undo) },
+  redo: { id: 'redo', icon: 'redo', demo: 'redo', title: '重做（Ctrl/⌘ + Shift + Z）', act: () => runCommand(redo) },
+  contentReference: { id: 'contentReference', title: '插入引用', act: openReference },
+  blockVariants: { id: 'blockVariants', icon: 'attrs', title: '块变体', act: toggleVariants },
+}
+
+const groups = computed(() => (props.config?.groups ?? defaultToolbarGroups).map(group => ({
+  ...group,
+  buttons: group.items.map(item => typeof item === 'string'
+    ? BUILTINS[item]
+    : { id: item.id, title: item.label, component: item.icon && toRaw(item.icon), custom: item } as ToolButton).filter(Boolean),
+})).filter(group => group.buttons.length))
+
+const openGroup = ref<string | null>(null)
+let dropdownTrigger: HTMLButtonElement | null = null
+let variantReturnFocus: HTMLButtonElement | null = null
+let disposed = false
+const pending = shallowRef(new Map<string, AbortController>())
+const actionError = shallowRef<ToolbarActionError | null>(null)
+const errorMessage = computed(() => {
+  const error = actionError.value?.error
+  return error instanceof Error ? error.message : String(error)
+})
+
+function contextFor(view: EditorView, signal?: AbortSignal): ToolbarContext {
+  return {
+    view,
+    runCommand: command => {
+      if (disposed || signal?.aborted || props.view !== view) return false
+      return runCommand(command)
+    },
+  }
+}
+
+function buttonActive(button: ToolButton): boolean | undefined {
+  void stateRevision.value
+  if (button.custom?.active === undefined) return button.kind ? isActive(button.kind) : undefined
+  const view = props.view
+  if (!view) return false
+  try {
+    const active = button.custom.active
+    return typeof active === 'function' ? active(contextFor(view)) : active
+  } catch { return false }
+}
+
+function buttonDisabled(button: ToolButton): boolean {
+  void stateRevision.value
+  const view = props.view
+  if (!view || view.state.readOnly || pending.value.has(button.id)) return true
+  if (button.id === 'contentReference' && !button.custom && !props.contentReferenceProvider) return true
+  const disabled = button.custom?.disabled
+  try { return typeof disabled === 'function' ? disabled(contextFor(view)) : !!disabled }
+  catch { return true }
+}
+
+function reportError(id: string, error: unknown) {
+  const failure = { id, error }
+  actionError.value = failure
+  emit('action-error', failure)
+}
+
+async function invoke(button: ToolButton, event: MouseEvent) {
+  if (buttonDisabled(button)) return
+  const view = props.view!
+  if (button.custom || button.id !== 'blockVariants') variantOpen.value = false
+  if (!button.custom) {
+    if (button.id === 'blockVariants') {
+      variantReturnFocus = openGroup.value ? dropdownTrigger : event.currentTarget as HTMLButtonElement
+    }
+    closeDropdown()
+    try { button.act?.() }
+    catch (error) { reportError(button.id, error) }
+    if (button.id === 'blockVariants') nextTick(() => {
+      const menu = mentionRoot.value?.querySelector<HTMLElement>('.variant-pop')
+      if (variantOpen.value && menu) {
+        positionMenuPopup(menu, variantReturnFocus)
+        menu.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus()
+      } else variantReturnFocus?.focus()
+    })
+    return
+  }
+  closeDropdown()
+  const controller = new AbortController()
+  pending.value = new Map(pending.value).set(button.id, controller)
+  if (actionError.value?.id === button.id) actionError.value = null
+  try {
+    await button.custom.run({ ...contextFor(view, controller.signal), signal: controller.signal })
+  } catch (error) {
+    if (!controller.signal.aborted && !disposed && props.view === view) reportError(button.id, error)
+  } finally {
+    if (pending.value.get(button.id) === controller) {
+      const next = new Map(pending.value)
+      next.delete(button.id)
+      pending.value = next
+    }
+  }
+}
+
+function abortActions() {
+  for (const controller of pending.value.values()) controller.abort()
+  pending.value = new Map()
+}
+
+function closeDropdown(restoreFocus = false) {
+  openGroup.value = null
+  if (restoreFocus) dropdownTrigger?.focus()
+}
+
+function focusMenu(groupId: string, last = false) {
+  nextTick(() => {
+    if (openGroup.value !== groupId) return
+    positionDropdown()
+    const entries = Array.from(mentionRoot.value?.querySelectorAll<HTMLButtonElement>('.category-menu button[role="menuitem"]:not(:disabled)') ?? [])
+    entries[last ? entries.length - 1 : 0]?.focus()
+  })
+}
+
+/** Fixed menus stay inside the viewport even when their trigger wraps left. */
+function positionDropdown() {
+  const menu = mentionRoot.value?.querySelector<HTMLElement>('.category-menu')
+  if (menu) positionMenuPopup(menu, dropdownTrigger)
+}
+
+function positionMenuPopup(menu: HTMLElement, trigger: HTMLButtonElement | null) {
+  if (!trigger) return
+  const anchor = trigger.getBoundingClientRect()
+  const popup = menu.getBoundingClientRect()
+  const viewport = document.documentElement
+  const width = viewport.clientWidth || window.innerWidth
+  const height = viewport.clientHeight || window.innerHeight
+  menu.style.left = `${Math.max(8, Math.min(anchor.left, width - popup.width - 8))}px`
+  menu.style.top = `${anchor.bottom + popup.height + 14 <= height
+    ? anchor.bottom + 6
+    : Math.max(8, anchor.top - popup.height - 6)}px`
+}
+
+function toggleDropdown(groupId: string, event: MouseEvent | KeyboardEvent) {
+  dropdownTrigger = event.currentTarget as HTMLButtonElement
+  if (openGroup.value === groupId) { closeDropdown(); return }
+  variantOpen.value = false
+  openGroup.value = groupId
+  focusMenu(groupId)
+}
+
+function onDropdownTriggerKey(event: KeyboardEvent, groupId: string) {
+  if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return
+  event.preventDefault()
+  dropdownTrigger = event.currentTarget as HTMLButtonElement
+  openGroup.value = groupId
+  focusMenu(groupId, event.key === 'ArrowUp')
+}
+
+function onMenuKey(event: KeyboardEvent) {
+  const menu = event.currentTarget as HTMLElement
+  const entries = Array.from(menu.querySelectorAll<HTMLButtonElement>('button[role="menuitem"]:not(:disabled)'))
+  if (event.key === 'Escape') {
+    onToolbarKeydown(event)
+  } else if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+    event.preventDefault()
+    const index = entries.indexOf(document.activeElement as HTMLButtonElement)
+    const delta = event.key === 'ArrowDown' ? 1 : -1
+    entries[(index + delta + entries.length) % entries.length]?.focus()
+  } else if (event.key === 'Enter' || event.key === ' ') {
+    event.preventDefault()
+    ;(event.target as HTMLButtonElement).click()
+  }
+}
+
+/** Escape also reaches trigger-only and variant menus outside a category. */
+function onToolbarKeydown(event: KeyboardEvent) {
+  if (event.key !== 'Escape' || (!openGroup.value && !variantOpen.value)) return
+  event.preventDefault()
+  event.stopPropagation()
+  const target = variantOpen.value ? variantReturnFocus : dropdownTrigger
+  closeFloatingMenus()
+  if (target?.isConnected) target.focus()
+}
+
+function onDropdownPointer(event: PointerEvent) {
+  if (openGroup.value && !mentionRoot.value?.contains(event.target as Node)) closeDropdown()
+}
+
+function closeFloatingMenus() {
+  closeDropdown()
+  variantOpen.value = false
+  mentionOpen.value = false
+  mentionToken++
+}
+
+function onAncestorScroll(event: Event) {
+  const target = event.target
+  const root = mentionRoot.value
+  if (target === event.currentTarget || target === document || (target instanceof Node && root && target.contains(root))) closeFloatingMenus()
+}
+
+let detachUpdates: (() => void) | undefined
+watch(() => props.view, view => {
+  detachUpdates?.()
+  abortActions()
+  closeFloatingMenus()
+  linkOpen.value = false
+  referenceOpen.value = false
+  linkTarget.value = null
+  lastKey = ''
+  activeKinds.value = []
+  variantKind.value = null
+  actionError.value = null
+  stateRevision.value++
+  detachUpdates = view ? observeEditorUpdates(view, refreshActive) : undefined
+  if (view) refreshActive()
+}, { immediate: true, flush: 'sync' })
+
+watch(() => props.config, () => {
+  abortActions()
+  closeFloatingMenus()
+  linkOpen.value = false
+  referenceOpen.value = false
+}, { deep: true })
+
+onMounted(() => {
+  document.addEventListener('pointerdown', onDropdownPointer)
+  window.addEventListener('scroll', onAncestorScroll, true)
+  window.addEventListener('resize', closeFloatingMenus)
+})
+onUnmounted(() => {
+  disposed = true
+  detachUpdates?.()
+  abortActions()
+  mentionToken++
+  document.removeEventListener('pointerdown', onDropdownPointer)
+  window.removeEventListener('scroll', onAncestorScroll, true)
+  window.removeEventListener('resize', closeFloatingMenus)
+})
 
 /* ---------------------------------------------------------------- 卡片文案 */
 
@@ -896,7 +1077,7 @@ function replayDemos(event: MouseEvent | FocusEvent) {
   if (!wrap) return
   positionDemo(wrap)
   wrap.querySelectorAll('.demo-stage *').forEach((el) => {
-    for (const anim of el.getAnimations()) {
+    for (const anim of el.getAnimations?.() ?? []) {
       anim.currentTime = 0
       anim.play()
     }
@@ -905,129 +1086,76 @@ function replayDemos(event: MouseEvent | FocusEvent) {
 </script>
 
 <template>
-  <div ref="mentionRoot" class="cm-toolbar">
+  <div ref="mentionRoot" class="cm-toolbar" @keydown="onToolbarKeydown">
     <div class="row" role="toolbar" aria-label="正文格式">
-      <template v-for="(group, gi) in GROUPS" :key="gi">
+      <template v-for="(group, gi) in groups" :key="group.id">
         <span v-if="gi" class="sep" aria-hidden="true" />
-
-        <!--
-          每个按钮包一层 `.tb-wrap`，是为了给悬停卡片一个定位基准。
-          **不能**直接把卡片塞进 `<button>` 里：`<button>` 的内容模型只收
-          短语内容（放 `<div>` 是非法 HTML），而且 `.tb:active` 的
-          `transform: translateY(1px)` 会造出一个包含块，卡片会跟着按钮一起抖。
-
-          卡片按按钮的实际位置定位，工具栏折行后也保持在视口内。
-        -->
-        <div
-          v-for="b in group"
-          :key="b.icon"
-          class="tb-wrap"
-          @mouseenter="replayDemos"
-          @focusin="replayDemos"
-        >
+        <div class="toolbar-group" role="group" :aria-label="group.label">
           <button
+            v-if="group.display === 'dropdown'"
             type="button"
-            class="tb"
-            :class="{ on: isActive(b.kind) }"
-            :aria-label="b.title"
-            :aria-pressed="b.kind ? isActive(b.kind) : undefined"
-            :disabled="!view"
+            class="tb category-trigger"
+            :aria-label="group.label"
+            aria-haspopup="menu"
+            :aria-expanded="openGroup === group.id"
             @mousedown.prevent
-            @click="b.act()"
+            @click="toggleDropdown(group.id, $event)"
+            @keydown="onDropdownTriggerKey($event, group.id)"
           >
-            <!-- 图标纯装饰：名字在按钮的 aria-label 上，读屏不会读到它。 -->
-            <svg
-              class="ico"
-              viewBox="0 0 16 16"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="1.5"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              aria-hidden="true"
-              focusable="false"
-            >
-              <template v-for="(s, si) in ICONS[b.icon]" :key="si">
-                <path v-if="s.t === 'p'" :d="s.d" />
-                <circle v-else-if="s.t === 'c'" :cx="s.cx" :cy="s.cy" :r="s.r" fill="currentColor" stroke="none" />
-                <rect
-                  v-else-if="s.t === 'r'"
-                  :x="s.x" :y="s.y" :width="s.w" :height="s.h" :rx="s.rx"
-                  fill="currentColor" stroke="none"
-                />
-                <text v-else class="ico-t" :x="s.x" :y="s.y" :style="{ fontSize: `${s.size}px` }">{{ s.v }}</text>
-              </template>
-            </svg>
+            {{ group.label }} <span aria-hidden="true">⌄</span>
           </button>
-
-          <!--
-            悬停卡片。整块 `aria-hidden` —— 里面全是装饰（演示是给眼睛看的），
-            功能名和快捷键按钮的 `aria-label` 上已经有了。
-
-            ⚠️ 按钮上**没有** `title` 了。原生 tooltip 会在悬停约 1 秒后弹出来，
-            正好压在这张卡片上，两个提示叠在一起。名字和快捷键卡片里都有。
-          -->
-          <div class="demo-pop" aria-hidden="true">
-            <div class="demo-head">
-              <span class="demo-name">{{ toolName(b.title) }}</span>
-              <kbd v-if="toolKey(b.title)" class="demo-key">{{ toolKey(b.title) }}</kbd>
+          <div
+            v-if="group.display !== 'dropdown' || openGroup === group.id"
+            :class="group.display === 'dropdown' ? 'category-menu' : 'inline-items'"
+            :role="group.display === 'dropdown' ? 'menu' : undefined"
+            :aria-label="group.display === 'dropdown' ? group.label : undefined"
+            @keydown="group.display === 'dropdown' && onMenuKey($event)"
+          >
+            <div
+              v-for="b in group.buttons"
+              :key="b.id"
+              class="tb-wrap"
+              @mouseenter="replayDemos"
+              @focusin="replayDemos"
+            >
+              <button
+                type="button"
+                class="tb"
+                :class="{ on: buttonActive(b), 'tb-label': group.display === 'dropdown' || (!b.icon && !b.component) }"
+                :aria-label="b.title"
+                :aria-pressed="buttonActive(b)"
+                :aria-busy="pending.has(b.id) || undefined"
+                :aria-haspopup="!b.custom && b.id === 'blockVariants' ? 'menu' : !b.custom && (b.id === 'contentReference' || b.id === 'link' || b.id === 'embed') ? 'dialog' : undefined"
+                :aria-expanded="!b.custom && b.id === 'blockVariants' ? variantOpen : !b.custom && b.id === 'contentReference' ? referenceOpen : undefined"
+                :role="group.display === 'dropdown' ? 'menuitem' : undefined"
+                :disabled="buttonDisabled(b)"
+                @mousedown.prevent
+                @click="invoke(b, $event)"
+              >
+                <component :is="b.component" v-if="b.component" class="ico" aria-hidden="true" />
+                <svg v-else-if="b.icon" class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+                  <template v-for="(s, si) in ICONS[b.icon]" :key="si">
+                    <path v-if="s.t === 'p'" :d="s.d" />
+                    <circle v-else-if="s.t === 'c'" :cx="s.cx" :cy="s.cy" :r="s.r" fill="currentColor" stroke="none" />
+                    <rect v-else-if="s.t === 'r'" :x="s.x" :y="s.y" :width="s.w" :height="s.h" :rx="s.rx" fill="currentColor" stroke="none" />
+                    <text v-else class="ico-t" :x="s.x" :y="s.y" :style="{ fontSize: `${s.size}px` }">{{ s.v }}</text>
+                  </template>
+                </svg>
+                <span v-if="group.display === 'dropdown' || (!b.icon && !b.component)">{{ toolName(b.title) }}</span>
+              </button>
+              <div v-if="b.demo" class="demo-pop" aria-hidden="true">
+                <div class="demo-head">
+                  <span class="demo-name">{{ toolName(b.title) }}</span>
+                  <kbd v-if="toolKey(b.title)" class="demo-key">{{ toolKey(b.title) }}</kbd>
+                </div>
+                <DemoStage :spec="demoSpec(b.demo)" />
+              </div>
             </div>
-
-            <!--
-              演示画面由**注册表**画（`src/editor/demos/demos.ts`），这里只负责
-              "这个按钮演哪一段"。
-
-              ⚠️ **演示的 DOM 和 CSS 只有一份**，就在 `demos/` 里 —— 不再在这个模板里
-              写 `v-if` 分支。Motion Lab 审片时渲染的是同一个 `<DemoStage>`，
-              所以"卡片里看到的"和"逐帧审的"永远是同一帧。
-            -->
-            <DemoStage :spec="demoSpec(b.demo)" />
           </div>
         </div>
       </template>
-
-      <button
-        type="button"
-        class="tb tb-reference"
-        aria-label="插入引用"
-        aria-haspopup="dialog"
-        :aria-expanded="referenceOpen"
-        :disabled="!view || !contentReferenceProvider || view.state.readOnly"
-        @mousedown.prevent
-        @click="openReference"
-      >
-        插入引用
-      </button>
-      <!--
-        「＋ 变体」—— 给**光标所在的块**补一行属性（`{.steps}` / `{.fields}` / `{title="…"}`）。
-
-        为什么是一个独立按钮，而不是给列表/表格按钮各加一个下拉：
-        变体是"当前块"的属性，不是"某个按钮"的属性 —— 光标在表格里时，
-        列表按钮的下拉没有意义。一个按钮 + 按块过滤的菜单，用户只需要记住
-        "变体在这里"。
-
-        菜单项只列**两侧都已实现**的属性（见 `variantItems` 的注释）。
-      -->
-      <span class="sep" aria-hidden="true" />
-      <div ref="variantRoot" class="tb-wrap variant-wrap">
-        <button
-          type="button"
-          class="tb"
-          :class="{ on: variantOpen }"
-          aria-label="块变体"
-          title="块变体：给当前块加步骤 / 卡片 / 参数表 / 代码标题"
-          aria-haspopup="menu"
-          :aria-expanded="variantOpen"
-          :disabled="!view"
-          @mousedown.prevent
-          @click="toggleVariants"
-        >
-          <svg class="ico" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
-            <text class="ico-t" x="8" y="11.5" :style="{ fontSize: '7.6px' }">{}</text>
-          </svg>
-        </button>
-
-        <div v-if="variantOpen" class="variant-pop" role="menu" aria-label="块变体">
+      <div ref="variantRoot" class="variant-anchor">
+        <div v-if="variantOpen" class="variant-pop" role="menu" aria-label="块变体" @keydown="onMenuKey">
           <template v-if="variantTabGroup">
             <button
               type="button"
@@ -1065,6 +1193,8 @@ function replayDemos(event: MouseEvent | FocusEvent) {
         </div>
       </div>
     </div>
+
+    <p v-if="actionError" class="toolbar-error" role="alert">{{ errorMessage }}</p>
 
     <!--
       链接的 URL 输入行。内联而不是 `window.prompt`：原生弹窗会阻塞页面
@@ -1177,6 +1307,29 @@ function replayDemos(event: MouseEvent | FocusEvent) {
   gap: 2px;
   padding: 6px 22px;
 }
+
+.toolbar-group,
+.inline-items { display: inline-flex; align-items: center; gap: 2px; }
+.toolbar-group { position: relative; min-width: 0; max-width: 100%; }
+.inline-items { flex-wrap: wrap; min-width: 0; max-width: 100%; }
+.category-trigger { width: auto; gap: 5px; padding: 0 8px; white-space: nowrap; }
+.category-menu {
+  position: fixed;
+  z-index: 55;
+  min-width: 176px;
+  max-width: calc(100vw - 24px);
+  max-height: min(320px, calc(100vh - 24px));
+  overflow-y: auto;
+  padding: 4px;
+  background: var(--nd-surface, #fff);
+  border: 1px solid var(--nd-border);
+  border-radius: var(--nd-radius-md);
+  box-shadow: var(--nd-shadow-2);
+}
+.category-menu .tb-wrap { width: 100%; }
+.tb.tb-label { width: auto; gap: 8px; padding: 0 8px; white-space: nowrap; }
+.category-menu .tb { justify-content: flex-start; width: 100%; }
+.toolbar-error { margin: 0; padding: 6px 22px; color: var(--nd-danger, #cf222e); font-size: 12.5px; }
 
 .tb {
   flex: none;
@@ -1560,15 +1713,19 @@ function replayDemos(event: MouseEvent | FocusEvent) {
 /* ---------------------------------------------------------------- 块变体菜单 */
 
 /**
- * 「＋ 变体」的下拉。定位和 `.demo-pop` 同一档（按钮下方、右对齐），
- * 但**可点** —— 和演示卡片相反（那个 `pointer-events: none`）。
+ * 变体菜单与分类菜单一样，先按视口翻转/限位再聚焦；避免屏外按钮聚焦
+ * 触发祖先滚动，随即让滚动监听把刚打开的菜单关闭。
  */
 .variant-pop {
-  position: absolute;
-  top: calc(100% + 6px);
-  right: 0;
+  position: fixed;
+  top: 0;
+  left: 0;
   z-index: 60;
+  box-sizing: border-box;
   min-width: 176px;
+  max-width: calc(100vw - 16px);
+  max-height: min(320px, calc(100vh - 16px));
+  overflow-y: auto;
   padding: 4px;
   background: var(--nd-surface);
   border: 1px solid var(--nd-border);
@@ -1604,50 +1761,4 @@ function replayDemos(event: MouseEvent | FocusEvent) {
   color: var(--nd-text-3);
 }
 
-/* ---------------------------------------------------------------- 块变体菜单 */
-
-/**
- * 「＋ 变体」的下拉。定位和 `.demo-pop` 同一档（按钮下方、右对齐），
- * 但**可点** —— 和演示卡片相反（那个 `pointer-events: none`）。
- */
-.variant-pop {
-  position: absolute;
-  top: calc(100% + 6px);
-  right: 0;
-  z-index: 60;
-  min-width: 176px;
-  padding: 4px;
-  background: var(--nd-surface);
-  border: 1px solid var(--nd-border);
-  border-radius: var(--nd-radius);
-  box-shadow: var(--shadow-2, 0 6px 24px rgb(0 0 0 / 12%));
-}
-
-.variant-item {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  width: 100%;
-  padding: 6px 8px;
-  font: inherit;
-  font-size: 12.5px;
-  color: var(--nd-text);
-  text-align: left;
-  background: none;
-  border: 0;
-  border-radius: 4px;
-  cursor: pointer;
-}
-
-.variant-item:hover,
-.variant-item:focus-visible {
-  background: var(--nd-surface-2);
-  outline: none;
-}
-
-.variant-item code {
-  font: 11px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  color: var(--nd-text-3);
-}
 </style>
