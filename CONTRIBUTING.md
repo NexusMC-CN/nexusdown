@@ -1,133 +1,87 @@
 # 贡献指南
 
-## 环境要求
+## 环境与安装
 
-- Node.js 20 及以上（CI 覆盖 20 / 22 / 24）
-- pnpm 10.34.7（由 `package.json#packageManager` 固定）
-- Astro 和 Nuxt 示例使用 Node.js 22 或 24
-
-## 快速开始
+推荐使用 Node.js 24；CI 验证 Node.js 20 / 22 / 24，Astro 和 Nuxt 示例使用 22 / 24。pnpm 版本由 `package.json#packageManager` 固定为 10.34.7。
 
 ```bash
 corepack enable pnpm
 pnpm install --frozen-lockfile
-pnpm run verify   # typecheck + lint + test + build + exports
+pnpm run verify
 ```
 
-无 Corepack 的环境可先运行 `npm install -g pnpm@10.34.7`。提交根目录的 `pnpm-lock.yaml`，不要同时维护 npm lock。一次安装会处理根包和 `examples/*` 的依赖；示例通过 `workspace:*` 使用本地库，根包的 `prepare` 脚本会构建其发布入口。
+没有 Corepack 时可先运行 `npm install -g pnpm@10.34.7`。workspace 安装覆盖根包和 `examples/*`；示例通过 `workspace:*` 使用本地包，根包的 `prepare` 会构建发布入口。依赖变更提交根目录的 `pnpm-lock.yaml`；需要新增依赖安装脚本时，检查 `pnpm-workspace.yaml#onlyBuiltDependencies`（目前允许 `esbuild`、`sharp`）。
 
-workspace 允许构建器所需的 `esbuild` 和 Astro 图像处理所需的 `sharp` 安装脚本。新增依赖确实需要安装脚本时，应审查用途后更新 `pnpm-workspace.yaml` 的 `onlyBuiltDependencies`。
+## 开发与验证
 
-## 常用命令
-
-| 命令 | 说明 |
+| 命令 | 用途 |
 | --- | --- |
 | `pnpm run playground` | 启动交互演示 |
-| `pnpm test` | 运行单元测试（Vitest） |
+| `pnpm test` | 运行 Vitest 单元与集成测试 |
 | `pnpm run typecheck` | TypeScript 类型检查 |
-| `pnpm run lint` | ESLint 检查（`pnpm run lint:fix` 自动修复） |
-| `pnpm run build` | tsup 构建引擎与渲染器，Vite 编译 Vue 组件和样式 |
-| `pnpm run verify` | 类型、lint、测试、构建与导出检查 |
-| `pnpm run test:consumer` | 消费者冒烟测试（真实打包 + 隔离 pnpm 安装 + Vite 构建） |
-| `pnpm run pack:check` | 构建并查看将要发布的文件清单 |
+| `pnpm run lint` / `pnpm run lint:fix` | ESLint 检查 / 自动修复 |
+| `pnpm run build` | 构建引擎、渲染器、Vue 组件与样式 |
+| `pnpm run verify` | 类型、lint、测试、构建、导出及包类型检查 |
+| `pnpm run test:consumer` | 真实打包、隔离 pnpm 安装、类型与 Vite 消费者验证 |
+| `pnpm run test:editor:browser` | 真实浏览器编辑器回归，需先构建并安装 Chromium 浏览器 |
+| `pnpm run pack:check` | 预览待发布文件清单（`npm pack --dry-run`） |
 | `pnpm run build:vue-example` | 构建 Vue 示例 |
 | `pnpm run build:astro-example` | 构建 Astro + Vue 示例 |
 | `pnpm run build:nuxt-example` | 构建 Nuxt SSR 示例 |
 
-## 项目结构
+浏览器回归读取 `dist/editor`，修改组件或样式后先运行 `pnpm run build`。脚本会尝试常见 Chrome、Edge、Chromium 安装路径；未找到时，将 `CHROME_PATH` 环境变量设为浏览器可执行文件的路径。结果与截图保存在 `.local/editor-browser/`。`verify` 不包含浏览器回归、消费者冒烟或示例构建；按改动范围补充运行。
 
-```
-src/cm/        CodeMirror 6 编辑引擎、即时预览与主题
-src/editor/    Vue 3 编辑器与工具栏组件
-src/render/    支持 SSR 的 Markdown 渲染器
-src/shared/    编辑侧与展示侧的共享代码及样式
-scripts/       构建与校验脚本
-tests/         单元与集成测试
-examples/      Vue、Astro + Vue、Nuxt SSR 演示应用
-```
+jsdom 适合验证状态与文档变化；光标坐标、滚动、输入法与 CSS 裁剪需要真实浏览器验证。CI 会检查安装和构建是否改写已跟踪的输入文件。
 
-渲染入口必须支持服务端执行；创建 CodeMirror 编辑视图需要浏览器 DOM。CodeMirror 与 Lezer 是 peer dependencies，构建时必须保持 external，避免消费端出现多个模块实例。
+## 开发约定
 
-## 开发须知（易踩的坑）
+`src/cm/` 是 CodeMirror 编辑引擎，`src/editor/` 是 Vue 组件，`src/render/` 是 Markdown 渲染器，`src/shared/` 存放共享代码和样式。测试、校验脚本和示例分别位于 `tests/`、`scripts/`、`examples/`。
 
-### 1. 修改样式后必须构建
+- 渲染入口保持可在服务端执行；创建 CodeMirror 编辑视图需要浏览器 DOM。
+- CodeMirror 与 Lezer 是 peer dependencies，构建时保持 external，组合扩展时确保消费端解析到同一份模块实例。
+- Vue `/editor` 入口指向编译后的 `dist/editor/index.js`，样式是 `dist/editor/nexusdown.css`，公开类型来自 `src/editor/index.d.ts`。
+- `extensions`、`codeLanguages` 等引擎配置在组件挂载时读取；需要更换时通过 Vue `key` 重新挂载。工具栏与布局配置支持响应更新。
+- 新增 Markdown 语法时，同时考虑编辑侧扩展、组件 `previewPlugins` 和阅读侧 `renderMarkdown` 插件的一致性。
+- 修改公开入口时核对 `package.json#exports`、`files` 和类型声明，并运行 `test:consumer` 验证真实 tarball。
 
-Vue 编辑器样式由 Vite 输出到 `dist/editor/nexusdown.css`。修改组件或样式后运行 `pnpm run build`，再构建依赖发布入口的示例。
+## 提交与 PR
 
-### 2. Vue 组件通过编译后的入口发布
+从独立分支提交 PR，说明问题、改动后的行为和实际运行的验证；界面改动可附截图，公开 API 或行为变化同步更新文档与 `CHANGELOG.md`。
 
-`src/editor/index.js` 是源码入口，`/editor` 导出指向 Vite 生成的 `dist/editor/index.js`。不要让消费方直接解析组件源码；发布类型由 `src/editor/index.d.ts` 提供。
+提交信息使用 [Conventional Commits](https://www.conventionalcommits.org/zh-hans/)，例如 `feat: 新增工具栏动作`、`fix: 修正光标滚动`、`docs: 更新贡献指南`。标题可使用中文；当前 CI 的 commitlint 为提示性检查。
 
-### 3. 新增导出子路径时同步更新多处
+## 版本与发布
 
-修改 `package.json#exports` 时，请一并检查：
+根据对既有调用方的兼容性选择版本：新增可选参数、属性或导出通常是兼容功能；移除或重命名已有导出、改变必填参数或返回约定、删除公开 CSS 变量、使既有导出路径无法使用则属于不兼容变化。
 
-- `files[]` 是否包含对应目录
-- `pnpm run test:consumer` 是否通过（它会解析所有非通配导出键）
+- `1.x` 及以后：不兼容变化升 major，兼容功能升 minor，兼容修复升 patch。
+- `0.x` 阶段：不兼容变化与新增功能升 minor，兼容修复升 patch。不兼容变化仍需在 `CHANGELOG.md` 明确列出影响和迁移方法；跨版本重大迁移应提供完整迁移说明。
 
-### 4. 组件测试使用 jsdom，存在已知限制
+发布由维护者操作；以下 `N.N.N` 统一替换为本次 `package.json` 中的版本。
 
-jsdom 未实现浏览器的完整布局和输入行为。光标坐标、滚动、输入法及 CSS 裁剪需要真实浏览器验证；状态和文档变化可用 CodeMirror API 做单元回归。
-
-### 5. 测试必须能证伪
-
-新增回归测试后，请临时还原被修复的代码确认测试**会失败**。
-否则测试可能只是摆设——本项目已有多个测试通过这种方式验证过。
-
-## 提交规范
-
-使用 [Conventional Commits](https://www.conventionalcommits.org/zh-hans/)：
-
-```
-feat: 新增 Markdown 感知粘贴
-fix: 修正查找替换索引残留
-docs: 补充移动端适配说明
-test: 补充消费者冒烟测试
-chore: 升级 ESLint 到 10
-```
-
-允许的类型：`feat` `fix` `docs` `style` `refactor` `perf` `test` `build` `ci` `chore` `revert`。
-subject 可自由使用中文。commitlint 目前为**提示性**检查（`continue-on-error: true`），
-因为历史提交中存在不符合规范的记录。
-
-## 发布流程
-
-1. 查询 npm 上的版本，确认新版本尚未发布；执行 `npm whoami --registry=https://registry.npmjs.org/` 与 `npm owner ls @nexusmc-cn/nexusdown`，核对当前登录账号有该包的发布权限。
-2. 更新 `CHANGELOG.md`，把 `[Unreleased]` 的内容整理到新的版本号下，并更新 `package.json` 的 `version`（遵循语义化版本）。
-3. 在最终源码上依次运行 `corepack pnpm run verify`、`corepack pnpm run test:consumer` 与 `corepack pnpm run pack:check`，检查真实 tarball 的入口、类型、样式和第三方声明。
-4. 校验通过后按范围暂存本次发布的文件，检查暂存差异，再提交并推送版本改动，等待该提交的 CI 全部通过：
+1. 查询 npm 已有版本，确认目标版本未发布；更新 `package.json#version` 和 `CHANGELOG.md`，通过 PR 审核并合入。
+2. 在待发布提交上运行以下检查，确认入口、类型、样式及第三方声明随包发布，并等待该提交的 CI 通过：
 
    ```bash
-   git diff --cached --check
-   git commit -m "chore: release v0.1.0"
-   git push origin main
+   pnpm run verify
+   pnpm run test:consumer
+   pnpm run pack:check
    ```
 
-5. 由有发布权限的维护者在 npmjs 单独发布，并核对版本：
+   检查文件差异，确保发布提交与通过校验的源码一致。
+
+3. 有 npm 发布权限的维护者从该提交单独发布并核对结果：
 
    ```bash
    npm publish --access public --registry=https://registry.npmjs.org/
-   npm view @nexusmc-cn/nexusdown@0.1.0 version --registry=https://registry.npmjs.org/
+   npm view @nexusmc-cn/nexusdown@N.N.N version --registry=https://registry.npmjs.org/
    ```
 
-   如果账号启用了双重验证，按 npm 的提示完成验证；不要把凭据或一次性验证码写入仓库。
-
-6. 确认 npmjs 已发布后，再打标签并推送：
+4. 确认 npm 发布后，在同一发布提交创建并推送匹配包版本的标签：
 
    ```bash
-   git tag v0.1.0
-   git push origin v0.1.0
+   git tag vN.N.N
+   git push origin vN.N.N
    ```
 
-   推送标签会触发 GitHub Release 工作流；该工作流**不会**发布到 npmjs。
-
-任何 `exports` / `files` 的改动都可能破坏消费者的安装。发布前运行 `test:consumer`，验证真实 tarball 中的入口、类型和样式。
-
-## 破坏性变更
-
-以下改动属于破坏性变更，必须提升主版本号并在 CHANGELOG 中明确说明：
-
-- 修改或移除 `package.json#exports` 中的现有子路径
-- 移除或重命名已有的具名导出
-- 修改公开编辑 API 或组件 props、事件的签名
-- 修改公开 CSS 变量名（例如 `--nd-bg`）
+   标签工作流接受 `N.N.N` 或 `vN.N.N`，会检查其与包版本一致，然后构建、校验导出、打包 `.tgz` 并上传到 GitHub Release。它不会发布 npm；GitHub Release 和 npm 发布结果需分别确认。

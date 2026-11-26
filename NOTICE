@@ -1,2 +1,5 @@
-nexusdown references the visual language of Tiptap Simple Editor.
-Tiptap and its Simple Editor template are MIT licensed: https://github.com/ueberdosis/tiptap-ui-components
+nexusdown historically referenced the visual language of Tiptap Simple Editor.
+Design reference: https://github.com/ueberdosis/tiptap-ui-components (MIT).
+
+See THIRD_PARTY_NOTICES.md for notices covering third-party code and icons
+included in the current distributed sources and bundles.

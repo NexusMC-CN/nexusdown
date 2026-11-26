@@ -1,10 +1,20 @@
 # Third-party notices
 
-## Pele 1.7.0
+Notices for third-party code and icons included in nexusdown's distributed
+sources and bundles.
 
-https://github.com/obsidianmd/pele
+## Pele 1.7.0 (MIT)
 
-Pele and its text metrics are included in the bundled renderer.
+Source: [obsidianmd/pele](https://github.com/obsidianmd/pele/tree/1.7.0).
+
+The Pele engine is bundled into the CommonJS builds of the main, `/render`,
+and `/cm` entries. Their ESM builds import the `pele` dependency. The adapted
+text-measurement code in `src/shared/diagram-metrics.ts` ships as source and
+is included in both formats of those entries.
+
+The following is Pele 1.7.0's [upstream license](https://github.com/obsidianmd/pele/blob/1.7.0/LICENSE),
+including its attribution of the `rotate-ccw` icon to Lucide 1.14.0 (ISC).
+The reference to zoom controls describes Pele's own controls.
 
 MIT License
 
@@ -46,3 +56,19 @@ ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
 WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
 ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+
+## VSCode Icons
+
+Source: [vscode-icons](https://github.com/vscode-icons/vscode-icons), obtained
+through the [Iconify API](https://api.iconify.design/). The generator does not
+record an upstream version.
+
+The file-type SVGs in `src/cm/widgets/code-icons.ts` are included in the main,
+`/render`, and `/cm` builds in both formats. `scripts/build-code-icons.mjs`
+normalizes their whitespace for inline embedding.
+
+Attribution: Roberto Huertas and the vscode-icons contributors. The upstream
+[license section](https://github.com/vscode-icons/vscode-icons#license)
+distinguishes MIT-licensed source code from icons licensed under
+[CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/), and states that
+branded icons are licensed under their respective copyright licenses.
