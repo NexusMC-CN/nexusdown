@@ -2,6 +2,7 @@ import type { StateCore, Token } from 'markdown-it'
 import { normalizeRenderId, scopedRenderId } from '../../shared/render-ids.js'
 import { EMOJI_SHORTCODES, EMOJI_SHORTCODE_RE } from '../../shared/emoji-data.js'
 import type { RenderFeature } from '../feature.js'
+import { TABS_IDS_META } from './tabs.js'
 
 interface Heading { id: string; text: string; level: number; number?: string }
 interface DocumentEnv {
@@ -73,6 +74,10 @@ export const documentFeature: RenderFeature = {
       for (const candidate of tokens) {
         const meta = candidate.meta
         if (!meta || typeof meta !== 'object') continue
+        const tabIds: unknown = (meta as Record<string, unknown>)[TABS_IDS_META]
+        if (Array.isArray(tabIds)) {
+          for (const id of tabIds) if (typeof id === 'string') reserved.add(id)
+        }
         for (const value of Object.values(meta as Record<string, unknown>)) {
           if (!value || typeof value !== 'object') continue
           const { prefix, images } = value as { prefix?: unknown; images?: unknown }

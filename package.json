@@ -19,7 +19,7 @@
     "nuxt",
     "astro"
   ],
-  "version": "0.2.0",
+  "version": "0.2.1",
   "packageManager": "pnpm@10.34.7",
   "type": "module",
   "license": "MIT",
@@ -45,29 +45,54 @@
   ],
   "exports": {
     "./lightbox": {
-      "types": "./dist/lightbox/index.d.ts",
-      "import": "./dist/lightbox/index.js",
-      "require": "./dist/lightbox/index.cjs"
+      "import": {
+        "types": "./dist/lightbox/index.d.ts",
+        "default": "./dist/lightbox/index.js"
+      },
+      "require": {
+        "types": "./dist/lightbox/index.d.cts",
+        "default": "./dist/lightbox/index.cjs"
+      }
     },
     "./embed": {
-      "types": "./dist/embed/index.d.ts",
-      "import": "./dist/embed/index.js",
-      "require": "./dist/embed/index.cjs"
+      "import": {
+        "types": "./dist/embed/index.d.ts",
+        "default": "./dist/embed/index.js"
+      },
+      "require": {
+        "types": "./dist/embed/index.d.cts",
+        "default": "./dist/embed/index.cjs"
+      }
     },
     ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js",
-      "require": "./dist/index.cjs"
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
     },
     "./render": {
-      "types": "./dist/render/index.d.ts",
-      "import": "./dist/render/index.js",
-      "require": "./dist/render/index.cjs"
+      "import": {
+        "types": "./dist/render/index.d.ts",
+        "default": "./dist/render/index.js"
+      },
+      "require": {
+        "types": "./dist/render/index.d.cts",
+        "default": "./dist/render/index.cjs"
+      }
     },
     "./cm": {
-      "types": "./dist/cm/index.d.ts",
-      "import": "./dist/cm/index.js",
-      "require": "./dist/cm/index.cjs"
+      "import": {
+        "types": "./dist/cm/index.d.ts",
+        "default": "./dist/cm/index.js"
+      },
+      "require": {
+        "types": "./dist/cm/index.d.cts",
+        "default": "./dist/cm/index.cjs"
+      }
     },
     "./cm/theme.css": "./src/cm/theme.css",
     "./dialect.css": "./src/shared/dialect.css",
@@ -83,6 +108,7 @@
     "motion": "vite --config motion-lab/vite.config.ts",
     "test": "vitest run",
     "test:consumer": "node scripts/test-consumer.mjs",
+    "test:package": "node tests/package/check-exports.mjs && node tests/package/type-consumers.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
@@ -92,7 +118,7 @@
     "build:vue-example": "pnpm --filter nexusdown-vue-demo run build",
     "build:astro-example": "pnpm --filter nexusdown-astro-vue-demo run build",
     "build:nuxt-example": "pnpm --filter nexusdown-nuxt-ssr-demo run build",
-    "verify": "pnpm run typecheck && pnpm run lint && pnpm test && pnpm run build && pnpm run check:exports",
+    "verify": "pnpm run typecheck && pnpm run lint && pnpm test && pnpm run build && pnpm run check:exports && pnpm run test:package",
     "pack:check": "npm pack --dry-run"
   },
   "peerDependencies": {

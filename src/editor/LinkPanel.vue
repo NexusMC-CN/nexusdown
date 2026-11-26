@@ -45,6 +45,11 @@ watch(url, async (current) => {
 onBeforeUnmount(() => { generation++; request?.abort() })
 onMounted(() => nextTick(() => field.value?.focus()))
 function close() { emit('close'); props.view.focus() }
+function onInputKeydown(event: KeyboardEvent) {
+  if (event.key !== 'Enter' || event.isComposing) return
+  event.preventDefault()
+  submit()
+}
 function submit() {
   if (!url.value) return
   if (!applyLinkEdit(props.view, props.target, url.value, mode.value, resolution.value ?? undefined)) {
@@ -55,9 +60,9 @@ function submit() {
 }
 </script>
 <template>
-  <form class="link-panel" aria-label="链接与媒体" @submit.prevent="submit" @keydown.esc.prevent="close">
+  <div class="link-panel" role="group" aria-label="链接与媒体" @keydown.esc.prevent="close">
     <label class="link-panel__label">链接或分享文案
-      <input ref="field" v-model="input" type="text" autocomplete="off" placeholder="粘贴 URL 或含一个链接的分享文案" aria-label="链接或分享文案">
+      <input ref="field" v-model="input" type="text" autocomplete="off" placeholder="粘贴 URL 或含一个链接的分享文案" aria-label="链接或分享文案" @keydown="onInputKeydown">
     </label>
     <div class="link-panel__actions">
       <select v-model="mode" aria-label="展示方式">
@@ -65,7 +70,7 @@ function submit() {
         <option value="card">链接卡片</option>
         <option value="embed" :disabled="!embed">嵌入播放器</option>
       </select>
-      <button type="submit" :disabled="!url || (mode === 'embed' && !embed)">确定</button>
+      <button type="button" :disabled="!url || (mode === 'embed' && !embed)" @click="submit">确定</button>
       <button type="button" @click="close">取消</button>
     </div>
     <p v-if="loading" role="status">正在读取链接预览…</p>
@@ -80,7 +85,7 @@ function submit() {
         <p v-if="embed">播放器由读者点击后加载；默认不自动播放。</p>
       </div>
     </div>
-  </form>
+  </div>
 </template>
 <style scoped>
 .link-panel { padding: 12px 22px; border-top: 1px solid var(--nd-line, #ddd); display: grid; gap: 10px; font-size: 13px; }

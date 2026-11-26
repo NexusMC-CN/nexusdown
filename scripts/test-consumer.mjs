@@ -21,6 +21,7 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, 
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { assertTypeScriptConsumers } from '../tests/package/type-consumers.mjs'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const failures = []
@@ -80,14 +81,18 @@ function readDocumentedSubpaths() {
 /** Assert each export key maps to a file that actually exists in the tarball. */
 function assertExportTargetsExist(pkg, packageDir) {
   const missing = []
-  for (const [key, value] of Object.entries(pkg.exports)) {
-    if (key.includes('*')) continue
-    const targets = typeof value === 'string' ? [value] : Object.values(value)
-    for (const target of targets) {
+  function checkTarget(key, target) {
+    if (typeof target === 'string') {
       // `types` may point at a .ts source that ships alongside the runtime .js.
       const relative = target.replace(/^\.\//, '')
       if (!existsSync(join(packageDir, relative))) missing.push(`${key} -> ${target}`)
+    } else if (target && typeof target === 'object') {
+      for (const nestedTarget of Object.values(target)) checkTarget(key, nestedTarget)
     }
+  }
+  for (const [key, value] of Object.entries(pkg.exports)) {
+    if (key.includes('*')) continue
+    checkTarget(key, value)
   }
   if (missing.length) throw new Error(`missing export targets: ${missing.join(', ')}`)
   return `${Object.keys(pkg.exports).length} keys`
@@ -138,6 +143,8 @@ try {
 		const installedPkg = JSON.parse(readFileSync(join(installed, 'package.json'), 'utf8'))
 		return assertExportTargetsExist(installedPkg, installed)
 	})
+
+  step('packed ESM and CommonJS declarations type-check in Node projects', () => assertTypeScriptConsumers(appDir))
 
   // -------------------------------------------------------------------------
   // Resolution: plain Node must resolve the subpaths (this is what broke before)
