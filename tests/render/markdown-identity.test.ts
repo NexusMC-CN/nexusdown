@@ -36,6 +36,25 @@ describe('Markdown identity and mixed syntax', () => {
     expect(html).toContain('<h1 id="guide-install-2">install</h1>')
   })
 
+  it.each([
+    { idPrefix: 'post', first: 'post-tabs-1-1-2', second: 'post-tabs-1-2-2' },
+    { idPrefix: undefined, first: 'nd-tabs-1-1-2', second: 'nd-tabs-1-2-2' },
+  ])('keeps tab controls distinct from heading IDs with prefix $idPrefix', ({ idPrefix, first, second }) => {
+    const source = [
+      '[TOC]', '', '# tabs-1-1', '', '# Reserved {#tabs-1-2}', '',
+      '```sh', 'one', '```', '{tab="One"}', '',
+      '```sh', 'two', '```', '{tab="Two"}',
+    ].join('\n')
+    const html = renderMarkdown(source, { idPrefix })
+    const ids = Array.from(html.matchAll(/\bid="([^"]+)"/g), (match) => match[1])
+
+    expect(new Set(ids).size).toBe(ids.length)
+    expect(html).toContain(`<h1 id="${first}">tabs-1-1</h1>`)
+    expect(html).toContain(`<h1 id="${second}">Reserved</h1>`)
+    expect(html).toContain(`href="#${first}"`)
+    expect(html).toContain(`href="#${second}"`)
+  })
+
   it('does not close a container at a marker inside fenced code', () => {
     const fence = String.fromCharCode(96).repeat(3)
     const html = renderMarkdown('::: note\n\n' + fence + '\n:::\n' + fence +

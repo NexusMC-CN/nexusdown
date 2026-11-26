@@ -9,6 +9,20 @@
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-26
+
+### 新增
+
+- 成品编辑器支持按稳定动作 ID 配置工具栏分类、顺序与显示入口；常用动作平铺，扩展动作默认放入分类下拉，可添加自定义按钮和 Vue 图标。
+- 自定义工具栏动作支持选区状态、禁用状态、异步执行和取消信号，并发出 `action-error`；程序交易也会刷新按钮状态。
+- Vue 编辑器支持挂载额外 CodeMirror 扩展和预览插件；提供固定高度内部滚动与页面自然增高两种模式，以及有边界的工具栏吸顶和顶部偏移。
+
+### 变更
+
+- 编辑侧要求 `@codemirror/view` 6.26.0 及以上的 6.x 版本，以使用公开的滚动扩展接口。
+
+## [0.2.1] - 2026-11-26
+
 ### 新增
 
 - 内置脚注、受控的 note/tip/info/warning/danger/details 容器、定义列表与 [TOC]；标题支持显式锚点及按需编号，普通标题默认保持原输出。
@@ -16,10 +30,20 @@
 - 导出 analyzeMarkdownBlocks，为编辑器返回同一解析器生成的源码范围与预览 HTML，不引入 DOM 或网络。
 - 正文图片增加 data-nd-image 标记，供独立灯箱入口激活；卡片缩略图保持普通链接行为。新增图片灯箱接入说明。
 
+### 修复
+
+- 链接面板不再创建嵌套表单；点击确认或按 Enter 插入链接时不会触发宿主表单提交，输入法组词时保留 Enter 的原本行为。
+- 代码页签使用已有的 `idPrefix` 隔离同页多篇正文的控件 ID、radio 分组与标签目标，并避免与标题和目录锚点冲突。
+- 普通链接和自动链接中的提及保持原始文字与目标，不再生成嵌套链接；链接上下文采用单次扫描，避免大量提及时出现平方复杂度。
+- 编辑器对链接、图片与源码引用目标采用与阅读侧一致的 Markdown 解码和 URI 规范化，再执行 URL 策略；自动链接和已解析引用不重复解码。
+- 根入口及 `/render`、`/cm`、`/embed`、`/lightbox` 分别提供 ESM 与 CommonJS 类型声明，修复 CommonJS 消费项目的 TS1479；导出检查支持嵌套条件。
+- 补充编辑器快速卸载、正常销毁、宿主表单交互和真实安装包的回归验证，覆盖 Node16、NodeNext 两种 TypeScript 解析模式。
+
 ### 兼容性提示
 
 - 表格三向对齐、226 个常用 Emoji shortcode 与 GFM 删除线继续保持；代码中的语法标记仍按原文显示。
 - 接受用户内容的应用仍需按自身策略消毒 HTML，并允许所需的语义标签、受控对齐和图片标记。默认不开放原始 HTML。
+- 同页显示多个 Markdown 片段时，需要分别提供不同的稳定 `idPrefix`；服务端渲染与客户端使用同一值。省略时继续保持单篇文档的确定性输出。
 
 ## [0.1.0] - 2026-10-28
 
@@ -236,5 +260,7 @@
 - 自定义 Markdown 语法扩展点：`markdownTokenName` / `markdownTokenizer` / `parseMarkdown` / `renderMarkdown`。
 
 [Unreleased]: https://github.com/NexusMC-CN/nexusdown/commits/main
+[0.3.0]: https://github.com/NexusMC-CN/nexusdown/releases/tag/v0.3.0
+[0.2.1]: https://github.com/NexusMC-CN/nexusdown/releases/tag/v0.2.1
 [0.1.0]: https://github.com/NexusMC-CN/nexusdown/releases/tag/v0.1.0
 [0.0.0]: https://github.com/NexusMC-CN/nexusdown/releases

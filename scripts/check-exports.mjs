@@ -10,7 +10,7 @@
  * — while every check *inside* the repo still passed, because the repo's tests
  * import `src/` directly and never resolve the published entry points.
  *
- * The check is deliberately shallow: it asserts the declared targets exist and
+ * The check only asserts the declared targets exist and
  * nothing more. It does not bundle, import or type-check them, so it stays fast
  * enough to run on every `verify`.
  *
@@ -58,22 +58,20 @@ function checkTarget(key, condition, target) {
   checked.push(`${key} [${condition}] -> ${relative}`)
 }
 
-for (const [key, value] of Object.entries(pkg.exports ?? {})) {
-  // Shorthand form: "./style.css": "./src/style.css"
+function checkConditions(key, value, condition = '') {
   if (typeof value === 'string') {
-    checkTarget(key, 'default', value)
-    continue
+    checkTarget(key, condition || 'default', value)
+    return
   }
-  for (const [condition, target] of Object.entries(value)) {
-    if (typeof target === 'string') {
-      checkTarget(key, condition, target)
-    } else if (target && typeof target === 'object') {
-      // Nested conditions, e.g. `types: { import: ..., require: ... }`.
-      for (const [nestedCondition, nestedTarget] of Object.entries(target)) {
-        checkTarget(key, `${condition}.${nestedCondition}`, nestedTarget)
-      }
+  if (value && typeof value === 'object') {
+    for (const [nestedCondition, target] of Object.entries(value)) {
+      checkConditions(key, target, condition ? `${condition}.${nestedCondition}` : nestedCondition)
     }
   }
+}
+
+for (const [key, value] of Object.entries(pkg.exports ?? {})) {
+  checkConditions(key, value)
 }
 
 if (missing.length > 0) {

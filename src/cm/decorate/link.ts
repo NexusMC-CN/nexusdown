@@ -22,6 +22,7 @@
  */
 import type { EditorSelection, Text } from '@codemirror/state'
 import { Decoration, EditorView } from '@codemirror/view'
+import MarkdownIt from 'markdown-it'
 
 import type { DecorationRanges, LinkReferences, MarkdownNode, UrlPolicy } from '../types.js'
 import { defaultUrlPolicy } from '../url.js'
@@ -170,6 +171,14 @@ function stripAngleBrackets(url: string): string {
   return url.length >= 2 && url.startsWith('<') && url.endsWith('>') ? url.slice(1, -1) : url
 }
 
+// Reuse the publishing parser's CommonMark decoding and URI normalization.
+// This parser never renders documents; only its public link utilities are used.
+const markdownLinks = new MarkdownIt('zero')
+
+function decodeDestination(source: string): string {
+  return markdownLinks.utils.unescapeAll(stripAngleBrackets(source))
+}
+
 /**
  * 引用式链接的定义表：`label → url`。
  *
@@ -283,7 +292,17 @@ export function decorateLink(
 
   // ★ 白名单过滤必须在**渲染前**做。被拒时什么都不做 —— 源码原样显示，
   //   不会出现「藏了语法但没变成链接」的半渲染状态。
-  const href = rawUrl === undefined ? null : (urlPolicy ?? defaultUrlPolicy)(rawUrl)
+  // Retain the default policy's protocol-relative source restriction before
+  // URI normalization could encode leading backslashes as relative paths.
+  // Other scheme checks must wait until Markdown escapes have been decoded.
+  if (rawUrl !== undefined && !urlPolicy && /^[\\/]{2}/.test(stripAngleBrackets(rawUrl).trim())) return
+
+  // Autolinks and externally provided reference URLs are literal/resolved data:
+  // do not decode their entities again. Normalize before policy validation so
+  // decoded controls are URI-escaped and encoded unsafe schemes are rejected.
+  const isMarkdownDestination = (name === 'Link' || name === 'Image') && (parts.urlFrom >= 0 || !references)
+  const destination = rawUrl === undefined ? undefined : isMarkdownDestination ? decodeDestination(rawUrl) : rawUrl
+  const href = destination === undefined ? null : (urlPolicy ?? defaultUrlPolicy)(markdownLinks.normalizeLink(destination))
   if (!href) return
 
   // 链接和图片按各自节点揭示，同行其余内容不随之变成 Markdown 源码。

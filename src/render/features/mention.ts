@@ -150,6 +150,8 @@ function loneMention(inline: Token): { slug: string; fragment?: string } | null 
  */
 function installInlineTextRule(ctx: RenderFeatureContext): void {
   const previous = ctx.rules.text
+  // 一次 inline 渲染的 token 流固定；弱键不延长文档 token 的生命周期。
+  const linkContexts = new WeakMap<readonly Token[], Uint8Array>()
 
   ctx.rules.text = (tokens, idx, options, env, self) => {
     const content = tokens[idx]!.content
@@ -159,6 +161,20 @@ function installInlineTextRule(ctx: RenderFeatureContext): void {
     }
 
     const rendered = previous ? previous(tokens, idx, options, env, self) : ctx.escapeHtml(content)
+    // 只扫描一遍链接边界，避免大量强调/提及文本反复回扫而成为平方复杂度。
+    let insideLinks = linkContexts.get(tokens)
+    if (!insideLinks) {
+      insideLinks = new Uint8Array(tokens.length)
+      let depth = 0
+      for (let index = 0; index < tokens.length; index++) {
+        const type = tokens[index]!.type
+        if (type === 'link_open') depth++
+        else if (type === 'link_close') depth--
+        else if (depth > 0) insideLinks[index] = 1
+      }
+      linkContexts.set(tokens, insideLinks)
+    }
+    if (insideLinks[idx]) return rendered
     const spans = scanMentions(rendered)
     if (spans.length === 0) return rendered
 

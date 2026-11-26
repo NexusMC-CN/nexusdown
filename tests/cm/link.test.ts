@@ -21,6 +21,7 @@ import { decorateBlock } from '../../src/cm/decorate/block.js'
 import { decorateLink } from '../../src/cm/decorate/link.js'
 import { nexusdown } from '../../src/cm/index.js'
 import { ImageWidget } from '../../src/cm/widgets/image.js'
+import { renderMarkdown } from '../../src/render/index.js'
 
 interface Collected {
   ranges: Range<Decoration>[]
@@ -210,7 +211,7 @@ describe('decorateLink —— 行内链接 [文字](url)', () => {
     const c = collectLink('[x](<https://a.com/a b>)\n\n尾部', ['Link'])
 
     const links = c.ranges.filter((r) => isMark(r, 'nd-link'))
-    expect(hrefOf(links[0])).toBe('https://a.com/a b')
+    expect(hrefOf(links[0])).toBe('https://a.com/a%20b')
   })
 
   it('空文字 `[](url)`：只藏两段语法，不推零长度的 mark', () => {
@@ -221,6 +222,76 @@ describe('decorateLink —— 行内链接 [文字](url)', () => {
       [1, 17],
     ])
     expect(c.ranges.filter((r) => isMark(r, 'nd-link'))).toHaveLength(0)
+  })
+})
+
+describe('decorateLink —— Markdown destination parity', () => {
+  const cases = [
+    ['inline entities', '[search](https://example.com?q=a&amp;x=b)', 'https://example.com?q=a&x=b'],
+    ['inline escapes', String.raw`[page](https://example.com/a\(b\))`, 'https://example.com/a(b)'],
+    ['escaped scheme slash', String.raw`[page](https:\//example.com/path)`, 'https://example.com/path'],
+    ['escaped entity marker', String.raw`[page](https://example.com?q=\&amp;)`, 'https://example.com?q=&amp;'],
+    ['single entity decode', '[page](https://example.com?q=&amp;amp;)', 'https://example.com?q=&amp;'],
+    ['reference entities', '[search][ref]\n\n[ref]: https://example.com?q=a&amp;x=b', 'https://example.com?q=a&x=b'],
+    ['reference escapes', String.raw`[page][ref]
+
+[ref]: https://example.com/a\(b\)`, 'https://example.com/a(b)'],
+    ['reference angle brackets', '[page][ref]\n\n[ref]: <https://example.com?q=a&amp;x=b>', 'https://example.com?q=a&x=b'],
+    ['international URL', '[page](https://例子.测试/路径)', 'https://xn--fsqu00a.xn--0zwm56d/%E8%B7%AF%E5%BE%84'],
+    ['encoded control stays an inert relative URL', '[page](java&#x09;script:alert(1))', 'java%09script:alert(1)'],
+    ['autolink literal entities', '<https://example.com?q=a&amp;x=b>', 'https://example.com?q=a&amp;x=b'],
+    ['bare URL literal entities', 'https://example.com/path?q=a&amp;x=b', 'https://example.com/path?q=a&amp;x=b'],
+  ] as const
+
+  it.each(cases)('%s keeps the same destination while editing and reading', (_label, source, expected) => {
+    const names = source.startsWith('<') ? ['Autolink'] : source.startsWith('https://') ? ['URL'] : ['Link']
+    const collected = collectLink(source + '\n\n尾部', names)
+    const editorHref = collected.ranges.filter(r => isMark(r, 'nd-link')).map(hrefOf)
+    const article = document.createElement('article')
+    article.innerHTML = renderMarkdown(source)
+    expect(editorHref).toEqual([expected])
+    expect(article.querySelector('a')?.getAttribute('href')).toBe(expected)
+  })
+
+  it.each([
+    ['![image](https://example.com/a\\(b\\).png?x=1&amp;y=2)', 'https://example.com/a(b).png?x=1&y=2'],
+    ['![image][ref]\n\n[ref]: <https://example.com/a\\(b\\).png?x=1&amp;y=2>', 'https://example.com/a(b).png?x=1&y=2'],
+    ['![image](data:image/pn&#103;;base64,AA)', 'data:image/png;base64,AA'],
+    ['![image](data:image/png&#59;base64,AA)', 'data:image/png;base64,AA'],
+    [String.raw`![image](data:image\/png;base64,AA)`, 'data:image/png;base64,AA'],
+  ])('normalizes image destinations in %s', (source, expected) => {
+    const collected = collectLink(source + '\n\n尾部', ['Image'])
+    const widgets = collected.ranges.filter(isWidgetReplace)
+    expect(widgets).toHaveLength(1)
+    const widget = specOf(widgets[0].value).widget
+    const article = document.createElement('article')
+    article.innerHTML = renderMarkdown(source)
+    expect(widget).toMatchObject({ src: expected })
+    expect(article.querySelector('img')?.getAttribute('src')).toBe(expected)
+  })
+
+  it.each(['javascript&#x3a;alert(1)', 'java&#115;cript:alert(1)', String.raw`javascript\:alert(1)`, '&#47;&#47;evil.example/path'])(
+    'checks the decoded scheme before decorating %s', destination => {
+      const collected = collectLink(`[page](${destination})\n\n尾部`, ['Link'])
+      expect(collected.ranges).toHaveLength(0)
+      expect(collected.atomicRanges).toHaveLength(0)
+    },
+  )
+
+  it('passes a decoded destination to a custom URL policy', () => {
+    const seen: string[] = []
+    const collected = collectLink('[page](https://example.com?q=a&amp;x=b)\n\n尾部', ['Link'], {
+      urlPolicy: value => { seen.push(value); return null },
+    })
+    expect(seen).toEqual(['https://example.com?q=a&x=b'])
+    expect(collected.ranges).toHaveLength(0)
+  })
+
+  it('treats provided reference URLs as already resolved data', () => {
+    const collected = collectLink('[page][ref]\n\n[ref]: /ignored\n\n尾部', ['Link'], {
+      references: new Map([['ref', 'https://example.com?q=&amp;']]),
+    })
+    expect(collected.ranges.filter(r => isMark(r, 'nd-link')).map(hrefOf)).toEqual(['https://example.com?q=&amp;'])
   })
 })
 

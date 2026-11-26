@@ -294,6 +294,7 @@ export { foldedBlocks, toggleFold } from './fold';
  * 详见 `mount.ts` 的文件头。
  */
 export { mountEditor, setEditorValue, type MountEditorOptions } from './mount';
+export { observeEditorUpdates } from './observe';
 export { renderEditorPreview, type RenderEditorPreviewOptions } from './preview';
 export { insertContentReference } from './features/content-reference';
 export { updateContentReferences } from './content-reference-data';
@@ -314,7 +315,7 @@ export type {
  *
  * 所以统一走这里：UI 要什么，问引擎要。**一条解析路径，一个实例。**
  */
-export { EditorState } from '@codemirror/state';
+export { EditorState, type Extension } from '@codemirror/state';
 export { EditorView, keymap } from '@codemirror/view';
 export { defaultKeymap, redo, undo } from '@codemirror/commands';
 export { syntaxTree } from '@codemirror/language';

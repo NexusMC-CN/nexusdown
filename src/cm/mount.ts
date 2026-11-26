@@ -28,7 +28,7 @@
  * 是 **external**（peer）✓ → 由消费方提供，且**只在一个模块图里** ✓。
  */
 import { defaultKeymap, historyField } from '@codemirror/commands'
-import { Compartment, EditorState, StateEffect, Transaction } from '@codemirror/state'
+import { Compartment, EditorState, StateEffect, Transaction, type Extension } from '@codemirror/state'
 import { EditorView, keymap } from '@codemirror/view'
 
 import type { MentionCandidate } from './commands.js'
@@ -36,6 +36,7 @@ import type { MathRenderer } from './features/math.js'
 import type { MentionResolutions } from './features/mention.js'
 import { nexusdown, type NexusdownOptions } from './index.js'
 import { setEditingBlock, setEditingRange } from './plugin.js'
+import { editorScrollMargins } from './scroll-margins.js'
 
 export interface MountEditorOptions {
   /** Current content reference results. Updates never replace Markdown source. */
@@ -47,6 +48,15 @@ export interface MountEditorOptions {
   doc: string
   /** Language support for fenced code, using the same contract as nexusdown(). */
   codeLanguages?: NexusdownOptions['codeLanguages']
+  /** Additional mount-time extensions, appended after the built-in setup. */
+  extensions?: Extension
+  /** Current toolbar/navigation obstruction; evaluated by CodeMirror when scrolling. */
+  scrollMargins?: (view: EditorView) => {
+    top?: number
+    bottom?: number
+    left?: number
+    right?: number
+  } | null
   /**
    * 文档变化时回调（对应 `v-model` 的原值回填）。
    * 组字期间若有外部全文替换等待生效，该替换优先，暂不回流旧稿的后续组字变化；
@@ -155,6 +165,8 @@ export function mountEditor(options: MountEditorOptions): EditorView {
             return false
           },
         }),
+        options.scrollMargins ? editorScrollMargins(options.scrollMargins) : [],
+        options.extensions ?? [],
       ],
     }),
     parent: options.parent,

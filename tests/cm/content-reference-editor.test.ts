@@ -43,6 +43,7 @@ describe('content reference editor flow', () => {
       requests.push(request)
       return request.query === '资源' ? [resource] : [resource, tutorial, { target: { kind: 'post', id: 'p-1' }, title: '帖子一' }]
     })
+    await wrapper.get('button[aria-label="扩展"]').trigger('click')
     expect(wrapper.find('button[aria-label="插入引用"]').exists()).toBe(true)
     await wrapper.get('button[aria-label="插入引用"]').trigger('click')
     await flushPromises()
@@ -65,6 +66,7 @@ describe('content reference editor flow', () => {
       requests.push(request)
       return request.target ? [block] : [tutorial]
     })
+    await wrapper.get('button[aria-label="扩展"]').trigger('click')
     await wrapper.get('button[aria-label="插入引用"]').trigger('click')
     await flushPromises()
     await wrapper.get('[data-reference-candidate]').trigger('click')
@@ -82,6 +84,7 @@ describe('content reference editor flow', () => {
   it('aborts old searches and ignores results arriving after a newer query or cancel', async () => {
     const pending: { request: Request; resolve: (items: Candidate[]) => void }[] = []
     const { wrapper, view } = await editor(request => new Promise(resolve => pending.push({ request, resolve })))
+    await wrapper.get('button[aria-label="扩展"]').trigger('click')
     await wrapper.get('button[aria-label="插入引用"]').trigger('click')
     await wrapper.get('input[aria-label="搜索内容"]').setValue('new')
     expect(pending[0]?.request.signal.aborted).toBe(true)
@@ -108,6 +111,7 @@ describe('content reference editor flow', () => {
       if (fail) throw new Error('offline')
       return [resource]
     })
+    await wrapper.get('button[aria-label="扩展"]').trigger('click')
     await wrapper.get('button[aria-label="插入引用"]').trigger('click')
     await flushPromises()
     expect(wrapper.get('[role="alert"]').text()).toContain('搜索失败')
@@ -122,6 +126,7 @@ describe('content reference editor flow', () => {
 
   it('does not treat IME confirmation as choosing a candidate', async () => {
     const { wrapper, view } = await editor(async () => [resource])
+    await wrapper.get('button[aria-label="扩展"]').trigger('click')
     await wrapper.get('button[aria-label="插入引用"]').trigger('click')
     await flushPromises()
     const input = wrapper.get('input[aria-label="搜索内容"]')
@@ -136,6 +141,7 @@ describe('content reference editor flow', () => {
 
   it('keeps Enter activation available on panel action buttons', async () => {
     const { wrapper, view } = await editor(async () => [])
+    await wrapper.get('button[aria-label="扩展"]').trigger('click')
     await wrapper.get('button[aria-label="插入引用"]').trigger('click')
     await flushPromises()
     const enter = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })
@@ -148,6 +154,7 @@ describe('content reference editor flow', () => {
 
   it('inserts a whole tutorial as a separate card paragraph when requested', async () => {
     const { wrapper, view } = await editor(async () => [tutorial])
+    await wrapper.get('button[aria-label="扩展"]').trigger('click')
     await wrapper.get('button[aria-label="插入引用"]').trigger('click')
     await flushPromises()
     await wrapper.get('input[aria-label="独占段落显示为卡片"]').setValue(true)
@@ -211,6 +218,7 @@ describe('content reference editor flow', () => {
         title: '教程一', targetTitle: '步骤 ' + index,
       })),
     ] : [tutorial])
+    await wrapper.get('button[aria-label="扩展"]').trigger('click')
     await wrapper.get('button[aria-label="插入引用"]').trigger('click')
     await flushPromises()
     await wrapper.get('[data-reference-candidate]').trigger('click')
@@ -224,6 +232,7 @@ describe('content reference editor flow', () => {
     const pending: { request: Request; resolve: (items: Candidate[]) => void }[] = []
     const oldProvider: Provider = request => new Promise(resolve => pending.push({ request, resolve }))
     const { wrapper, view } = await editor(oldProvider)
+    await wrapper.get('button[aria-label="扩展"]').trigger('click')
     await wrapper.get('button[aria-label="插入引用"]').trigger('click')
     await flushPromises()
     expect(document.activeElement).toBe(wrapper.get('input[aria-label="搜索内容"]').element)
@@ -238,6 +247,7 @@ describe('content reference editor flow', () => {
     await wrapper.get('button[data-reference-cancel]').trigger('click')
     expect(view.hasFocus).toBe(true)
     await wrapper.setProps({ contentReferenceProvider: oldProvider } as never)
+    await wrapper.get('button[aria-label="扩展"]').trigger('click')
     await wrapper.get('button[aria-label="插入引用"]').trigger('click')
     await flushPromises()
     cleanup.pop()?.()

@@ -33,34 +33,14 @@
 import type { Token } from 'markdown-it'
 
 import { ATTRS_META } from '../../shared/attrs.js'
+import { scopedRenderId } from '../../shared/render-ids.js'
 import type { RenderFeature } from '../feature.js'
+
+/** IDs reserved by the generated controls, also consumed by heading allocation. */
+export const TABS_IDS_META = 'ndTabsIds'
 
 interface TabsMeta {
   readonly tab?: string
-}
-
-let fallbackSeq = 0
-
-/**
- * 本次渲染内递增的组号（存 env，**每个文档从 1 开始**，保证快照/SSR 可复现）。
- *
- * ⚠️ 同一页面里可能有多个渲染结果（编辑器里的页签 widget + 右侧预览），
- * 它们各自从 1 开始 → radio `name` 相同 → 浏览器把它们当**同一组**，
- * 预览的选中会把编辑器里的取消掉。编辑器侧在 `TabsWidget` 里给 id/name
- * 加一个基于位置的后缀来解决，**不要**在这里改成全局计数器（那样快照不可复现）。
- */
-function nextSeq(env: unknown): number {
-  if (env && typeof env === 'object') {
-    try {
-      const bag = env as Record<string, unknown>
-      const next = (typeof bag.__ndTabsSeq === 'number' ? bag.__ndTabsSeq : 0) + 1
-      bag.__ndTabsSeq = next
-      return next
-    } catch {
-      // env 不可写 → 退化
-    }
-  }
-  return ++fallbackSeq
 }
 
 function tabOf(token: Token): string | undefined {
@@ -74,6 +54,8 @@ export const tabsFeature: RenderFeature = {
     ctx.md.core.ruler.push('nd_tabs', (state) => {
       const tokens = state.tokens
       const fenceRule = ctx.rules.fence
+      // 序号只属于本次文档解析；同页片段通过稳定的 idPrefix 隔离。
+      let sequence = 0
 
       for (let i = 0; i < tokens.length; i += 1) {
         if (tokens[i]!.type !== 'fence' || tabOf(tokens[i]!) === undefined) continue
@@ -90,12 +72,14 @@ export const tabsFeature: RenderFeature = {
           continue
         }
 
-        const name = `nd-tabs-${nextSeq(state.env)}`
+        const name = scopedRenderId(state.env, `tabs-${++sequence}`)
         const panels: string[] = []
         const labels: string[] = []
+        const ids: string[] = []
 
         group.forEach((token, index) => {
           const id = `${name}-${index + 1}`
+          ids.push(id)
           const tab = tabOf(token) ?? ''
           const html = fenceRule
             ? fenceRule(group, index, undefined as never, state.env, ctx.md.renderer as never)
@@ -113,6 +97,7 @@ export const tabsFeature: RenderFeature = {
 
         const block = new state.Token('html_block', '', 0)
         block.content = html
+        block.meta = { [TABS_IDS_META]: ids }
         tokens.splice(i, group.length, block)
       }
     })

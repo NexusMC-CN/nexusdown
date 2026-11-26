@@ -153,3 +153,98 @@ describe('mention —— 词边界与转义', () => {
     expect(html).toContain('<code>@nexus-optimizer</code>')
   })
 })
+
+describe('mention —— 链接上下文', () => {
+  it('大量独立文本提及只需线性读取链接上下文', () => {
+    let typeReads = 0
+    let tokenCount = 0
+    const source = Array.from({ length: 512 }, () => '*@nexus-optimizer*').join(' ')
+    const html = renderMarkdown(source, {
+      data: mentions([['nexus-optimizer', RES]]),
+      plugins: [(md) => {
+        md.core.ruler.push('count_inline_type_reads', (state) => {
+          for (const block of state.tokens) {
+            for (const token of block.children ?? []) {
+              const type = token.type
+              tokenCount++
+              // 保留真实 token 与渲染器，只计量渲染时的读取，不依赖机器速度。
+              Object.defineProperty(token, 'type', {
+                configurable: true,
+                get() {
+                  typeReads++
+                  return type
+                },
+              })
+            }
+          }
+        })
+      }],
+    })
+
+    expect((html.match(/class="nd-mention"/g) ?? []).length).toBe(512)
+    expect(typeReads).toBeLessThan(tokenCount * 20)
+  })
+
+  it.each([
+    {
+      source: '见 [@nexus-optimizer](https://example.com/original)',
+      href: 'https://example.com/original',
+      text: '@nexus-optimizer',
+    },
+    {
+      source: '见 https://example.com/@nexus-optimizer',
+      href: 'https://example.com/@nexus-optimizer',
+      text: 'https://example.com/@nexus-optimizer',
+    },
+    {
+      source: '见 <https://example.com/@nexus-optimizer>',
+      href: 'https://example.com/@nexus-optimizer',
+      text: 'https://example.com/@nexus-optimizer',
+    },
+    {
+      source: '见 [**@nexus-optimizer** :smile:](https://example.com/original)',
+      href: 'https://example.com/original',
+      text: '@nexus-optimizer 😄',
+    },
+    {
+      source: '**见 [@nexus-optimizer](https://example.com/original)**',
+      href: 'https://example.com/original',
+      text: '@nexus-optimizer',
+    },
+  ])('保留链接中的可见文字与目标：$source', ({ source, href, text }) => {
+    const html = renderMarkdown(source, { data: mentions([['nexus-optimizer', RES]]) })
+    // DOM 解析会自动修复嵌套 a，先检查原始输出，避免掩盖非法结构。
+    expect((html.match(/<a\b/g) ?? []).length).toBe(1)
+    const root = document.createElement('div')
+    root.innerHTML = html
+    const link = root.querySelector('a')!
+    expect(link.getAttribute('href')).toBe(href)
+    expect(link.textContent).toBe(text)
+    expect(root.querySelector('.nd-mention')).toBeNull()
+  })
+
+  it('链接内的失效提及也保留作者的可见文字', () => {
+    const html = renderMarkdown('见 [@gone](https://example.com/original)', {
+      data: mentions([['gone', { ...RES, missing: true }]]),
+    })
+    expect(html).toContain('>@gone</a>')
+    expect(html).not.toContain('nd-mention')
+  })
+
+  it('链接前后嵌套强调中的提及仍解析，且继续调用 Emoji 文本规则', () => {
+    const html = renderMarkdown('**前 @nexus-optimizer [*内 @nexus-optimizer*](https://example.com/original) 后 @nexus-optimizer :rocket:**', {
+      data: mentions([['nexus-optimizer', RES]]),
+    })
+    expect((html.match(/class="nd-mention"/g) ?? []).length).toBe(2)
+    expect(html).toContain('<em>内 @nexus-optimizer</em></a>')
+    expect(html).toContain('🚀</strong>')
+  })
+
+  it('图片 alt 中的提及保持为原始文字', () => {
+    const html = renderMarkdown('![**@nexus-optimizer** :smile:](image.png)', {
+      data: mentions([['nexus-optimizer', RES]]),
+    })
+    expect(html).toContain('alt="@nexus-optimizer :smile:"')
+    expect(html).not.toContain('nd-mention')
+  })
+})
