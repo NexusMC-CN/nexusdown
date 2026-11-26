@@ -1,10 +1,26 @@
 import { mount, flushPromises } from '@vue/test-utils'
-import { afterEach, expect, it, vi } from 'vitest'
+import { afterAll, afterEach, beforeAll, expect, it, vi } from 'vitest'
 import { h, nextTick } from 'vue'
 import LinkPanel from '../../src/editor/LinkPanel.vue'
 import Toolbar from '../../src/editor/Toolbar.vue'
 import { mountEditor } from '../../src/cm/mount.js'
 import { captureLinkEditTarget } from '../../src/cm/link-edit.js'
+
+vi.mock('@nexusmc-cn/nexusdown/cm', () => import('../../src/cm/index.js'))
+
+// jsdom does not measure text ranges; these tests exercise focus and editing.
+const oldRects = Object.getOwnPropertyDescriptor(Range.prototype, 'getClientRects')
+const oldBounds = Object.getOwnPropertyDescriptor(Range.prototype, 'getBoundingClientRect')
+beforeAll(() => {
+  Object.defineProperty(Range.prototype, 'getClientRects', { configurable: true, value: () => [] })
+  Object.defineProperty(Range.prototype, 'getBoundingClientRect', { configurable: true, value: () => new DOMRect() })
+})
+afterAll(() => {
+  if (oldRects) Object.defineProperty(Range.prototype, 'getClientRects', oldRects)
+  else Reflect.deleteProperty(Range.prototype, 'getClientRects')
+  if (oldBounds) Object.defineProperty(Range.prototype, 'getBoundingClientRect', oldBounds)
+  else Reflect.deleteProperty(Range.prototype, 'getBoundingClientRect')
+})
 
 const disposers: (() => void)[] = []
 afterEach(() => disposers.splice(0).forEach(dispose => dispose()))
@@ -72,15 +88,17 @@ it('opens the unified panel from the toolbar and restores focus on cancel', asyn
   const view = mountEditor({ parent: document.createElement('div'), doc: 'selected' })
   const wrapper = mount(Toolbar, {props: {view}})
   disposers.push(() => {wrapper.unmount(); view.destroy()})
+  await wrapper.get('button[aria-label="扩展"]').trigger('click')
   await wrapper.get('button[aria-label="链接与媒体"]').trigger('click')
   expect(wrapper.find('[role="group"][aria-label="链接与媒体"]').exists()).toBe(true)
   await wrapper.get('.link-panel').trigger('keydown', {key: 'Escape'})
   expect(wrapper.find('.link-panel').exists()).toBe(false)
   expect(view.state.doc.toString()).toBe('selected')
 })
-it('disables the media button until an editor exists', () => {
+it('disables the media button until an editor exists', async () => {
   const wrapper = mount(Toolbar, {props: {view: null}})
   disposers.push(() => wrapper.unmount())
+  await wrapper.get('button[aria-label="扩展"]').trigger('click')
   expect(wrapper.get('button[aria-label="链接与媒体"]').attributes('disabled')).toBeDefined()
 })
 it('reopens an already-open panel with the newly captured source', async () => {
@@ -88,9 +106,11 @@ it('reopens an already-open panel with the newly captured source', async () => {
   const view = mountEditor({parent: document.createElement('div'), doc})
   const wrapper = mount(Toolbar, {props: {view}})
   disposers.push(() => {wrapper.unmount(); view.destroy()})
+  await wrapper.get('button[aria-label="扩展"]').trigger('click')
   await wrapper.get('button[aria-label="链接与媒体"]').trigger('click')
   expect((wrapper.get('.link-panel input').element as HTMLInputElement).value).toContain('/first')
   view.dispatch({selection: {anchor: doc.length}})
+  await wrapper.get('button[aria-label="扩展"]').trigger('click')
   await wrapper.get('button[aria-label="链接与媒体"]').trigger('click')
   expect((wrapper.get('.link-panel input').element as HTMLInputElement).value).toContain('/second')
 })
@@ -114,6 +134,7 @@ it.each(['confirm', 'Enter', 'Escape', 'cancel'] as const)('handles %s inside a 
     render: () => h('form', { onSubmit: (event: SubmitEvent) => { event.preventDefault(); submissions++ } }, [h(Toolbar, { view })]),
   }, { attachTo: document.body })
   disposers.push(() => { wrapper.unmount(); view.destroy(); parent.remove() })
+  await wrapper.get('button[aria-label="扩展"]').trigger('click')
   await wrapper.get('button[aria-label="链接与媒体"]').trigger('click')
   const panel = wrapper.get('.link-panel')
   const nestedForm = panel.element.tagName === 'FORM'

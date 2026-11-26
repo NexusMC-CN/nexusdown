@@ -12,7 +12,7 @@
 npm install @nexusmc-cn/nexusdown vue @codemirror/autocomplete @codemirror/commands @codemirror/lang-markdown @codemirror/language @codemirror/state @codemirror/view @lezer/common @lezer/highlight @lezer/markdown
 ```
 
-CodeMirror 使用 6.x，Lezer 使用 1.x。这些编辑依赖在包中标记为可选，使用 `/editor` 或 `/cm` 时需要安装，包括 `@codemirror/autocomplete`。
+CodeMirror 使用 6.x，其中 `@codemirror/view` 至少为 6.26.0；Lezer 使用 1.x。这些编辑依赖在包中标记为可选，使用 `/editor` 或 `/cm` 时需要安装，包括 `@codemirror/autocomplete`。
 
 在 Vue 单文件组件中使用：
 
@@ -45,13 +45,83 @@ const markdown = ref('# 你好，Nexusdown\n\n开始编写 **Markdown**。')
 | Prop | 类型 | 说明 |
 | --- | --- | --- |
 | `modelValue` | `string` | 必填，Markdown 内容；通过 `v-model` 双向同步 |
+| `toolbar` | `ToolbarConfig` | 可配置内置动作、自定义按钮、顺序与分类；不传使用默认分组 |
+| `extensions` | `Extension` | 额外 CodeMirror 扩展，挂载时读取 |
+| `previewPlugins` | `MarkdownItPlugin[]` | 预览侧的语法插件；发布侧需传入相同插件 |
+| `scrollMode` | `'container' \| 'page'` | 默认 `container` 固定高度内部滚动；`page` 随内容自然增高 |
+| `stickyToolbar` | `boolean` | 默认开启，模式切换和工具栏在本编辑器范围内吸顶 |
+| `toolbarOffset` | `number \| string` | 顶部偏移；数字为 px，可传 `64`、`'4rem'` 或 CSS `calc(...)` |
 | `mathRenderer` | `KatexLike` | 可选，行内与块级数学公式的渲染器 |
 | `mentionCandidates` | `() => Promise<MentionCandidate[]>` | 可选，工具栏选择器和输入 `@` 时的提及候选 |
 | `mentions` | `MentionResolutions` | 可选，按 slug 索引的提及解析结果，用于显示标题、摘要等信息 |
 
-组件发出 `update:modelValue(value: string)` 事件，并暴露 `view`，供组件引用访问当前 `EditorView`；挂载完成前为 `null`。功能配置在编辑器挂载时读取，更换渲染器或解析数据时可通过 Vue 的 `key` 重新挂载组件。
+组件发出 `update:modelValue(value: string)` 和 `action-error({ id, error })` 事件，并暴露 `view`，供组件引用访问当前 `EditorView`；挂载完成前为 `null`。工具栏与布局配置可以响应更新；`extensions` 等引擎配置在挂载时读取，更换这些配置时可通过 Vue 的 `key` 重新挂载组件。
 
-`/editor` 还具名导出 `NexusdownToolbar`，可用于自定义编辑器布局。它接收 `view: EditorView | null` 和可选的 `mentionCandidates`。
+`/editor` 还具名导出 `NexusdownToolbar`，可用于自定义编辑器布局。它接收 `view: EditorView | null`、`config?: ToolbarConfig` 及原有的数据提供器；`action-error` 的结构与成品编辑器相同。
+
+### 自定义按钮与分类
+
+默认常用动作平铺，公式、提及、内容引用、媒体与块变体位于扩展分类下拉。每个内置动作使用稳定 ID，布局与具体实现分离：
+
+```ts
+import {
+  defaultToolbarGroups,
+  type ToolbarConfig,
+} from '@nexusmc-cn/nexusdown/editor'
+
+const toolbar: ToolbarConfig = {
+  groups: [
+    ...defaultToolbarGroups,
+    {
+      id: 'business',
+      label: '业务扩展',
+      display: 'dropdown',
+      items: [{
+        id: 'insert-template',
+        label: '插入模板',
+        disabled: ({ view }) => view.state.readOnly,
+        run({ signal, runCommand }) {
+          if (signal.aborted) return
+          runCommand(view => {
+            view.dispatch(view.state.replaceSelection('## 自定义模板\n\n'))
+            return true
+          })
+        },
+      }],
+    },
+  ],
+}
+```
+
+在组件上使用 `<NexusdownEditor v-model="text" :toolbar="toolbar" />`。`groups` 一旦提供即完整替换布局；可只保留自己需要的内置动作，也可用展开默认数组的方式追加分类。组的 `display` 可选 `inline` 或 `dropdown`，空组不显示。默认分组是只读数据，请复制后组合。
+
+内置动作 ID：`bold`、`italic`、`inlineCode`、`inlineMath`、`h1`、`h2`、`h3`、`bullet`、`ordered`、`quote`、`table`、`link`、`mention`、`codeBlock`、`blockMath`、`embed`、`undo`、`redo`、`contentReference`、`blockVariants`。
+
+自定义动作需要唯一的 `id`、可读的 `label` 和 `run` 回调。`icon` 可接消费方引入的 Vue 图标组件，不传时显示文字；不接受 HTML/SVG 字符串。`active` 与 `disabled` 可传布尔值或读取 `{ view, runCommand }` 的纯函数，文档和选区交易会刷新状态。按钮执行失败时显示错误，并发出 `action-error`。
+
+`run` 可以返回 Promise，执行期间该按钮禁用。卸载或更换编辑器实例时会取消 `signal`；异步代码应将它传给自己的请求并在写入前检查。`runCommand` 失效后返回 `false`，有效时在当前文档、当前选区执行并聚焦编辑器。直接持有 `view` 后自行写入的异步代码，需要消费方自行检查取消和文档有效性。只打开上传、AI 或其他业务对话框时，回调可直接更新消费方的组件状态，不会在异步结束时强制抢回焦点。
+
+### 长文滚动与吸顶
+
+默认仍是 `420px` 编辑区内部滚动，`--nd-editor-height` 继续生效。需要整页长文时：
+
+```vue
+<NexusdownEditor
+  v-model="text"
+  :toolbar="toolbar"
+  scroll-mode="page"
+  :sticky-toolbar="true"
+  :toolbar-offset="64"
+/>
+```
+
+工具栏和“编辑/预览”切换一起吸顶，受到各自编辑器底部边界约束；预览模式仍能切回编辑。`toolbarOffset` 用于避开站点导航；也可设置 `--nd-editor-sticky-top`，或用 `--nd-editor-sticky-z-index` 控制层级。`page` 模式使用 `--nd-editor-min-height`（默认 `420px`）作为可编辑最小高度，正文与预览随内容增高。给内部滚动模式设置较大高度时同样可以吸顶；传 `:sticky-toolbar="false"` 可关闭。
+
+吸顶遵循浏览器最近的滚动祖先：滚动弹窗中会跟随弹窗，普通页面中跟随页面。仅为裁剪圆角而添加、但自身不滚动的 `overflow: hidden/auto` 祖先可能阻止页面吸顶；这类页面应调整外壳，避免给吸顶路径额外添加裁剪容器。
+
+### 接入编辑与预览扩展
+
+`extensions` 接收标准 CodeMirror 扩展，消费方可按需引入依赖后组合。新增 Markdown 语法时，编辑侧扩展与显示侧插件是两条接线：通过 `previewPlugins` 配置组件预览，并把同一插件数组传给 `renderMarkdown(text, { plugins })`。额外插件可与可选 KaTeX 共存；复用插件数组可复用解析器。`mountEditor({ extensions })` 同样支持额外引擎扩展；自行组合 `nexusdown()` 时也可直接在 CodeMirror 的扩展数组中追加。
 
 ## 渲染 Markdown
 
@@ -279,6 +349,8 @@ pnpm run playground
 pnpm run verify
 pnpm run test:consumer
 ```
+
+工具栏或滚动布局变更后，还可运行 `pnpm run test:editor:browser`：使用已安装的 Chromium 对真实页面进行吸顶、光标导航、分类入口和窄屏回归检查。非默认安装路径可设置 `CHROME_PATH`；该检查需要先构建发布入口。
 
 `package.json` 中的 `packageManager` 固定 pnpm 版本；无 Corepack 的环境可通过 `npm install -g pnpm@10.34.7` 安装。示例构建和发布说明见 [贡献指南](./CONTRIBUTING.md)。
 

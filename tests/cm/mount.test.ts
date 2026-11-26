@@ -4,8 +4,20 @@
  * ⚠️ 这个测试守的是**跨模块边界**那条线：UI 层（`.vue`）不许自己建 CM6 对象，
  * 只能调这个函数。所以这里必须证明：**光调它就能得到一个能用的编辑器**。
  */
-import { ensureSyntaxTree } from '@codemirror/language'
+import { ensureSyntaxTree, forceParsing } from '@codemirror/language'
+import { EditorView, keymap } from '@codemirror/view'
+import { afterEach, beforeAll } from 'vitest'
 import { mountEditor, setEditorValue } from '../../src/cm/mount.js'
+
+const extensionViews: EditorView[] = []
+beforeAll(() => {
+  Object.defineProperty(Range.prototype, 'getClientRects', { configurable: true, value: () => [] })
+  Object.defineProperty(Range.prototype, 'getBoundingClientRect', { configurable: true, value: () => new DOMRect() })
+})
+afterEach(() => {
+  extensionViews.splice(0).forEach(view => view.destroy())
+  document.body.replaceChildren()
+})
 
 function host() {
   const el = document.createElement('div')
@@ -14,6 +26,84 @@ function host() {
 }
 
 describe('mountEditor', () => {
+  it('installs consumer extensions together with the built-in editor setup', () => {
+    const el = host()
+    const view = mountEditor({
+      parent: el,
+      doc: 'intro\n\n```js\nconst a = 1\n```',
+      extensions: [
+        EditorView.editable.of(false),
+        EditorView.editorAttributes.of({ 'data-consumer-editor': 'custom' }),
+      ],
+    })
+    extensionViews.push(view)
+    expect(view.contentDOM.getAttribute('contenteditable')).toBe('false')
+    expect(view.dom.dataset.consumerEditor).toBe('custom')
+    // A busy parallel worker can exhaust CM's initial parse budget before the
+    // fenced block. Complete the real parser before checking its decoration.
+    expect(forceParsing(view, view.state.doc.length, 1_000)).toBe(true)
+    expect(el.querySelector('.nd-code-block')).toBeTruthy()
+    view.destroy()
+    el.remove()
+  })
+
+  it('appends consumer keymaps after the built-in Markdown bindings', () => {
+    const el = host()
+    const consumerBindings = [{
+      key: 'Mod-b',
+      run(editor: EditorView) { editor.dispatch({ changes: { from: 0, insert: 'wrong:' } }); return true },
+    }]
+    const view = mountEditor({
+      parent: el,
+      doc: 'word',
+      extensions: keymap.of(consumerBindings),
+    })
+    extensionViews.push(view)
+    const maps = view.state.facet(keymap)
+    expect(maps.at(-1)).toBe(consumerBindings)
+    view.dispatch({ selection: { anchor: 0, head: 4 } })
+    expect(maps.flat().find(binding => binding.key === 'Mod-b')!.run!(view)).toBe(true)
+    expect(view.state.doc.toString()).toBe('**word**')
+    view.destroy()
+    el.remove()
+  })
+
+  it('provides the live scroll-margin callback to CodeMirror without capturing stale values', () => {
+    const el = host()
+    let top = 64
+    const callbacks: EditorView[] = []
+    const scrollMargins = (editor: EditorView) => {
+      callbacks.push(editor)
+      return { top, bottom: 12, left: 3, right: 4 }
+    }
+    const view = mountEditor({
+      parent: el,
+      doc: 'content',
+      scrollMargins,
+    })
+    extensionViews.push(view)
+    const margins = view.state.facet(EditorView.scrollMargins).filter(callback => callback === scrollMargins)
+    expect(margins).toHaveLength(1)
+    expect(margins[0]!(view)).toEqual({ top: 64, bottom: 12, left: 3, right: 4 })
+    top = 96
+    expect(margins[0]!(view)?.top).toBe(96)
+    expect(callbacks.every(editor => editor === view)).toBe(true)
+    view.destroy()
+    el.remove()
+  })
+
+  it('allows a scroll-margin callback to report no obstruction', () => {
+    const el = host()
+    const scrollMargins = () => null
+    const view = mountEditor({ parent: el, doc: 'content', scrollMargins })
+    extensionViews.push(view)
+    const margins = view.state.facet(EditorView.scrollMargins).filter(callback => callback === scrollMargins)
+    expect(margins).toHaveLength(1)
+    expect(margins[0]!(view)).toBeNull()
+    view.destroy()
+    el.remove()
+  })
+
   it('forwards codeLanguages to fenced Markdown parsing', () => {
     const el = host()
     const seen: string[] = []

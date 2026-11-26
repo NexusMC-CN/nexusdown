@@ -9,6 +9,18 @@
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-26
+
+### 新增
+
+- 成品编辑器支持按稳定动作 ID 配置工具栏分类、顺序与显示入口；常用动作平铺，扩展动作默认放入分类下拉，可添加自定义按钮和 Vue 图标。
+- 自定义工具栏动作支持选区状态、禁用状态、异步执行和取消信号，并发出 `action-error`；程序交易也会刷新按钮状态。
+- Vue 编辑器支持挂载额外 CodeMirror 扩展和预览插件；提供固定高度内部滚动与页面自然增高两种模式，以及有边界的工具栏吸顶和顶部偏移。
+
+### 变更
+
+- 编辑侧要求 `@codemirror/view` 6.26.0 及以上的 6.x 版本，以使用公开的滚动扩展接口。
+
 ## [0.2.1] - 2026-11-26
 
 ### 新增
@@ -248,6 +260,7 @@
 - 自定义 Markdown 语法扩展点：`markdownTokenName` / `markdownTokenizer` / `parseMarkdown` / `renderMarkdown`。
 
 [Unreleased]: https://github.com/NexusMC-CN/nexusdown/commits/main
+[0.3.0]: https://github.com/NexusMC-CN/nexusdown/releases/tag/v0.3.0
 [0.2.1]: https://github.com/NexusMC-CN/nexusdown/releases/tag/v0.2.1
 [0.1.0]: https://github.com/NexusMC-CN/nexusdown/releases/tag/v0.1.0
 [0.0.0]: https://github.com/NexusMC-CN/nexusdown/releases
