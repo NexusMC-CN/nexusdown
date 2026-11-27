@@ -40,6 +40,10 @@ const markdown = ref('# 你好，Nexusdown\n\n开始编写 **Markdown**。')
 
 编辑区默认高度为 `420px`，可通过 `--nd-editor-height` 调整，例如 `min(65vh, 560px)`。颜色、字体等通过 `--nd-*` CSS 变量配置，例如 `--nd-editor-bg`、`--nd-text`、`--nd-brand`、`--nd-caret`、`--nd-font-body` 和 `--nd-font-size`；主题切换由应用设置这些变量。
 
+块悬停菜单与操作提示挂载到 `body`，但会从各自的编辑器继承已解析的 `--nd-*` 变量、字体、文字方向、`color-scheme`，以及最近的 `data-nexusdown-skin` 标记。局部主题可放在编辑器或祖先上；多个编辑器分别保持自己的主题。浮层打开期间会跟随祖先属性变化（例如 `class`、`style` 或主题作用域标记）、系统明暗与减少动态效果偏好变化，关闭、提示到期或编辑器销毁时释放观察与监听。浮层自身显式设置的行内样式和皮肤标记优先，定位及关闭行为仍由编辑器管理。
+
+自定义皮肤若使用祖先选择器，也应为带同一 `data-nexusdown-skin` 的 `.nd-variant-menu` 和 `.nd-variant-toast` 提供独立选择器，因为它们位于 `body`。纯样式表替换后，需要同步更新 owner 或祖先上的主题属性，以触发已打开浮层的刷新。此机制不要求使用任何特定应用或主题包。
+
 ### 组件接口
 
 | Prop | 类型 | 说明 |
