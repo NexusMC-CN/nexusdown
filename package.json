@@ -110,6 +110,7 @@
     "test": "vitest run",
     "test:consumer": "node scripts/test-consumer.mjs",
     "test:editor:browser": "node scripts/test-editor-browser.mjs",
+    "test:popup-theme:browser": "node scripts/test-popup-theme-browser.mjs",
     "test:package": "node tests/package/check-exports.mjs && node tests/package/type-consumers.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint .",

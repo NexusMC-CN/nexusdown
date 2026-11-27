@@ -28,6 +28,7 @@ import { applyBlockAttrs, blockAttrsAt, blockRangeAt, isTaskList, type BlockKind
 import { readFenceInfo } from '../decorate/fence.js'
 import { editingRange } from '../plugin.js'
 import { addTab, removeTab, tabGroupAt } from '../tabs-actions.js'
+import { inheritPopupTheme } from '../util/popup-theme.js'
 import { variantItemsFor } from '../variants.js'
 
 const HIDE_DELAY = 160
@@ -58,6 +59,7 @@ class VariantHover {
   /** 出现延迟：鼠标只是路过时不要闪一下按钮。 */
   private showTimer: number | null = null
   private menuCleanup: (() => void) | null = null
+  private readonly toastCleanups = new Set<() => void>()
   /** 正在 hover 的块的属性行（用于展开 chip）。 */
   private chipLine: HTMLElement | null = null
 
@@ -65,7 +67,7 @@ class VariantHover {
   private readonly onLeave = (): void => this.scheduleHide()
 
   constructor(private readonly view: EditorView) {
-    const button = document.createElement('button')
+    const button = view.dom.ownerDocument.createElement('button')
     button.type = 'button'
     button.className = 'nd-variant-hover'
     button.textContent = '＋'
@@ -95,6 +97,7 @@ class VariantHover {
 
   destroy(): void {
     this.closeMenu()
+    for (const cleanup of this.toastCleanups) cleanup()
     this.hideChip()
     this.cancelShow()
     this.cancelHide()
@@ -246,11 +249,20 @@ class VariantHover {
   }
 
   private showToast(text: string): void {
+    const document = this.view.dom.ownerDocument
     const toast = document.createElement('div')
     toast.className = 'nd-variant-toast'
     toast.textContent = text
+    const disposeTheme = inheritPopupTheme(this.view.dom, toast, () => cleanup())
     document.body.appendChild(toast)
-    window.setTimeout(() => toast.remove(), 1400)
+    const cleanup = (): void => {
+      window.clearTimeout(timer)
+      disposeTheme()
+      toast.remove()
+      this.toastCleanups.delete(cleanup)
+    }
+    const timer = window.setTimeout(cleanup, 1400)
+    this.toastCleanups.add(cleanup)
   }
 
   private hideChip(): void {
@@ -313,6 +325,7 @@ class VariantHover {
 
     this.closeMenu()
 
+    const document = this.view.dom.ownerDocument
     const menu = document.createElement('div')
     menu.className = 'nd-variant-menu'
     menu.setAttribute('role', 'menu')
@@ -365,6 +378,7 @@ class VariantHover {
       menu.appendChild(entry)
     }
 
+    const disposeTheme = inheritPopupTheme(this.view.dom, menu, () => this.closeMenu())
     document.body.appendChild(menu)
 
     const rect = this.button.getBoundingClientRect()
@@ -406,6 +420,7 @@ class VariantHover {
     document.addEventListener('keydown', onKeyDown)
 
     this.menuCleanup = () => {
+      disposeTheme()
       document.removeEventListener('pointerdown', onPointerDown)
       document.removeEventListener('keydown', onKeyDown)
       menu.remove()
